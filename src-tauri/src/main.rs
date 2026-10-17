@@ -2,6 +2,8 @@
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![save_text])
         .setup(|_app| {
             #[cfg(target_os = "macos")]
             mac_menu(_app)?;
@@ -9,6 +11,27 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("Fehler beim Starten von Hasi STEP-Betrachter");
+}
+
+/// Speichert Text (z. B. DXF-Abwicklung) über den Speichern-Dialog des Systems.
+#[tauri::command]
+async fn save_text(app: tauri::AppHandle, name: String, content: String) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let pfad = app
+        .dialog()
+        .file()
+        .set_title("Abwicklung speichern")
+        .set_file_name(&name)
+        .add_filter("DXF-Zeichnung", &["dxf"])
+        .blocking_save_file();
+    match pfad {
+        Some(p) => {
+            let p = p.into_path().map_err(|e| format!("Ungültiger Pfad: {e}"))?;
+            std::fs::write(&p, content).map_err(|e| format!("Datei konnte nicht geschrieben werden: {e}"))?;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
 }
 
 /// Eigenes deutsches App-Menü, nur unter macOS. Windows bleibt ohne Menüleiste.

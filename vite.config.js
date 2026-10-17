@@ -1,1 +1,1 @@
-export default { base: './', server:{port:5173,strictPort:true}, build:{outDir:'dist',target:'es2021'} };
+export default { base: './', server:{port:5173,strictPort:true}, worker:{format:'es'}, build:{outDir:'dist',target:'es2022'} };
