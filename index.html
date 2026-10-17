@@ -1,11 +1,38 @@
 <!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hasi STEP-Betrachter</title><link rel="stylesheet" href="./src/style.css"></head><body>
+<title>Hasi STEP-Betrachter</title><link rel="icon" href="data:,"><link rel="stylesheet" href="./src/style.css"></head><body>
 <header><div class="brand">HASI <span>STEP-Betrachter</span></div>
 <label class="btn primary" title="STEP-Datei (.step/.stp) öffnen">Datei öffnen<input id="file" type="file" accept=".step,.stp,.STEP,.STP" hidden></label>
 <button class="btn" id="fit" title="Modell in die Ansicht einpassen">Einpassen</button>
-<button class="btn" id="measure" title="Zwei Punkte anklicken, um den Abstand zu messen">Messen</button>
+<div class="seg" title="Standardansichten"><button class="btn sm" data-view="iso" title="Isometrische Ansicht">Iso</button><button class="btn sm" data-view="vorne" title="Ansicht von vorne">Vorne</button><button class="btn sm" data-view="oben" title="Ansicht von oben">Oben</button><button class="btn sm" data-view="rechts" title="Ansicht von rechts">Rechts</button></div>
 <div class="seg"><span>Schnitt</span><select id="axis" title="Schnittebene wählen"><option value="">Aus</option><option>X</option><option>Y</option><option>Z</option></select>
-<input id="cut" title="Schnittposition verschieben" type="range" min="0" max="1000" value="500" disabled></div>
+<input id="cut" type="range" min="0" max="1000" value="500" disabled title="Schnittposition verschieben"></div>
+<label class="seg" title="Kanten anzeigen"><input type="checkbox" id="showEdges" checked> Kanten</label>
 <div id="status">Keine Datei</div></header>
-<main><aside><div class="ahead">Modellbaum</div><div id="tree"></div></aside><div id="view"><div id="drop">STEP-Datei hierher ziehen</div><div id="mres"></div></div></main>
+<main>
+<aside class="left"><div class="ahead">Modellbaum</div><div id="tree"></div><div class="ahead">Modell</div><div id="modelinfo" class="kv"></div></aside>
+<div id="view"><div id="drop">STEP-Datei hierher ziehen</div><div id="hover"></div><div id="busy">Geometrie wird berechnet …</div></div>
+<aside class="right">
+<div class="tabs"><button class="tab on" data-tab="messen">Messen</button><button class="tab" data-tab="blech">Blech</button></div>
+<section id="tab-messen">
+<div class="ahead">Fangen</div>
+<div class="snaps"><label><input type="checkbox" id="snapV" checked> Eckpunkt</label><label><input type="checkbox" id="snapC" checked> Kreismittelpunkt</label><label><input type="checkbox" id="snapE" checked> Kante</label><label><input type="checkbox" id="snapF" checked> Fläche</label></div>
+<p class="hint">Element anklicken. Ein zweites Element anklicken, um Abstand und Winkel zu messen. Leertaste oder „Auswahl löschen“ setzt zurück.</p>
+<div id="selinfo" class="sel"></div>
+<div id="mresult" class="kv"></div>
+<button class="btn" id="clearSel">Auswahl löschen</button>
+<div class="ahead">Masse</div>
+<div class="row"><select id="mat" title="Werkstoff wählen"><option value="7.85">Stahl (7,85 g/cm³)</option><option value="7.90">Edelstahl (7,90 g/cm³)</option><option value="2.70">Aluminium (2,70 g/cm³)</option><option value="8.96">Kupfer (8,96 g/cm³)</option><option value="8.50">Messing (8,50 g/cm³)</option><option value="custom">Eigene Dichte</option></select>
+<input id="dens" type="number" step="0.01" min="0" value="7.85" title="Dichte in g/cm³"> <span class="m">g/cm³</span></div>
+<div id="massinfo" class="kv"></div>
+</section>
+<section id="tab-blech" hidden>
+<div class="row"><span>K-Faktor</span><input id="kf" type="number" step="0.01" min="0" max="1" value="0.50" title="K-Faktor (Lage der neutralen Faser, 0 … 1)"><button class="btn" id="calcSheet">Berechnen</button></div>
+<div id="sheetinfo" class="kv"></div>
+<div id="bends"></div>
+<div id="flatprev"></div>
+<button class="btn primary" id="dxf" disabled title="Abwicklung als DXF-Datei speichern">Abwicklung als DXF speichern</button>
+<div id="sheetwarn" class="warn"></div>
+</section>
+</aside>
+</main>
 <script type="module" src="./src/main.js"></script></body></html>

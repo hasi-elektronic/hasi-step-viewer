@@ -1,11 +1,22 @@
-let occtP=null;
-self.onmessage=async(e)=>{
+import {createBrep} from './brep.js';
+let B=null,initP=null;
+async function init(base){
+  const {default:f}=await import(/* @vite-ignore */ base+'ocjs/opencascade.wasm.js');
+  const wasmBinary=await (await fetch(base+'ocjs/opencascade.wasm.wasm')).arrayBuffer();
+  B=createBrep(await new f({wasmBinary,print:()=>{},printErr:()=>{}}));
+}
+self.onmessage=async e=>{const {id,cmd,args}=e.data;
   try{
-    if(!occtP){ importScripts(e.data.base+'occt/occt-import-js.js'); occtP=occtimportjs({locateFile:f=>e.data.base+'occt/'+f}); }
-    const occt=await occtP; const t0=performance.now();
-    const r=occt.ReadStepFile(new Uint8Array(e.data.buf),null);
-    if(!r.success) throw new Error('STEP konnte nicht gelesen werden');
-    const tr=[]; const meshes=r.meshes.map(m=>{const p=new Float32Array(m.attributes.position.array),n=m.attributes.normal?new Float32Array(m.attributes.normal.array):null,i=new Uint32Array(m.index.array);tr.push(p.buffer,i.buffer);if(n)tr.push(n.buffer);return{name:m.name,color:m.color,p,n,i}});
-    self.postMessage({ok:true,meshes,root:r.root,parseMs:performance.now()-t0},tr);
-  }catch(err){self.postMessage({ok:false,error:/konnte/.test(String(err.message))?err.message:'Die Datei ist beschädigt oder kein gültiges STEP-Format.'})}
+    if(!initP)initP=init(args.base);await initP;
+    let r;
+    if(cmd==='init')r=true;
+    else if(cmd==='load'){r=B.load(new Uint8Array(args.buf),args.name);r.model=B.model()}
+    else if(cmd==='measure')r=B.measure(args.sels);
+    else if(cmd==='sheet'){r=B.sheet(args.K);if(r.flat)r.dxf=B.dxf(r.flat)}
+    const tr=[];if(cmd==='load')r.meshes.forEach(m=>tr.push(m.p.buffer,m.i.buffer,m.f.buffer));
+    self.postMessage({id,ok:true,r},tr);
+  }catch(err){
+    const m=String(err&&err.message||err);
+    self.postMessage({id,ok:false,error:/[äöüÄÖÜß]|konnte|nicht/.test(m)?m:'Interner Geometriefehler ('+m.slice(0,80)+')'});
+  }
 };

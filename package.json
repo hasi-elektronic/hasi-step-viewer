@@ -7,13 +7,16 @@
     "build": "vite build",
     "preview": "vite preview --port 4173",
     "smoke": "node smoke.mjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "predev": "node tools/copy-ocjs.mjs",
+    "prebuild": "node tools/copy-ocjs.mjs",
+    "testblech": "node tools/make-testblech.mjs public/testblech.step"
   },
   "keywords": [],
   "author": "",
   "license": "UNLICENSED",
   "dependencies": {
-    "occt-import-js": "^0.0.23",
+    "opencascade.js": "^1.1.1",
     "three": "^0.186.1"
   },
   "devDependencies": {
