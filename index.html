@@ -1,0 +1,11 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hasi STEP-Betrachter</title><link rel="stylesheet" href="./src/style.css"></head><body>
+<header><div class="brand">HASI <span>STEP-Betrachter</span></div>
+<label class="btn primary" title="STEP-Datei (.step/.stp) öffnen">Datei öffnen<input id="file" type="file" accept=".step,.stp,.STEP,.STP" hidden></label>
+<button class="btn" id="fit" title="Modell in die Ansicht einpassen">Einpassen</button>
+<button class="btn" id="measure" title="Zwei Punkte anklicken, um den Abstand zu messen">Messen</button>
+<div class="seg"><span>Schnitt</span><select id="axis" title="Schnittebene wählen"><option value="">Aus</option><option>X</option><option>Y</option><option>Z</option></select>
+<input id="cut" title="Schnittposition verschieben" type="range" min="0" max="1000" value="500" disabled></div>
+<div id="status">Keine Datei</div></header>
+<main><aside><div class="ahead">Modellbaum</div><div id="tree"></div></aside><div id="view"><div id="drop">STEP-Datei hierher ziehen</div><div id="mres"></div></div></main>
+<script type="module" src="./src/main.js"></script></body></html>
