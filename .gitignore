@@ -5,3 +5,5 @@ samples/
 *.stp
 *.step
 public/ocjs/
+public/occt/
+!testdaten/*.step

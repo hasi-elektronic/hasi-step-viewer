@@ -55,15 +55,74 @@ async function load(buf,name){
   edgeObj=new THREE.LineSegments(eg,new THREE.LineBasicMaterial({color:0x2a2d33}));edgeObj.visible=$('showEdges').checked;model.add(edgeObj);
   model.add(marks);model.add(hoverObj);scene.add(model);model.updateMatrixWorld(true);box.setFromObject(model);
   vIndex=new Map();data.verts.forEach((p,i)=>vIndex.set(key(p),i));
-  buildTree();clearSel();fit();setCut();showModel();sheetCache=null;$('sheetinfo').innerHTML='';$('bends').innerHTML='';$('flatprev').innerHTML='';$('dxf').disabled=true;$('sheetwarn').textContent='';
+  buildTree();clearSel();sheetSolid=null;fit();setCut();showModel();sheetCache=null;$('sheetinfo').innerHTML='';$('bends').innerHTML='';$('flatprev').innerHTML='';$('dxf').disabled=true;$('sheetwarn').textContent='';
   if(!$('tab-blech').hidden)calcSheet();
   const ms=Math.round(performance.now()-t0);const tris=data.meshes.reduce((s,m)=>s+m.i.length/3,0);
   const info={name,bytes:size,bodies:data.meshes.length,faces:data.faces.length,edges:data.edges.length,triangles:tris,totalMs:ms,unit:U.sym};window.__lastLoad=info;
   $('status').textContent=`${name} · ${(size/1024).toFixed(0)} KB · ${info.bodies} Körper · ${info.faces} Flächen · Einheit: ${U.name} · ${ms} ms`;return info}
 const key=p=>p.map(x=>x.toFixed(5)).join(',');let vIndex=new Map();
-function buildTree(){const tree=$('tree');tree.innerHTML='';const ul=document.createElement('ul');
-  bodies.forEach(b=>{const li=document.createElement('li'),row=document.createElement('div'),cb=document.createElement('input'),lb=document.createElement('span');
-    cb.type='checkbox';cb.checked=true;cb.title='Ein-/Ausblenden';cb.onchange=()=>{b.visible=cb.checked;needs=true};lb.textContent=b.name;row.append(cb,lb);li.append(row);ul.append(li)});tree.append(ul)}
+// ---------- Baugruppenbaum ----------
+let treeRoot=null,nodes=[],selNode=null,sheetSolid=null;
+function buildTree(){treeRoot=data.tree;nodes=[];let id=0;
+  const prep=(n,parent,depth)=>{n.id=id++;n.parent=parent;n.depth=depth;n.checked=true;n.open=depth<2;n.transp=false;nodes.push(n);n.children.forEach(c=>prep(c,n,depth+1));
+    n.all=[...n.bodies,...n.children.flatMap(c=>c.all)];return n};
+  prep(treeRoot,null,0);renderTree()}
+const isAsm=n=>n.children.length>0;
+const ICON={eye:'<svg viewBox="0 0 16 16"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" fill="none" stroke="currentColor"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg>',
+  iso:'<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg>',
+  zoom:'<svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor"/><path d="M10.5 10.5 14 14" stroke="currentColor"/></svg>',
+  info:'<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor"/><path d="M8 7v4M8 5v.5" stroke="currentColor"/></svg>',
+  asm:'<svg viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="6" height="6" fill="#33AFE2"/><rect x="8.5" y="8.5" width="6" height="6" fill="#33AFE2"/><rect x="8.5" y="1.5" width="6" height="6" fill="none" stroke="#33AFE2"/></svg>',
+  part:'<svg viewBox="0 0 16 16"><path d="M8 1.5 14 5v6l-6 3.5L2 11V5z" fill="#c9ced6" stroke="#6e6e73"/></svg>'};
+function renderTree(){const q=$('treeSearch').value.trim().toLowerCase();const tree=$('tree');tree.innerHTML='';
+  const match=n=>!q||n.name.toLowerCase().includes(q)||n.children.some(match);
+  const ul=document.createElement('ul');
+  const add=(n,ul)=>{if(!match(n))return;const li=document.createElement('li');const row=document.createElement('div');row.className='trow'+(selNode===n?' sel':'')+(q&&n.name.toLowerCase().includes(q)?' hit':'');row.dataset.id=n.id;
+    row.innerHTML=`<span class="tw">${isAsm(n)?(n.open||q?'▾':'▸'):''}</span><input type="checkbox" title="Sichtbarkeit" ${n.checked?'checked':''}><span class="ic">${isAsm(n)?ICON.asm:ICON.part}</span><span class="nm" title="${esc(n.name)}">${esc(n.name)}</span><span class="acts"><button data-a="toggle" title="${n.checked?'Ausblenden':'Einblenden'}">${ICON.eye}</button><button data-a="isolate" title="Nur dieses anzeigen">${ICON.iso}</button><button data-a="zoom" title="Heranzoomen">${ICON.zoom}</button><button data-a="props" title="Eigenschaften">${ICON.info}</button></span>`;
+    row.querySelector('.tw').onclick=e=>{e.stopPropagation();n.open=!n.open;renderTree()};
+    row.querySelector('input').onclick=e=>e.stopPropagation();row.querySelector('input').onchange=e=>{n.checked=e.target.checked;applyVis();renderTree()};
+    row.querySelectorAll('.acts button').forEach(b=>b.onclick=e=>{e.stopPropagation();act(b.dataset.a,n)});
+    row.onclick=()=>selectNode(n,true);row.oncontextmenu=e=>{e.preventDefault();selectNode(n,true);ctxMenu(e.clientX,e.clientY,n)};
+    li.append(row);ul.append(li);
+    if(isAsm(n)&&(n.open||q)){const sub=document.createElement('ul');n.children.forEach(c=>add(c,sub));li.append(sub)}};
+  add(treeRoot,ul);tree.append(ul)}
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+$('treeSearch').oninput=()=>renderTree();
+function visible(n){for(let x=n;x;x=x.parent)if(!x.checked)return false;return true}
+function applyVis(){const vis=new Array(bodies.length).fill(false);
+  const walk=n=>{if(visible(n))n.bodies.forEach(b=>vis[b]=true);n.children.forEach(walk)};walk(treeRoot);
+  bodies.forEach((b,i)=>b.visible=vis[i]);hoverObj.clear();needs=true}
+const nodeOfBody=i=>{let best=null;nodes.forEach(n=>{if(n.bodies.includes(i))best=n});return best};
+function selectNode(n,from3d){selNode=n;sels=[];marks.clear();$('selinfo').textContent='';$('mresult').innerHTML='';
+  if(n){marks.add(bodyHi(n.all,0x1f8fd0));for(let x=n.parent;x;x=x.parent)x.open=true}
+  renderTree();const row=document.querySelector(`.trow[data-id="${n?.id}"]`);row?.scrollIntoView({block:'nearest'});needs=true}
+function bodyHi(ids,color){const g=new THREE.Group();ids.forEach(i=>{const b=bodies[i];if(!b.visible)return;const m=new THREE.Mesh(b.geometry,new THREE.MeshBasicMaterial({color,transparent:true,opacity:.45,depthTest:true,side:THREE.DoubleSide,clippingPlanes:renderer.localClippingEnabled?[plane]:[]}));m.renderOrder=5;g.add(m)});return g}
+function boxOf(ids){const b=new THREE.Box3();ids.forEach(i=>{if(bodies[i].visible)b.expandByObject(bodies[i])});return b}
+async function act(a,n){
+  if(a==='toggle'){n.checked=!n.checked;applyVis();renderTree()}
+  if(a==='isolate'){nodes.forEach(x=>x.checked=false);for(let x=n;x;x=x.parent)x.checked=true;const on=x=>{x.checked=true;x.children.forEach(on)};on(n);applyVis();renderTree();zoomTo(n)}
+  if(a==='showall'){nodes.forEach(x=>x.checked=true);applyVis();renderTree()}
+  if(a==='transp'){n.transp=!n.transp;n.all.forEach(i=>{const m=bodies[i].material;m.transparent=n.transp;m.opacity=n.transp?.3:1;m.depthWrite=!n.transp;m.needsUpdate=true});needs=true}
+  if(a==='zoom')zoomTo(n);
+  if(a==='measure'){tabTo('messen');if(n.all.length===1){clearSel();await select({k:'solid',id:n.all[0]})}else{$('selinfo').textContent='Messen: bitte ein einzelnes Teil wählen.'}}
+  if(a==='props')showProps(n);
+  if(a==='sheet'){if(n.all.length!==1)return;sheetSolid=n.all[0];tabTo('blech');await calcSheet()}}
+function zoomTo(n){const b=boxOf(n.all);if(b.isEmpty())return;const s=b.getSize(new THREE.Vector3()).length(),c=b.getCenter(new THREE.Vector3());
+  const d=camera.position.clone().sub(controls.target).normalize();camera.position.copy(c).add(d.multiplyScalar(s*1.6));controls.target.copy(c);controls.update();needs=true}
+function ctxMenu(x,y,n){closeCtx();const m=document.createElement('div');m.id='ctx';
+  const one=n.all.length===1;
+  const items=[['toggle',n.checked?'Ausblenden':'Einblenden'],['isolate','Nur dieses anzeigen'],['showall','Alle einblenden'],['-'],['transp',n.transp?'Undurchsichtig':'Transparent'],['zoom','Heranzoomen'],['-'],['measure','Messen',!one],['props','Eigenschaften'],['sheet','Blech-Abwicklung',!one]];
+  m.innerHTML=items.map(([a,t,dis])=>a==='-'?'<hr>':`<button data-a="${a}" ${dis?'disabled title="Nur bei genau einem Körper"':''}>${t}</button>`).join('');
+  m.style.left=x+'px';m.style.top=y+'px';document.body.append(m);
+  const r=m.getBoundingClientRect();if(r.bottom>innerHeight)m.style.top=(y-r.height)+'px';
+  m.querySelectorAll('button').forEach(b=>b.onclick=()=>{closeCtx();act(b.dataset.a,n)})}
+const closeCtx=()=>document.getElementById('ctx')?.remove();addEventListener('pointerdown',e=>{if(!e.target.closest('#ctx'))closeCtx()});addEventListener('keydown',e=>{if(e.key==='Escape'){closeCtx();$('props').hidden=true}});
+async function showProps(n){const q=await call('props',{ids:n.all});const d=parseFloat($('dens').value)||0;const s=V3(q.bbox.max).sub(V3(q.bbox.min));
+  $('propsTitle').textContent='Eigenschaften: '+n.name;
+  kv($('propsBody'),[['Typ',isAsm(n)?'Baugruppe':'Teil'],['Körper',q.bodies],['Volumen',q.volume,'V'],['Oberfläche',q.area,'A'],['Dichte',nf(d,2)+' g/cm³'],['Masse',q.volume/1000*d,'M'],['Bounding-Box X',s.x,'L'],['Bounding-Box Y',s.y,'L'],['Bounding-Box Z',s.z,'L']]);
+  $('props').hidden=false;window.__lastProps=q;return q}
+$('propsClose').onclick=()=>$('props').hidden=true;
+const tabTo=n=>document.querySelector(`.tab[data-tab="${n}"]`).click();
 function showModel(){const m=data.model,s=V3(m.bbox.max).sub(V3(m.bbox.min));
   kv($('modelinfo'),[['Einheit',U.name],['Körper',m.solids],['Flächen',m.faces],['Kanten',m.edges],['Bounding-Box X',s.x,'L'],['Bounding-Box Y',s.y,'L'],['Bounding-Box Z',s.z,'L'],['Volumen',m.volume,'V'],['Oberfläche',m.area,'A'],['Schwerpunkt',m.centroid,'P']]);showMass()}
 const V3=a=>new THREE.Vector3(...a);
@@ -102,17 +161,18 @@ function pickAt(cx,cy){if(!model)return null;const r=renderer.domElement.getBoun
   if(fh&&$('snapF').checked){const b=fh.object;const fid=b.geometry.userData.face[fh.faceIndex];return {k:'face',id:fid,p:model.worldToLocal(fh.point.clone()).toArray(),body:b}}
   return null}
 const names={face:'Fläche',edge:'Kante',vertex:'Eckpunkt',center:'Kreismittelpunkt'};
-const label=s=>s.k==='face'?`Fläche (${data.faces[s.id].type})`:s.k==='edge'?`Kante (${data.edges[s.id].type})`:names[s.k];
+const label=s=>s.k==='solid'?`Teil (${nodeOfBody(s.id)?.name||'Körper'})`:s.k==='face'?`Fläche (${data.faces[s.id].type})`:s.k==='edge'?`Kante (${data.edges[s.id].type})`:names[s.k];
 function hiObj(s,color){const g=new THREE.Group();
   if(s.k==='face'){bodies.forEach(b=>{const fa=b.geometry.userData.face,pos=b.geometry.attributes.position.array,out=[];for(let t=0;t<fa.length;t++)if(fa[t]===s.id)for(let j=0;j<9;j++)out.push(pos[t*9+j]);
       if(out.length){const gg=new THREE.BufferGeometry();gg.setAttribute('position',new THREE.Float32BufferAttribute(out,3));g.add(new THREE.Mesh(gg,new THREE.MeshBasicMaterial({color,transparent:true,opacity:.55,side:THREE.DoubleSide,depthTest:true,clippingPlanes:renderer.localClippingEnabled?[plane]:[]})))}})}
   if(s.k==='edge'){const p=data.edges[s.id].pts;const gg=new THREE.BufferGeometry().setFromPoints(p.map(V3));const l=new THREE.Line(gg,new THREE.LineBasicMaterial({color,depthTest:false,linewidth:2}));l.renderOrder=9;g.add(l)}
+  if(s.k==='solid')return bodyHi([s.id],color);
   if(s.k==='vertex'||s.k==='center'){const gg=new THREE.BufferGeometry();gg.setAttribute('position',new THREE.Float32BufferAttribute(s.p,3));const pt=new THREE.Points(gg,new THREE.PointsMaterial({color,size:11,sizeAttenuation:false,depthTest:false}));pt.renderOrder=10;g.add(pt)}
   return g}
 let down=null,hoverRAF=0;
 renderer.domElement.addEventListener('pointerdown',e=>down=[e.clientX,e.clientY]);
 renderer.domElement.addEventListener('pointermove',e=>{if(e.buttons||hoverRAF)return;hoverRAF=requestAnimationFrame(()=>{hoverRAF=0;hov=pickAt(e.clientX,e.clientY);hoverObj.clear();if(hov)hoverObj.add(hiObj(hov,0xff9f1c));$('hover').textContent=hov?label(hov):'';needs=true})});
-renderer.domElement.addEventListener('pointerup',e=>{if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;const s=pickAt(e.clientX,e.clientY);if(s)select(s)});
+renderer.domElement.addEventListener('pointerup',e=>{if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;const s=pickAt(e.clientX,e.clientY);if(s){select(s);if(s.body){const n=nodeOfBody(bodies.indexOf(s.body));if(n){selNode=n;for(let x=n.parent;x;x=x.parent)x.open=true;renderTree();document.querySelector(`.trow[data-id="${n.id}"]`)?.scrollIntoView({block:'nearest'})}}}});
 addEventListener('keydown',e=>{if(e.code==='Space'&&document.activeElement.tagName!=='INPUT'){e.preventDefault();clearSel()}});
 $('clearSel').onclick=()=>clearSel();
 function clearSel(){sels=[];marks.clear();$('selinfo').textContent='';$('mresult').innerHTML='';needs=true}
@@ -127,9 +187,9 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelect
   $('tab-messen').hidden=t.dataset.tab!=='messen';$('tab-blech').hidden=t.dataset.tab!=='blech';if(t.dataset.tab==='blech'&&data&&!sheetCache)calcSheet()});
 let sheetCache=null;$('calcSheet').onclick=()=>calcSheet();
 async function calcSheet(){if(!data)return;const K=parseFloat(String($('kf').value).replace(',','.'));if(!(K>=0&&K<=1)){$('sheetwarn').textContent='K-Faktor muss zwischen 0 und 1 liegen.';return}
-  const r=await call('sheet',{K});sheetCache=r;window.__lastSheet=r;
+  const r=await call('sheet',{K,solid:sheetSolid});sheetCache=r;window.__lastSheet=r;
   if(!r.ok){$('sheetinfo').innerHTML='';$('bends').innerHTML='';$('flatprev').innerHTML='';$('dxf').disabled=true;$('sheetwarn').textContent=r.msg;return}
-  const rows=[['Blechdicke (erkannt)',r.t,'L'],['K-Faktor',nf(K,2)],['Biegungen',r.bends.length]];
+  const rows=[['Teil',sheetSolid==null?'gesamtes Modell':(nodeOfBody(sheetSolid)?.name||'Körper '+(sheetSolid+1))],['Blechdicke (erkannt)',r.t,'L'],['K-Faktor',nf(K,2)],['Biegungen',r.bends.length]];
   if(r.flat)rows.push(['Zuschnitt Länge',Math.max(...r.flat.size),'L'],['Zuschnitt Breite',Math.min(...r.flat.size),'L']);
   kv($('sheetinfo'),rows);
   const n2=v=>nf(v/U.mm,2);
@@ -145,6 +205,6 @@ $('dxf').onclick=async()=>{if(!sheetCache?.dxf)return;const name=(window.__lastL
 
 // ---------- Test-Schnittstelle ----------
 window.__loadUrl=async u=>load(await (await fetch(u)).arrayBuffer(),u.split('/').pop());
-window.__app={select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
+window.__app={vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
   screenOf:p=>{const r=renderer.domElement.getBoundingClientRect();const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*r.width+r.left,(1-w.y)/2*r.height+r.top]}};
 window.__toggleMeasure=()=>{};
