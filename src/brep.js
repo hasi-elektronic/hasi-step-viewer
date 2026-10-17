@@ -39,7 +39,7 @@ export function createBrep(oc){
       for(const i of arr)if(this.list[i].shape.IsSame(s))return i;if(!add)return -1;const i=this.list.length;this.list.push(add(s));arr.push(i);return i}}
 
   const M={};
-  M.load=(bytes,name='modell.step')=>{
+  M.load=(bytes,name='modell.step',hier=null)=>{
     const t0=Date.now();
     const text=new TextDecoder('latin1').decode(bytes.subarray(0,Math.min(bytes.length,4e6)));
     const unit=stepUnit(text);
@@ -75,13 +75,44 @@ export function createBrep(oc){
       meshes.push({name:solids.length>1?`Körper ${si+1}`:(pn&&pn[1]&&!/^Open CASCADE/i.test(pn[1])?pn[1]:name.replace(/\.(step|stp)$/i,'')),p:new Float32Array(pos),i:new Uint32Array(idx),f:new Uint32Array(fid)});
     });
     explore(shape,TA.TopAbs_VERTEX,vs=>verts.find(vs,s=>({shape:oc.TopoDS.Vertex_1(s),p:P(oc.BRep_Tool.Pnt(oc.TopoDS.Vertex_1(s)))})));
+    const boxes=meshes.map(m=>{const mn=[Infinity,Infinity,Infinity],mx=[-Infinity,-Infinity,-Infinity];for(let k=0;k<m.p.length;k+=3)for(let j=0;j<3;j++){mn[j]=Math.min(mn[j],m.p[k+j]);mx[j]=Math.max(mx[j],m.p[k+j])}return {min:mn,max:mx}});
+    const tree=buildTree(hier,boxes,meshes.map(m=>m.name),name);
     M.shape=shape;M.faces=faces.list;M.edges=edges.list;M.verts=verts.list;M.solids=solids;M.unit=unit;
-    return {name,unit,meshes,
+    return {name,unit,meshes,tree,
       edges:M.edges.map(e=>({type:e.type,pts:e.pts,c:e.circle?.c})),
       verts:M.verts.map(v=>v.p),
       faces:M.faces.map(f=>({type:f.type})),
       ms:Date.now()-t0};
   };
+  // Hierarchie (Namen) aus occt-import-js den B-Rep-Körpern über Bounding-Boxen zuordnen
+  function buildTree(hier,boxes,defNames,fileName){
+    const all=boxes.map((_,i)=>i);
+    if(!hier||!hier.root)return {name:fileName.replace(/\.(step|stp)$/i,''),children:all.map(i=>({name:defNames[i],bodies:[i],children:[]})),bodies:[]};
+    const dist=(a,b)=>V.len(V.sub(a.min,b.min))+V.len(V.sub(a.max,b.max));
+    // jeder B-Rep-Körper -> nächstgelegenes Import-Netz
+    const owner=boxes.map(b=>{let best=-1,bd=Infinity;hier.boxes.forEach((h,j)=>{const d=dist(b,h);if(d<bd){bd=d;best=j}});return best});
+    const byMesh=new Map();owner.forEach((j,i)=>{if(!byMesh.has(j))byMesh.set(j,[]);byMesh.get(j).push(i)});
+    const count=new Map();const uniq=n=>{const c=(count.get(n)||0)+1;count.set(n,c);return c};
+    const conv=n=>{const node={name:n.name||'Baugruppe',children:[],bodies:[]};
+      (n.meshes||[]).forEach(j=>{const b=byMesh.get(j)||[];const mn=hier.boxes[j].name;
+        if(mn&&mn!==node.name)node.children.push({name:mn,children:[],bodies:b});else node.bodies.push(...b)});
+      (n.children||[]).forEach(c=>{const k=conv(c);if(k.children.length||k.bodies.length)node.children.push(k)});
+      return node};
+    let root=conv(hier.root);
+    while(!root.bodies.length&&root.children.length===1&&root.children[0].children.length)root=root.children[0];
+    if(!root.name||root.name==='Baugruppe')root.name=fileName.replace(/\.(step|stp)$/i,'');
+    // Mehrfach verwendete Namen durchnummerieren wie in eDrawings: "Bolzen 1 <1>", "<2>"
+    const names=new Map();const walk=(n,f)=>{f(n);n.children.forEach(c=>walk(c,f))};
+    walk(root,n=>names.set(n.name,(names.get(n.name)||0)+1));
+    walk(root,n=>{if(names.get(n.name)>1&&n!==root)n.name=`${n.name} <${uniq(n.name)}>`});
+    const used=new Set();walk(root,n=>n.bodies.forEach(b=>used.add(b)));
+    all.filter(i=>!used.has(i)).forEach(i=>root.children.push({name:`Körper ${i+1}`,children:[],bodies:[i]}));
+    return root}
+  M.solidProps=ids=>{let vol=0,area=0;const mn=[Infinity,Infinity,Infinity],mx=[-Infinity,-Infinity,-Infinity];
+    ids.forEach(i=>{const s=M.solids[i];vol+=Math.abs(props('V',s).mass);area+=props('S',s).mass;
+      M.faces.forEach(f=>{if(f.solid!==i)return});
+      M.edges.forEach(e=>{if(!e.faces.some(fi=>M.faces[fi].solid===i))return;e.pts.forEach(p=>{for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],p[k]);mx[k]=Math.max(mx[k],p[k])}})})});
+    return {volume:vol,area,bbox:{min:mn,max:mx},bodies:ids.length}};
   M.bbox=s=>{const b=new oc.Bnd_Box_1();tryCall(()=>oc.BRepBndLib.Add(s,b,true),()=>oc.BRepBndLib.Add(s,b));return {min:P(b.CornerMin()),max:P(b.CornerMax())}};
   M.faceInfo=(f,solid)=>{
     const a=new oc.BRepAdaptor_Surface_2(f,true);const t=a.GetType();const rev=f.Orientation_1()===oc.TopAbs_Orientation.TopAbs_REVERSED;
@@ -101,13 +132,13 @@ export function createBrep(oc){
     return o};
 
   // ---------- Messen ----------
-  const sel2shape=s=>s.k==='face'?M.faces[s.id].shape:s.k==='edge'?M.edges[s.id].shape:s.k==='vertex'?M.verts[s.id].shape:mkVertex(selPoint(s));
+  const sel2shape=s=>s.k==='solid'?M.solids[s.id]:s.k==='face'?M.faces[s.id].shape:s.k==='edge'?M.edges[s.id].shape:s.k==='vertex'?M.verts[s.id].shape:mkVertex(selPoint(s));
   const selPoint=s=>s.k==='vertex'?M.verts[s.id].p:(s.k==='center'?M.edges[s.id].circle.c:s.p);
   const dirOf=s=>{if(s.k==='face'){const f=M.faces[s.id];if(f.plane)return{kind:'n',d:f.plane.n};if(f.cyl)return{kind:'a',d:f.cyl.d}}
     if(s.k==='edge'){const e=M.edges[s.id];if(e.line)return{kind:'a',d:e.line.d};if(e.circle)return{kind:'n',d:e.circle.n}}return null};
   M.minDist=(a,b)=>{const d=new oc.BRepExtrema_DistShapeShape_1();d.LoadS1(a);d.LoadS2(b);tryCall(()=>d.Perform(),()=>d.Perform(new oc.Message_ProgressRange_1()));
     if(!d.IsDone())throw new Error('Abstand konnte nicht berechnet werden');return {d:d.Value(),p1:P(d.PointOnShape1(1)),p2:P(d.PointOnShape2(1))}};
-  M.describe=s=>{const R=[];
+  M.describe=s=>{const R=[];if(s.k==='solid'){const q=M.solidProps([s.id]);R.push(['Körper',s.id+1,'t'],['Volumen',q.volume,'V'],['Oberfläche',q.area,'A']);return R}
     if(s.k==='face'){const f=M.faces[s.id];R.push(['Fläche',f.type,'t'],['Flächeninhalt',f.area,'A']);
       if(f.cyl){R.push(['Radius',f.cyl.r,'L'],['Durchmesser',2*f.cyl.r,'L'],['Öffnungswinkel',f.cyl.ang*DEG,'W'])}
       if(f.plane)R.push(['Normale',f.plane.n.map(x=>x.toFixed(4)).join(' / '),'t'])}
@@ -143,11 +174,11 @@ export function createBrep(oc){
 
   // ---------- Blech ----------
   const coaxial=(A,B)=>{if(Math.abs(V.dot(A.d,B.d))<1-1e-6)return false;const w=V.sub(B.c,A.c);return V.len(V.sub(w,V.mul(A.d,V.dot(w,A.d))))<1e-3};
-  M.sheet=(K=0.5)=>{
-    const cyl=M.faces.map((f,i)=>[f,i]).filter(([f])=>f.cyl&&f.cyl.ang<Math.PI*1.999);
+  M.sheet=(K=0.5,solid=null)=>{const inS=f=>solid==null||f.solid===solid;
+    const cyl=M.faces.map((f,i)=>[f,i]).filter(([f])=>inS(f)&&f.cyl&&f.cyl.ang<Math.PI*1.999);
     const cand=new Map();const add=(t,w)=>{const k=t.toFixed(3);cand.set(k,(cand.get(k)||0)+w)};
     for(let i=0;i<cyl.length;i++)for(let j=i+1;j<cyl.length;j++){const A=cyl[i][0].cyl,B=cyl[j][0].cyl;if(coaxial(A,B)&&Math.abs(A.r-B.r)>1e-4)add(Math.abs(A.r-B.r),10*(cyl[i][0].area+cyl[j][0].area))}
-    const pl=M.faces.map((f,i)=>[f,i]).filter(([f])=>f.plane);
+    const pl=M.faces.map((f,i)=>[f,i]).filter(([f])=>inS(f)&&f.plane);
     for(let i=0;i<pl.length;i++)for(let j=i+1;j<pl.length;j++){const A=pl[i][0].plane,B=pl[j][0].plane;if(V.dot(A.n,B.n)<-1+1e-6){const d=Math.abs(V.dot(V.sub(B.o,A.o),A.n));if(d>1e-4)add(d,Math.min(pl[i][0].area,pl[j][0].area))}}
     if(!cand.size)return {ok:false,msg:'Keine Blechdicke erkennbar (keine parallelen Gegenflächen oder koaxialen Biegeflächen).'};
     const t=+[...cand.entries()].sort((a,b)=>b[1]-a[1])[0][0];
@@ -199,8 +230,8 @@ export function createBrep(oc){
     const all=lines.flat();const mn=[Math.min(...all.map(p=>p[0])),Math.min(...all.map(p=>p[1]))],mx=[Math.max(...all.map(p=>p[0])),Math.max(...all.map(p=>p[1]))];
     res.flat={contour:lines,bendLines,min:mn,max:mx,size:[mx[0]-mn[0],mx[1]-mn[1]]};
     const nonSkinSheet=M.faces.filter((f,i)=>!skin.has(i)&&(f.plane||f.cyl)&&f.area>4*t*t*20).length;
-    if(M.faces.some((f,i)=>!skin.has(i)&&f.type!=='eben'&&f.type!=='zylindrisch'))res.warn.push('Das Teil enthält Freiform-/Kegelflächen; diese werden nicht abgewickelt.');
-    if(M.solids.length>1)res.warn.push('Mehrere Körper: Blechauswertung nur für zusammenhängende Flächen ab der größten ebenen Fläche.');
+    if(M.faces.some((f,i)=>inS(f)&&!skin.has(i)&&f.type!=='eben'&&f.type!=='zylindrisch'))res.warn.push('Das Teil enthält Freiform-/Kegelflächen; diese werden nicht abgewickelt.');
+    if(M.solids.length>1&&solid==null)res.warn.push('Mehrere Körper: Blechauswertung nur für zusammenhängende Flächen ab der größten ebenen Fläche.');
     // Plausibilität: Fläche der Abwicklung vs. Hautfläche
     const skinArea=[...skin].reduce((s,i)=>s+M.faces[i].area,0);res.skinArea=skinArea;
     return res};
@@ -216,4 +247,14 @@ export function createBrep(oc){
     flat.bendLines.forEach(b=>line(b[0],b[1],'BIEGELINIEN'));
     g(0,'ENDSEC');g(0,'EOF');return L.join('\n')+'\n'};
   return M;
+}
+
+/** Nur Hierarchie + Namen aus occt-import-js (grobe Tessellierung, nur für die Zuordnung). */
+export function hierFromImport(occt,bytes){
+  const r=occt.ReadStepFile(bytes,{linearUnit:'millimeter',linearDeflectionType:'bounding_box_ratio',linearDeflection:0.02,angularDeflection:0.8});
+  if(!r||!r.success)return null;
+  const boxes=r.meshes.map(m=>{const p=m.attributes.position.array;const mn=[Infinity,Infinity,Infinity],mx=[-Infinity,-Infinity,-Infinity];
+    for(let k=0;k<p.length;k+=3)for(let j=0;j<3;j++){mn[j]=Math.min(mn[j],p[k+j]);mx[j]=Math.max(mx[j],p[k+j])}return {min:mn,max:mx,name:m.name}});
+  const strip=n=>({name:n.name,meshes:n.meshes,children:(n.children||[]).map(strip)});
+  return {root:strip(r.root),boxes};
 }

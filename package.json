@@ -16,6 +16,7 @@
   "author": "",
   "license": "UNLICENSED",
   "dependencies": {
+    "occt-import-js": "^0.0.23",
     "opencascade.js": "^1.1.1",
     "three": "^0.186.1"
   },
