@@ -1,5 +1,5 @@
 // Erzeugt ein eigenes Testblech (Z-Profil, 2 Biegungen, Bohrung) als STEP. Lizenz: wie Repo.
-import {loadOC} from './oc-node.mjs';import fs from 'fs';
+import {loadOC} from './oc-node.mjs';import fs from 'fs';import path from 'path';
 const oc=await loadOC();
 const P=(x,y,z)=>new oc.gp_Pnt_3(x,y,z);
 const t=2, r=3, L1=60, H=30, L2=40, W=50; // mm
@@ -39,5 +39,5 @@ const w=new oc.STEPControl_Writer_1();
 oc.Interface_Static.SetCVal('write.step.unit','MM');oc.Interface_Static.SetCVal('write.step.product.name','Testblech Z-Profil');
 w.Transfer(solid,oc.STEPControl_StepModelType.STEPControl_AsIs,true);
 w.Write('/out.step');
-const out=process.argv[2]||'testblech.step';
+const out=process.argv[2]||'testblech.step';fs.mkdirSync(path.dirname(out),{recursive:true});
 fs.writeFileSync(out,oc.FS.readFile('/out.step'));console.log('geschrieben',out,fs.statSync(out).size);
