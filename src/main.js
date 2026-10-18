@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import * as BM from './bemassung.js';
 const $=id=>document.getElementById(id), view=$('view');
 let renderer;
 try{renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true})}catch(e){$('status').textContent='Fehler: 3D-Grafik (WebGL) wird auf diesem Rechner nicht unterstützt.';throw e}
@@ -7,11 +8,15 @@ renderer.setPixelRatio(devicePixelRatio);renderer.setClearColor(0xf5f5f7);view.a
 const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(35,1,0.1,1e6);
 scene.add(new THREE.HemisphereLight(0xffffff,0xb0b4bc,1.5));const dl=new THREE.DirectionalLight(0xffffff,1.3);camera.add(dl);dl.position.set(1,2,3);scene.add(camera);
 const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.screenSpacePanning=true;
+// Maus wie eDrawings/SolidWorks: Mitte ziehen = drehen, Umschalt+Mitte oder Rechts ziehen = schwenken, Rad = Zoom auf den Cursor, Links = Auswahl/Messen
+controls.mouseButtons={LEFT:null,MIDDLE:THREE.MOUSE.ROTATE,RIGHT:THREE.MOUSE.PAN};controls.zoomToCursor=true;
+renderer.domElement.addEventListener('mousedown',e=>{if(e.button===1)e.preventDefault()});
+const overlay=document.createElement('canvas');overlay.id='dimoverlay';overlay.style.cssText='position:absolute;left:0;top:0;pointer-events:none';view.appendChild(overlay);
 const plane=new THREE.Plane(new THREE.Vector3(1,0,0),0);
 let model=null,box=new THREE.Box3(),needs=true,data=null,bodies=[],edgeObjs=[],baseMat=null,marks=new THREE.Group(),hoverObj=new THREE.Group();
-function resize(){const w=view.clientWidth,h=view.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();needs=true}
+function resize(){const w=view.clientWidth,h=view.clientHeight;renderer.setSize(w,h);overlay.width=w*devicePixelRatio;overlay.height=h*devicePixelRatio;overlay.style.width=w+'px';overlay.style.height=h+'px';camera.aspect=w/h;camera.updateProjectionMatrix();needs=true}
 addEventListener('resize',resize);resize();controls.addEventListener('change',()=>needs=true);
-(function loop(){requestAnimationFrame(loop);controls.update();if(needs){renderer.render(scene,camera);needs=false}})();
+(function loop(){requestAnimationFrame(loop);controls.update();if(needs){renderer.render(scene,camera);drawDims();needs=false}})();
 
 // ---------- Worker ----------
 const worker=new Worker(new URL('./worker.js',import.meta.url),{type:'module'});const base=new URL('./',location.href).href;
@@ -64,7 +69,7 @@ async function load(buf,name){
     model.add(mesh);bodies.push(mesh)});
   model.add(marks);model.add(hoverObj);scene.add(model);model.updateMatrixWorld(true);box.setFromObject(model);
   vIdx=new Map();
-  buildTree();clearSel();hov=null;hoverObj.clear();$('snaptip').hidden=true;dims=[];dimNo=0;lastRes=null;renderDims();sheetSolid=null;fit();setCut();showModel();sheetCache=null;$('sheeterr').innerHTML='';$('sheetinfo').innerHTML='';$('bends').innerHTML='';$('flatprev').innerHTML='';$('dxf').disabled=true;$('sheetwarn').textContent='';
+  buildTree();clearSel();hov=null;hoverObj.clear();$('snaptip').hidden=true;dims=[];dimSel=null;$('dimedit').hidden=true;dimNo=0;lastRes=null;renderDims();sheetSolid=null;fit();setCut();showModel();sheetCache=null;$('sheeterr').innerHTML='';$('sheetinfo').innerHTML='';$('bends').innerHTML='';$('flatprev').innerHTML='';$('dxf').disabled=true;$('sheetwarn').textContent='';
   if(!$('tab-blech').hidden)calcSheet();
   const ms=Math.round(performance.now()-t0);const tris=data.inst.reduce((s,I)=>s+data.uniq[I.u].i.length/3,0);
   const info={name,bytes:size,bodies:data.inst.length,unique:data.uniq.length,faces:data.model.faces,edges:data.model.edges,triangles:tris,totalMs:ms,unit:U.sym,times:data.times,stats:data.stats};window.__lastLoad=info;
@@ -120,13 +125,37 @@ async function act(a,n){
   if(a==='sheet'){if(n.all.length!==1)return;sheetSolid=n.all[0];tabTo('blech');await calcSheet()}}
 function zoomTo(n){const b=boxOf(n.all);if(b.isEmpty())return;const s=b.getSize(new THREE.Vector3()).length(),c=b.getCenter(new THREE.Vector3());
   const d=camera.position.clone().sub(controls.target).normalize();camera.position.copy(c).add(d.multiplyScalar(s*1.6));controls.target.copy(c);controls.update();needs=true}
-function ctxMenu(x,y,n){closeCtx();const m=document.createElement('div');m.id='ctx';
-  const one=n.all.length===1;
-  const items=[['toggle',n.checked?'Ausblenden':'Einblenden'],['isolate','Nur dieses anzeigen'],['showall','Alle einblenden'],['-'],['transp',n.transp?'Undurchsichtig':'Transparent'],['zoom','Heranzoomen'],['-'],['measure','Messen',!one],['props','Eigenschaften'],['sheet','Blech-Abwicklung',!one]];
+function ctxMenu(x,y,n,items,run){closeCtx();const m=document.createElement('div');m.id='ctx';
+  const one=n?n.all.length===1:false;
+  items=items||[['toggle',n.checked?'Ausblenden':'Einblenden'],['isolate','Nur dieses anzeigen'],['showall','Alle einblenden'],['-'],['transp',n.transp?'Undurchsichtig':'Transparent'],['zoom','Heranzoomen'],['-'],['measure','Messen',!one],['props','Eigenschaften'],['sheet','Blech-Abwicklung',!one]];
+  run=run||(a=>act(a,n));
   m.innerHTML=items.map(([a,t,dis])=>a==='-'?'<hr>':`<button data-a="${a}" ${dis?'disabled title="Nur bei genau einem Körper"':''}>${t}</button>`).join('');
   m.style.left=x+'px';m.style.top=y+'px';document.body.append(m);
-  const r=m.getBoundingClientRect();if(r.bottom>innerHeight)m.style.top=(y-r.height)+'px';
-  m.querySelectorAll('button').forEach(b=>b.onclick=()=>{closeCtx();act(b.dataset.a,n)})}
+  const r=m.getBoundingClientRect();if(r.bottom>innerHeight)m.style.top=Math.max(0,y-r.height)+'px';if(r.right>innerWidth)m.style.left=Math.max(0,x-r.width)+'px';
+  m.querySelectorAll('button').forEach(b=>b.onclick=()=>{closeCtx();run(b.dataset.a)})}
+// Kontextmenü in der 3D-Ansicht (wie eDrawings): Rechtsklick ohne Ziehen öffnet das Menü, mit Ziehen wird geschwenkt
+function viewMenu(x,y){const s=pickAt(x,y);const n=s&&s.body?nodeOfBody(s.body.userData.inst):null;
+  if(n){const one=n.all.length===1;selNode=n;renderTree();
+    ctxMenu(x,y,n,[['toggle','Ausblenden'],['isolate','Nur dieses anzeigen'],['transp',n.transp?'Undurchsichtig':'Transparent'],['zoom','Heranzoomen'],['tree','Im Baum zeigen'],['-'],['measureHere','Messen ab hier'],['props','Eigenschaften'],['-'],['sheet','Blech-Abwicklung',!one],['bendtab','Biegetabelle',!one]],
+      async a=>{if(a==='tree'){selectNode(n,true);$('tree').querySelector(`.trow[data-id="${n.id}"]`)?.scrollIntoView({block:'center'})}
+        else if(a==='measureHere'){tabTo('messen');clearSel();await select(s,false)}
+        else if(a==='bendtab'){await act('sheet',n);$('bends').scrollIntoView({block:'start'})}
+        else act(a,n)});return}
+  const cutOn=!!$('axis').value;
+  ctxMenu(x,y,null,[['showall','Alle einblenden'],['fit','Ansicht einpassen'],['-'],['vorne','Vorne'],['oben','Oben'],['rechts','Rechts'],['iso','Iso'],['-'],['cut',cutOn?'Schnitt aus':'Schnitt ein'],['dims','Alle Bemaßungen löschen',!dims.length],['shot','Screenshot speichern …']],
+    a=>{if(a==='showall'){nodes.forEach(x=>x.checked=true);applyVis();renderTree()}
+      if(a==='fit')fit();if(views[a])fit(views[a]);
+      if(a==='cut'){$('axis').value=cutOn?'':(lastAxis||'X');setCut()}
+      if(a==='dims'){dims=[];renderDims()}
+      if(a==='shot')screenshot()})}
+let lastAxis='';$('axis').addEventListener('change',()=>{if($('axis').value)lastAxis=$('axis').value});
+async function screenshot(){const url=ansichtBild().toDataURL('image/png');
+  const bin=atob(url.split(',')[1]);const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+  const name=(window.__lastLoad?.name||'ansicht').replace(/\.(step|stp)$/i,'')+'-ansicht.png';await saveBytes(name,bytes,'PNG-Bild','png','image/png')}
+let rdown=null;
+renderer.domElement.addEventListener('pointerdown',e=>{if(e.button===2)rdown=[e.clientX,e.clientY]});
+renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
+renderer.domElement.addEventListener('pointerup',e=>{if(e.button!==2||!rdown)return;const moved=Math.hypot(e.clientX-rdown[0],e.clientY-rdown[1])>4;rdown=null;if(!moved&&model)viewMenu(e.clientX,e.clientY)});
 const closeCtx=()=>document.getElementById('ctx')?.remove();addEventListener('pointerdown',e=>{if(!e.target.closest('#ctx'))closeCtx()});addEventListener('keydown',e=>{if(e.key==='Escape'){closeCtx();$('props').hidden=true}});
 async function showProps(n){const q=await call('props',{ids:n.all});const d=parseFloat($('dens').value)||0;const s=V3(q.bbox.max).sub(V3(q.bbox.min));
   $('propsTitle').textContent='Eigenschaften: '+n.name;
@@ -200,7 +229,7 @@ renderer.domElement.addEventListener('pointerdown',e=>down=[e.clientX,e.clientY]
 renderer.domElement.addEventListener('pointermove',e=>{if(e.buttons||hoverRAF)return;hoverRAF=requestAnimationFrame(()=>{hoverRAF=0;hov=pickAt(e.clientX,e.clientY);hoverObj.clear();if(hov)hoverObj.add(hiObj(hov,0xff6a00));$('hover').textContent=hov?label(hov):'';
   const tip=$('snaptip'),r=$('view').getBoundingClientRect();tip.hidden=!hov;if(hov){tip.textContent=label(hov);tip.style.left=(e.clientX-r.left)+'px';tip.style.top=(e.clientY-r.top)+'px'}needs=true})});
 renderer.domElement.addEventListener('pointerleave',()=>{if(hoverRAF){cancelAnimationFrame(hoverRAF);hoverRAF=0}$('snaptip').hidden=true;hov=null;hoverObj.clear();$('hover').textContent='';needs=true});
-renderer.domElement.addEventListener('pointerup',e=>{if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;const s=pickAt(e.clientX,e.clientY);if(s){select(s,e.ctrlKey||e.shiftKey||e.metaKey);if(s.body){const n=nodeOfBody(s.body.userData.inst);if(n){selNode=n;for(let x=n.parent;x;x=x.parent)x.open=true;renderTree();document.querySelector(`.trow[data-id="${n.id}"]`)?.scrollIntoView({block:'nearest'})}}}});
+renderer.domElement.addEventListener('pointerup',e=>{if(e.button!==0)return;if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;const s=pickAt(e.clientX,e.clientY);if(s){select(s,e.ctrlKey||e.shiftKey||e.metaKey);if(s.body){const n=nodeOfBody(s.body.userData.inst);if(n){selNode=n;for(let x=n.parent;x;x=x.parent)x.open=true;renderTree();document.querySelector(`.trow[data-id="${n.id}"]`)?.scrollIntoView({block:'nearest'})}}}});
 addEventListener('keydown',e=>{if(e.code==='Space'&&document.activeElement.tagName!=='INPUT'){e.preventDefault();clearSel()}});
 $('clearSel').onclick=()=>clearSel();
 function clearSel(){sels=[];marks.clear();$('selinfo').textContent='';$('mresult').innerHTML='';window.__lastMeasure=null;needs=true}
@@ -215,29 +244,86 @@ async function select(s,add=false){if(sels.length>=2&&!add)clearSel();const clea
 const dimGroup=new THREE.Group();dimGroup.renderOrder=20;let dims=[],dimNo=0;
 const rowText=r=>`${r[0]}: ${r[2]&&r[2]!=='t'?fmt(r[1],r[2]):r[1]}`;
 const mainRow=r=>r.rows.find(x=>x[3])||r.rows.find(x=>x[2]==='L'||x[2]==='A'||x[2]==='W')||r.rows[0];
-function textSprite(txt){const c=document.createElement('canvas'),x=c.getContext('2d');const f='600 30px system-ui,sans-serif';x.font=f;const w=Math.ceil(x.measureText(txt).width)+24;c.width=w;c.height=44;
-  x.font=f;x.fillStyle='rgba(29,29,31,.88)';x.beginPath();x.roundRect?x.roundRect(0,0,w,44,10):x.rect(0,0,w,44);x.fill();x.fillStyle='#fff';x.textBaseline='middle';x.fillText(txt,12,23);
-  const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:t,depthTest:false,sizeAttenuation:false}));
-  const h=0.03;sp.center.set(0.5,-0.2);sp.scale.set(h*w/44,h,1);sp.renderOrder=21;return sp}
-function dimObject(d,k=0){const g=new THREE.Group();const col=0x0a7cc2;const r=mainRow(d.r);
-  let at=null;for(const [a,b] of d.r.gfx){const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(a),V3(b)]),new THREE.LineBasicMaterial({color:col,depthTest:false}));l.renderOrder=20;g.add(l);
-    for(const p of [a,b])g.add(snapSym('vertex',p,col));at=V3(a).add(V3(b)).multiplyScalar(.5)}
-  if(!at){const s=d.sels[0];at=V3(s.p||[0,0,0])}
-  const sp=textSprite(`${d.no}: ${fmt(r[1],r[2])}`);sp.position.copy(at);sp.center.set(0.5,-0.2-1.35*k);g.add(sp);g.userData.dim=d.no;return g}
-// Labels mit gleichem oder nahem Ankerpunkt (< 4 % der Modellgröße) übereinander versetzen statt überlappen
-const dimAnchor=d=>{const g=d.r.gfx[0];return g?g[0].map((x,i)=>(x+g[1][i])/2):(d.sels[0].p||[0,0,0])};
-function renderDims(){dimGroup.clear();const tol=box.getSize(new THREE.Vector3()).length()*0.04,placed=[];
-  dims.forEach(d=>{const a=dimAnchor(d);const k=placed.filter(q=>Math.hypot(q[0]-a[0],q[1]-a[1],q[2]-a[2])<tol).length;placed.push(a);dimGroup.add(dimObject(d,k))});if(model&&dimGroup.parent!==model)model.add(dimGroup);
-  $('dimcount').textContent=dims.length?`(${dims.length})`:'';
-  $('dimlist').innerHTML=dims.map(d=>{const r=mainRow(d.r);return `<div class="dim" data-no="${d.no}"><b>${d.no}</b><span title="${d.title}"><span class="t">${r[0]}</span> <b>${fmt(r[1],r[2])}</b></span><button data-a="copy" title="Kopieren">Kopieren</button><button data-a="del" title="Löschen">Löschen</button></div>`}).join('')||'<p class="hint">Noch keine Bemaßungen.</p>';
-  window.__dims=dims.map(d=>({no:d.no,title:d.title,text:dimText(d)}));needs=true}
+// Maßstil (Textgröße, Pfeilart, Nachkommastellen) – bleibt gespeichert
+let STIL={...BM.STIL_STANDARD,...JSON.parse(localStorage.getItem('massstil')||'{}')};
+const projL=p=>{const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*view.clientWidth,(1-w.y)/2*view.clientHeight,w.z]};
+let dimHits=[],dimSel=null,dimDrag=null;
+function drawDims(){const c=overlay.getContext('2d');c.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);c.clearRect(0,0,overlay.width,overlay.height);dimHits=[];
+  if(!model||!dims.length)return;dims.forEach(d=>{if(!d.typ)return;const h=BM.zeichne(c,d,projL,STIL,d.no===dimSel?'#e05a00':'#0a6fb0');if(h)dimHits.push({...h,no:d.no})})}
+// Bemaßung aus der Auswahl bauen (Werte aus der B-Rep, Modellkoordinaten in mm)
+const IM=s=>data.inst[s.inst??0].m;const TP=(m,q)=>[m[0]*q[0]+m[1]*q[1]+m[2]*q[2]+m[3],m[4]*q[0]+m[5]*q[1]+m[6]*q[2]+m[7],m[8]*q[0]+m[9]*q[1]+m[10]*q[2]+m[11]];
+const TD=(m,q)=>BM.V.norm([m[0]*q[0]+m[1]*q[1]+m[2]*q[2],m[4]*q[0]+m[5]*q[1]+m[6]*q[2],m[8]*q[0]+m[9]*q[1]+m[10]*q[2]]);
+const camDir=v=>{const o=model.worldToLocal(new THREE.Vector3(0,0,0));const w=model.worldToLocal(v.clone().applyQuaternion(camera.quaternion));return BM.V.norm(w.sub(o).toArray())};
+const rowVal=(r,...names)=>{for(const n of names){const x=r.rows.find(q=>q[0]===n);if(x)return x[1]}return null};
+const circleOf=s=>{const U=UQ(s),m=IM(s);if(s.k==='edge'||s.k==='center'){const e=U.edges[s.id];if(e.r==null)return null;const voll=V3(e.pts[0]).distanceTo(V3(e.pts.at(-1)))<1e-6*Math.max(1,e.r);
+    return {c:TP(m,e.c),n:TD(m,e.n),r:e.r,voll,p0:TP(m,e.pts[0]),p1:TP(m,e.pts.at(-1))}}
+  if(s.k==='face'){const f=U.faces[s.id];if(!f.ax)return null;return {c:TP(m,f.ax.c),n:TD(m,f.ax.d),r:f.ax.r,voll:true}}return null};
+const lineOf=s=>{if(s.k!=='edge')return null;const e=UQ(s).edges[s.id];if(e.type!=='Gerade')return null;const m=IM(s);return [TP(m,e.pts[0]),TP(m,e.pts.at(-1))]};
+const pointOf=s=>{const U=UQ(s),m=IM(s);if(s.k==='vertex')return TP(m,U.verts[s.id]);if(s.k==='mid')return TP(m,U.edges[s.id].mid);if(s.k==='center'){const e=U.edges[s.id];return e.c?TP(m,e.c):null}if(s.k==='point')return s.p;return null};
+function baueDim(res,typ){const sl=res.sels,r=res.r,size=box.getSize(new THREE.Vector3()).length();const d={typ:null,einheit:'L',tol:{art:'keine',o:0,u:0},praefix:'',suffix:'',text:''};
+  if(typ==='auto'){if(sl.length===1){const ci=circleOf(sl[0]);typ=ci?(ci.voll?'durchmesser':'radius'):(pointOf(sl[0])?'koordinate':null)}else typ=r.gfx.length?'ausgerichtet':null}
+  if(!typ)return null;d.typ=typ;
+  if(['ausgerichtet','horizontal','vertikal'].includes(typ)){if(!r.gfx.length)return null;const [a,b]=r.gfx[0];d.p1=a;d.p2=b;
+    d.dir=typ==='horizontal'?camDir(new THREE.Vector3(1,0,0)):typ==='vertikal'?camDir(new THREE.Vector3(0,1,0)):BM.V.norm(BM.V.sub(b,a));
+    d.wert=Math.abs(BM.V.dot(BM.V.sub(b,a),BM.V.norm(d.dir)));
+    const up=camDir(new THREE.Vector3(0,1,0));let side=BM.V.norm(BM.V.cross(d.dir,camDir(new THREE.Vector3(0,0,1))));if(BM.V.dot(side,up)<0)side=BM.V.mul(side,-1);d.off=BM.V.mul(side,size*0.06);return d}
+  if(typ==='winkel'){const L1=lineOf(sl[0]),L2=sl[1]&&lineOf(sl[1]);if(!L1||!L2)return null;
+    const d1=BM.V.norm(BM.V.sub(L1[1],L1[0])),d2=BM.V.norm(BM.V.sub(L2[1],L2[0])),w=BM.V.sub(L1[0],L2[0]);const a=BM.V.dot(d1,d2),dd=BM.V.dot(d1,w),e=BM.V.dot(d2,w),den=1-a*a;if(den<1e-9)return null;
+    const t=(a*e-dd)/den,u=(e-a*dd)/den;const v=BM.V.mul(BM.V.add(BM.V.add(L1[0],BM.V.mul(d1,t)),BM.V.add(L2[0],BM.V.mul(d2,u))),0.5);
+    const far=L=>BM.V.len(BM.V.sub(L[0],v))>BM.V.len(BM.V.sub(L[1],v))?L[0]:L[1];d.v=v;d.u1=BM.V.norm(BM.V.sub(far(L1),v));d.u2=BM.V.norm(BM.V.sub(far(L2),v));
+    d.einheit='W';d.wert=Math.acos(Math.max(-1,Math.min(1,BM.V.dot(d.u1,d.u2))))*180/Math.PI;d.off=BM.V.mul(d.u1,Math.min(BM.V.len(BM.V.sub(far(L1),v)),BM.V.len(BM.V.sub(far(L2),v)))*0.6);return d}
+  const ci=circleOf(sl[0]);
+  if(typ==='radius'||typ==='durchmesser'){if(!ci)return null;Object.assign(d,{c:ci.c,n:ci.n,rad:ci.r,ang:0.7});d.wert=typ==='radius'?ci.r:2*ci.r;return d}
+  if(typ==='bogen'){if(!ci||!ci.p0)return null;const [a0,a1]=BM.bogenWinkel(ci.c,ci.n,ci.p0,ci.p1,ci.voll);Object.assign(d,{c:ci.c,n:ci.n,rad:ci.r,a0,a1,offR:ci.r*0.25});d.wert=rowVal(r,'Bogenlänge')??ci.r*(a1-a0);return d}
+  if(typ==='koordinate'){const p=pointOf(sl[0]);if(!p)return null;d.p=p;d.off=[size*0.05,size*0.05,0];d.wert=0;return d}
+  return null}
 const dimText=d=>`Bemaßung ${d.no} (${d.title})\n`+d.r.rows.map(rowText).join('\n');
+function renderDims(){if(dimSel&&!dims.some(d=>d.no===dimSel)){dimSel=null;$('dimedit').hidden=true}
+  $('dimcount').textContent=dims.length?`(${dims.length})`:'';
+  $('dimlist').innerHTML=dims.map(d=>{const r=mainRow(d.r);return `<div class="dim" data-no="${d.no}"><b>${d.no}</b><span title="${d.title}"><span class="t">${r[0]}</span> <b>${fmt(r[1],r[2])}</b></span><button data-a="edit" title="Bearbeiten">Bearbeiten</button><button data-a="copy" title="Kopieren">Kopieren</button><button data-a="del" title="Löschen">Löschen</button></div>`}).join('')||'<p class="hint">Noch keine Bemaßungen.</p>';
+  window.__dims=dims.map(d=>({no:d.no,title:d.title,text:dimText(d)}));needs=true}
 async function copyText(t){window.__lastCopy=t;try{await navigator.clipboard.writeText(t)}catch{const a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();try{document.execCommand('copy')}catch{}a.remove()}$('status').textContent='In die Zwischenablage kopiert'}
-function keepDim(){if(!lastRes)return;dims.push({no:++dimNo,...lastRes});renderDims()}
+function keepDim(typ){if(!lastRes)return false;typ=typ||$('dimtyp').value;const g=baueDim(lastRes,typ);if(typ!=='auto'&&!g){$('status').textContent='Diese Bemaßungsart passt nicht zur Auswahl.';return false}
+  // Gleicher Bezugspunkt wie eine vorhandene Bemaßung: weiter nach außen versetzen, damit sich nichts überlappt
+  if(g&&g.off){const tol=box.getSize(new THREE.Vector3()).length()*0.04,ref=dimRef(g);const k=dims.filter(d=>d.typ&&BM.V.len(BM.V.sub(dimRef(d),ref))<tol).length;if(k)g.off=BM.V.mul(g.off,1+k*0.9)}
+  dims.push({no:++dimNo,...lastRes,...(g||{})});renderDims();return true}
 $('keepDim').onclick=()=>keepDim();
 $('copySel').onclick=()=>{if(lastRes)copyText(lastRes.title+'\n'+lastRes.r.rows.map(rowText).join('\n'))};
 $('dimlist').onclick=e=>{const b=e.target.closest('button');if(!b)return;const no=+b.closest('.dim').dataset.no;const d=dims.find(x=>x.no===no);
-  if(b.dataset.a==='del'){dims=dims.filter(x=>x!==d);renderDims()}else copyText(dimText(d))};
+  if(b.dataset.a==='del'){dims=dims.filter(x=>x!==d);renderDims()}else if(b.dataset.a==='edit')editDim(d);else copyText(dimText(d))};
+// ---- Bemaßung bearbeiten (Art, Präfix/Suffix, Text, Toleranz) ----
+function editDim(d){if(!d)return;dimSel=d.no;$('dimedit').hidden=false;$('deNo').textContent=d.no;
+  const lin=['ausgerichtet','horizontal','vertikal'];const ts=lin.includes(d.typ)?lin:[d.typ||'auto'];$('deTyp').innerHTML=ts.map(t=>`<option value="${t}">${BM.TYPEN.find(x=>x[0]===t)?.[1]||'Nur Text'}</option>`).join('');$('deTyp').value=d.typ||'auto';$('deTyp').disabled=!lin.includes(d.typ);
+  $('dePre').value=d.praefix||'';$('deSuf').value=d.suffix||'';$('deText').value=d.text||'';$('deTol').value=d.tol?.art||'keine';$('deO').value=d.tol?.o??0;$('deU').value=d.tol?.u??0;needs=true}
+const curDim=()=>dims.find(x=>x.no===dimSel);
+['dePre','deSuf','deText','deTol','deO','deU','deTyp'].forEach(id=>$(id).addEventListener('input',()=>{const d=curDim();if(!d)return;
+  d.praefix=$('dePre').value;d.suffix=$('deSuf').value;d.text=$('deText').value;d.tol={art:$('deTol').value,o:parseFloat(String($('deO').value).replace(',','.'))||0,u:parseFloat(String($('deU').value).replace(',','.'))||0};
+  if(id==='deTyp'&&d.typ!==$('deTyp').value){const keep={tol:d.tol,praefix:d.praefix,suffix:d.suffix,text:d.text};const g=baueDim(d,$('deTyp').value);if(g)Object.assign(d,g,keep)}needs=true}));
+$('deClose').onclick=()=>{dimSel=null;$('dimedit').hidden=true;needs=true};
+// ---- Maßstil ----
+$('stPfeil').innerHTML=BM.PFEILARTEN.map(([k,t])=>`<option value="${k}">${t}</option>`).join('');$('stGroesse').value=STIL.groesse;$('stPfeil').value=STIL.pfeil;$('stStellen').value=STIL.stellen;
+['stGroesse','stPfeil','stStellen'].forEach(id=>$(id).addEventListener('input',()=>{STIL={groesse:Math.max(8,Math.min(40,+$('stGroesse').value||14)),pfeil:$('stPfeil').value,stellen:Math.max(0,Math.min(4,parseInt($('stStellen').value)||0))};localStorage.setItem('massstil',JSON.stringify(STIL));needs=true}));
+$('dimtyp').innerHTML=BM.TYPEN.map(([k,t])=>`<option value="${k}">${t}</option>`).join('');
+$('dimSet').onclick=()=>keepDim($('dimtyp').value);
+// ---- Bemaßung ziehen: Maßtext mit links greifen und ziehen ----
+const modelPointAt=(cx,cy,ref)=>{const r=renderer.domElement.getBoundingClientRect();const wr=model.localToWorld(V3(ref)).project(camera);
+  const v=new THREE.Vector3(((cx-r.left)/r.width)*2-1,-((cy-r.top)/r.height)*2+1,wr.z).unproject(camera);return model.worldToLocal(v).toArray()};
+function dimRef(d){return d.p1?BM.V.mul(BM.V.add(d.p1,d.p2),0.5):(d.v||d.c||d.p)}
+renderer.domElement.addEventListener('pointerdown',e=>{if(e.button!==0||!dims.length)return;const r=renderer.domElement.getBoundingClientRect();const x=e.clientX-r.left,y=e.clientY-r.top;
+  const h=dimHits.find(h=>Math.abs(h.x-x)<(h.w?h.w/2+6:h.r)&&Math.abs(h.y-y)<(h.h?h.h:h.r));if(!h)return;const d=dims.find(q=>q.no===h.no);dimDrag={d,moved:false};dimSel=d.no;try{renderer.domElement.setPointerCapture(e.pointerId)}catch{}e.stopImmediatePropagation();needs=true},true);
+renderer.domElement.addEventListener('pointermove',e=>{if(!dimDrag)return;e.stopImmediatePropagation();dimDrag.moved=true;BM.ziehe(dimDrag.d,modelPointAt(e.clientX,e.clientY,dimRef(dimDrag.d)));needs=true},true);
+renderer.domElement.addEventListener('pointerup',e=>{if(!dimDrag)return;e.stopImmediatePropagation();const d=dimDrag.d,mv=dimDrag.moved;dimDrag=null;down=null;if(!mv)editDim(d);needs=true},true);
+// ---- Ansicht mit Bemaßungen exportieren (PNG/PDF) ----
+function ansichtBild(){renderer.render(scene,camera);drawDims();const c=document.createElement('canvas');c.width=renderer.domElement.width;c.height=renderer.domElement.height;const x=c.getContext('2d');
+  x.drawImage(renderer.domElement,0,0);x.drawImage(overlay,0,0,c.width,c.height);return c}
+const toBytes=url=>{const b=atob(url.split(',')[1]);const u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u};
+async function exportPng(){await saveBytes(baseName()+'_Bemaßung.png',toBytes(ansichtBild().toDataURL('image/png')),'PNG-Bild','png','image/png')}
+async function exportPdf(){const c=ansichtBild();const {jsPDF}=await import('jspdf');const pdf=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  pdf.setFontSize(12);pdf.text(`${window.__lastLoad?.name||'Teil'} – Bemaßung (Maße in mm)`,12,12);let w=273,h=w*c.height/c.width;if(h>180){h=180;w=h*c.width/c.height}
+  pdf.addImage(c.toDataURL('image/png'),'PNG',12+(273-w)/2,18,w,h);pdf.setFontSize(8);pdf.text(new Date().toLocaleDateString('de-DE'),12,203);
+  await saveBytes(baseName()+'_Bemaßung.pdf',new Uint8Array(pdf.output('arraybuffer')),'PDF-Dokument','pdf','application/pdf')}
+$('dimPng').onclick=exportPng;$('dimPdf').onclick=exportPdf;
+
 $('dimClear').onclick=()=>{dims=[];renderDims()};
 $('dimCopyAll').onclick=()=>copyText(dims.map(dimText).join('\n\n'));
 $('prec').value=String(PREC);$('prec').onchange=()=>{PREC=+$('prec').value;localStorage.setItem('genauigkeit',PREC);renderDims();if(lastRes)kv($('mresult'),lastRes.r.rows);if(data){showModel?.();showMass?.()}if(sheetCache)calcSheet()};
@@ -288,7 +374,7 @@ $('expPdf').onclick=async()=>{if(!sheetCache?.flat||sheetCache.flat.incomplete)r
 $('expXlsx').onclick=async()=>{if(!sheetCache?.flat||sheetCache.flat.incomplete)return;const E=await import('./biegetabelle-export.js');await saveBytes(baseName()+'_Biegetabelle.xlsx',await E.xlsx(sheetCache,exportMeta()),'Excel-Arbeitsmappe','xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')};
 
 // ---------- Test-Schnittstelle ----------
-window.__loadUrl=async u=>load(await (await fetch(u)).arrayBuffer(),u.split('/').pop());
-window.__app={hoverCount:()=>hoverObj.children.length,dimLabels:()=>dimGroup.children.map(g=>{const sp=g.children.find(o=>o.isSprite);return [sp.position.toArray(),sp.center.y]}),dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
+window.__viewMenu=(x,y)=>viewMenu(x,y);window.__loadUrl=async u=>load(await (await fetch(u)).arrayBuffer(),u.split('/').pop());
+window.__app={hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position.toArray(),fitIso:()=>fit(views.iso),dimLabels:()=>dimHits.map(h=>[[h.x,h.y,0],h.no]),exportPng,exportPdf,editDim:no=>editDim(dims.find(d=>d.no===no)),stil:()=>STIL,dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
   screenOf:p=>{const r=renderer.domElement.getBoundingClientRect();const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*r.width+r.left,(1-w.y)/2*r.height+r.top]}};
 window.__toggleMeasure=()=>{};

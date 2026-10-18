@@ -41,7 +41,7 @@ async fn save_bytes(app: tauri::AppHandle, name: String, data: Vec<u8>, filter: 
     let pfad = app
         .dialog()
         .file()
-        .set_title("Biegetabelle speichern")
+        .set_title("Datei speichern")
         .set_file_name(&name)
         .add_filter(&filter, &[ext.as_str()])
         .blocking_save_file();
