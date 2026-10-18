@@ -8,6 +8,6 @@ assert.deepEqual(flat,['Halter komplett:','  Grundplatte:0','  Winkelbaugruppe:'
 console.log(JSON.stringify(r.stats),r.uniq.length);const s=B.sheet(0.5,1);assert.equal(s.t,2);assert.equal(s.bends.length,1);assert(Math.abs(Math.max(...s.flat.size)-(40+30+Math.PI/2*4))<1e-3);
 // Messen über zwei Instanzen desselben Unikats (Bolzen <1>, <2>): Achsabstand = √(120² + 50²)
 const bu=r.inst[3].u;const cf=r.uniq[bu].faces.findIndex(f=>f.type==='zylindrisch');
-const rows=B.measure([{k:'face',id:cf,inst:3},{k:'face',id:cf,inst:4}]).rows;const ax=rows.find(x=>x[0]==='Achsabstand')[1];
+const rows=B.measure([{k:'face',id:cf,inst:3},{k:'face',id:cf,inst:4}]).rows;const ax=rows.find(x=>x[0]==='Lochabstand Mitte–Mitte')[1];
 assert(Math.abs(ax-130)<1e-6,'Achsabstand '+ax);
 console.log('OK: Baugruppenbaum');
