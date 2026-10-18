@@ -18,6 +18,8 @@ jobs:
       - run: node tools/test-einheit.mjs public/testblech.step
       - run: node tools/test-messen.mjs
       - run: node tools/test-abwicklung.mjs
+      - run: sudo apt-get install -y poppler-utils unzip
+      - run: node tools/test-export.mjs
       - run: node tools/test-baum.mjs
       - run: npm run build
   build:

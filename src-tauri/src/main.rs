@@ -3,7 +3,7 @@
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![save_text])
+        .invoke_handler(tauri::generate_handler![save_text, save_bytes])
         .setup(|_app| {
             #[cfg(target_os = "macos")]
             mac_menu(_app)?;
@@ -28,6 +28,27 @@ async fn save_text(app: tauri::AppHandle, name: String, content: String) -> Resu
         Some(p) => {
             let p = p.into_path().map_err(|e| format!("Ungültiger Pfad: {e}"))?;
             std::fs::write(&p, content).map_err(|e| format!("Datei konnte nicht geschrieben werden: {e}"))?;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
+/// Speichert Binärdaten (Biegetabelle als PDF oder XLSX) über den Speichern-Dialog des Systems.
+#[tauri::command]
+async fn save_bytes(app: tauri::AppHandle, name: String, data: Vec<u8>, filter: String, ext: String) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let pfad = app
+        .dialog()
+        .file()
+        .set_title("Biegetabelle speichern")
+        .set_file_name(&name)
+        .add_filter(&filter, &[ext.as_str()])
+        .blocking_save_file();
+    match pfad {
+        Some(p) => {
+            let p = p.into_path().map_err(|e| format!("Ungültiger Pfad: {e}"))?;
+            std::fs::write(&p, data).map_err(|e| format!("Datei konnte nicht geschrieben werden: {e}"))?;
             Ok(true)
         }
         None => Ok(false),

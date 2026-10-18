@@ -103,3 +103,19 @@ Testteile (selbst erzeugt mit `tools/make-abwicklung-teile.py`, CadQuery):
 Geprüft durch `tools/test-abwicklung.mjs` (CI, Sollmaße) und `tools/smoke-abwicklung.mjs` (headless).
 
 ![Wanne](docs/abwicklung-wanne.png) ![Abwicklung Wanne](docs/abwicklung-wanne-flach.png) ![Warnung](docs/abwicklung-warnung.png)
+
+## Biegetabelle exportieren
+
+Im Blech-Panel stehen die Knöpfe **„Biegetabelle als PDF“** und **„Biegetabelle als Excel (XLSX)“**. Beide sind gesperrt, solange die Abwicklung unvollständig ist.
+
+- **Inhalt:**
+  - Kopf: Teil, Datum, Blechdicke, Werkstoff, K-Faktor, Zuschnitt (Länge × Breite), Masse
+  - je Biegung: Nr. (Reihenfolge der Abwicklung, keine Biegefolgeplanung), Winkel, Ri, Richtung, Lage der Biegelinie im Zuschnitt (Ursprung linke untere Ecke wie im DXF; im XLSX zusätzlich x1/y1/x2/y2), Biegelänge, BZ, v, K mit Quelle
+  - Schenkellängen bis Biegepunkt und gerader Teil, jeweils innen und außen
+  - im PDF zusätzlich eine Vorschau der Abwicklung mit nummerierten Biegelinien
+- **Format:** PDF A4 quer, deutsch, mit jsPDF + jspdf-autotable (MIT). XLSX mit write-excel-file (MIT); Zahlen werden als Zahlen gespeichert, deutsches Excel zeigt sie mit Komma.
+- **Speichern:** In der Desktop-App über den System-Dialog (Rust-Befehl `save_bytes`), im Browser als Download.
+
+Tests: `tools/test-export.mjs` (CI, prüft PDF-Text, XLSX-Inhalt und die Lage der Biegelinien gegen Sollwerte) und `tools/smoke-export.mjs` (headless, Knöpfe im Blech-Panel).
+
+![Export](docs/biegetabelle-export.png) ![PDF](docs/biegetabelle-pdf.png)
