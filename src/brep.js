@@ -39,84 +39,92 @@ export function createBrep(oc){
       for(const i of arr)if(this.list[i].shape.IsSame(s))return i;if(!add)return -1;const i=this.list.length;this.list.push(add(s));arr.push(i);return i}}
 
   const M={};
-  M.load=(bytes,name='modell.step',hier=null)=>{
-    const t0=Date.now();
+  // Instanz-Transformationen (3x4, zeilenweise)
+  const T={p:(m,q)=>[m[0]*q[0]+m[1]*q[1]+m[2]*q[2]+m[3],m[4]*q[0]+m[5]*q[1]+m[6]*q[2]+m[7],m[8]*q[0]+m[9]*q[1]+m[10]*q[2]+m[11]],
+    d:(m,q)=>[m[0]*q[0]+m[1]*q[1]+m[2]*q[2],m[4]*q[0]+m[5]*q[1]+m[6]*q[2],m[8]*q[0]+m[9]*q[1]+m[10]*q[2]]};
+  const trsfArr=loc=>{const t=loc.Transformation();const m=[];for(let r=1;r<=3;r++)for(let c=1;c<=4;c++)m.push(t.Value(r,c));return m};
+  M.load=(bytes,name='modell.step',hier=null,progress=()=>{})=>{
+    const t0=Date.now(),times={};let tt=Date.now();const lap=k=>{times[k]=Date.now()-tt;tt=Date.now()};
     const text=new TextDecoder('latin1').decode(bytes.subarray(0,Math.min(bytes.length,4e6)));
     const unit=stepUnit(text);
-    const pn=/PRODUCT\(\s*'([^']*)'/.exec(text);
+    progress('STEP-Datei wird gelesen …');
     oc.FS.writeFile('/in.step',bytes);
     const r=new oc.STEPControl_Reader_1();
-    const st=r.ReadFile('/in.step');
+    const st=r.ReadFile('/in.step');oc.FS.unlink('/in.step');
     if(st!==oc.IFSelect_ReturnStatus.IFSelect_RetDone)throw new Error('STEP-Datei konnte nicht gelesen werden');
+    lap('lesen');progress('Geometrie wird übersetzt …');
     tryCall(()=>r.TransferRoots(),()=>r.TransferRoots(new oc.Message_ProgressRange_1()));
-    const shape=r.OneShape();oc.FS.unlink('/in.step');
-    // Feinheit relativ zur Größe
-    const bb=M.bbox(shape);const diag=V.len(V.sub(bb.max,bb.min))||1;
-    tryCall(()=>new oc.BRepMesh_IncrementalMesh_2(shape,diag/1500,false,0.35,false));
-    const faces=new Index(),edges=new Index(),verts=new Index();const solids=[];
-    explore(shape,TA.TopAbs_SOLID,s=>solids.push(oc.TopoDS.Solid_1(s)));
-    if(!solids.length)solids.push(shape);
-    const meshes=[];
-    solids.forEach((sol,si)=>{
-      const pos=[],idx=[],fid=[];
-      explore(sol,TA.TopAbs_FACE,fs=>{
-        const f=oc.TopoDS.Face_1(fs);
-        const fi=faces.find(f,s=>M.faceInfo(oc.TopoDS.Face_1(s),si));
-        const loc=new oc.TopLoc_Location_1();const h=oc.BRep_Tool.Triangulation(f,loc);
-        if(h.IsNull())return;const tri=h.get();const tr=loc.Transformation();
-        const base=pos.length/3;const n=tri.NbNodes();
-        const nodes=tryCall(()=>{const a=tri.Nodes();return i=>a.Value(i)},()=>i=>tri.Node(i));
-        for(let i=1;i<=n;i++){const p=nodes(i).Transformed(tr);pos.push(p.X(),p.Y(),p.Z())}
-        const tris=tryCall(()=>{const a=tri.Triangles();return i=>a.Value(i)},()=>i=>tri.Triangle(i));
-        const rev=f.Orientation_1()===oc.TopAbs_Orientation.TopAbs_REVERSED;
-        for(let i=1;i<=tri.NbTriangles();i++){const t=tris(i);let a=t.Value(1),b=t.Value(2),c=t.Value(3);if(rev)[b,c]=[c,b];idx.push(base+a-1,base+b-1,base+c-1);fid.push(fi)}
-        explore(f,TA.TopAbs_EDGE,es=>{const ei=edges.find(es,s=>M.edgeInfo(oc.TopoDS.Edge_1(s)));const e=edges.list[ei];if(!e.faces.includes(fi))e.faces.push(fi)});
-      });
-      meshes.push({name:solids.length>1?`Körper ${si+1}`:(pn&&pn[1]&&!/^Open CASCADE/i.test(pn[1])?pn[1]:name.replace(/\.(step|stp)$/i,'')),p:new Float32Array(pos),i:new Uint32Array(idx),f:new Uint32Array(fid)});
-    });
-    explore(shape,TA.TopAbs_VERTEX,vs=>verts.find(vs,s=>({shape:oc.TopoDS.Vertex_1(s),p:P(oc.BRep_Tool.Pnt(oc.TopoDS.Vertex_1(s)))})));
-    const boxes=meshes.map(m=>{const mn=[Infinity,Infinity,Infinity],mx=[-Infinity,-Infinity,-Infinity];for(let k=0;k<m.p.length;k+=3)for(let j=0;j<3;j++){mn[j]=Math.min(mn[j],m.p[k+j]);mx[j]=Math.max(mx[j],m.p[k+j])}return {min:mn,max:mx}});
-    const tree=buildTree(hier,boxes,meshes.map(m=>m.name),name);
-    M.shape=shape;M.faces=faces.list;M.edges=edges.list;M.verts=verts.list;M.solids=solids;M.unit=unit;
-    return {name,unit,meshes,tree,
-      edges:M.edges.map(e=>({type:e.type,pts:e.pts,c:e.circle?.c})),
-      verts:M.verts.map(v=>v.p),
-      faces:M.faces.map(f=>({type:f.type})),
-      ms:Date.now()-t0};
-  };
-  // Hierarchie (Namen) aus occt-import-js den B-Rep-Körpern über Bounding-Boxen zuordnen
-  function buildTree(hier,boxes,defNames,fileName){
-    const all=boxes.map((_,i)=>i);
-    if(!hier||!hier.root)return {name:fileName.replace(/\.(step|stp)$/i,''),children:all.map(i=>({name:defNames[i],bodies:[i],children:[]})),bodies:[]};
-    const dist=(a,b)=>V.len(V.sub(a.min,b.min))+V.len(V.sub(a.max,b.max));
-    // jeder B-Rep-Körper -> nächstgelegenes Import-Netz
-    const owner=boxes.map(b=>{let best=-1,bd=Infinity;hier.boxes.forEach((h,j)=>{const d=dist(b,h);if(d<bd){bd=d;best=j}});return best});
-    const byMesh=new Map();owner.forEach((j,i)=>{if(!byMesh.has(j))byMesh.set(j,[]);byMesh.get(j).push(i)});
-    const count=new Map();const uniq=n=>{const c=(count.get(n)||0)+1;count.set(n,c);return c};
-    const conv=n=>{const node={name:n.name||'Baugruppe',children:[],bodies:[]};
-      (n.meshes||[]).forEach(j=>{const b=byMesh.get(j)||[];const mn=hier.boxes[j].name;
-        if(mn&&mn!==node.name)node.children.push({name:mn,children:[],bodies:b});else node.bodies.push(...b)});
-      (n.children||[]).forEach(c=>{const k=conv(c);if(k.children.length||k.bodies.length)node.children.push(k)});
+    const shape=r.OneShape();lap('uebersetzen');
+    // OCCT-Struktur mit kumulierten Lagen durchlaufen; Volumenkörper = Instanzen, gleiche TShape = ein Unikat
+    progress('Teile werden zugeordnet …');
+    const occTree=sh=>{const n={sh,kids:[],solids:[]};
+      if(sh.ShapeType()===TA.TopAbs_SOLID){n.solids.push(sh);return n}
+      if(sh.ShapeType()===TA.TopAbs_COMPOUND||sh.ShapeType()===TA.TopAbs_COMPSOLID){const it=new oc.TopoDS_Iterator_2(sh,true,true);for(;it.More();it.Next())n.kids.push(occTree(it.Value()));return n}
+      const ss=[];explore(sh,TA.TopAbs_SOLID,x=>ss.push(x));if(!ss.length&&(sh.ShapeType()===TA.TopAbs_SHELL))ss.push(sh);n.solids.push(...ss);return n};
+    const oroot=occTree(shape);
+    const allSolids=n=>[...n.solids,...n.kids.flatMap(allSolids)];
+    const uniq=new Index(),inst=[];const ident=new oc.TopLoc_Location_1();
+    const addInst=sh=>{const loc=sh.Location_1();const base=sh.Located(ident);
+      const u=uniq.find(base,x=>({shape:x}));const i=inst.length;inst.push({u,loc,m:trsfArr(loc)});return i};
+    // Baum: STEP-Hierarchie (Namen) strukturgleich auf OCCT-Baum legen
+    let stats={knoten:0,passend:0};
+    const match=(sn,on)=>{stats.knoten++;
+      const node={name:sn?sn.name:'Körper',children:[],bodies:[]};
+      if(!sn||!sn.children.length){allSolids(on).forEach(x=>node.bodies.push(addInst(x)));if(sn)stats.passend++;return node}
+      let o=on;while(o.kids.length===1&&!o.solids.length&&sn.children.length>1)o=o.kids[0];
+      if(o.kids.length===sn.children.length)stats.passend++;
+      const n=Math.min(o.kids.length,sn.children.length);
+      for(let i=0;i<n;i++){const c=match(sn.children[i],o.kids[i]);if(c.bodies.length||c.children.length)node.children.push(c)}
+      for(let i=n;i<o.kids.length;i++)allSolids(o.kids[i]).forEach(x=>node.children.push({name:'Körper',children:[],bodies:[addInst(x)]}));
+      o.solids.forEach(x=>node.bodies.push(addInst(x)));
       return node};
-    let root=conv(hier.root);
-    while(!root.bodies.length&&root.children.length===1&&root.children[0].children.length)root=root.children[0];
-    if(!root.name||root.name==='Baugruppe')root.name=fileName.replace(/\.(step|stp)$/i,'');
-    // Mehrfach verwendete Namen durchnummerieren wie in eDrawings: "Bolzen 1 <1>", "<2>"
-    const names=new Map();const walk=(n,f)=>{f(n);n.children.forEach(c=>walk(c,f))};
-    walk(root,n=>names.set(n.name,(names.get(n.name)||0)+1));
-    walk(root,n=>{if(names.get(n.name)>1&&n!==root)n.name=`${n.name} <${uniq(n.name)}>`});
-    const used=new Set();walk(root,n=>n.bodies.forEach(b=>used.add(b)));
-    all.filter(i=>!used.has(i)).forEach(i=>root.children.push({name:`Körper ${i+1}`,children:[],bodies:[i]}));
-    return root}
+    let sroot=hier&&hier.roots&&hier.roots.length===1?hier.roots[0]:(hier&&hier.roots&&hier.roots.length>1?{name:name.replace(/\.(step|stp)$/i,''),children:hier.roots}:null);
+    let tree;
+    if(sroot&&sroot.children.length)tree=match(sroot,oroot);
+    else{tree={name:(sroot&&sroot.name)||name.replace(/\.(step|stp)$/i,''),children:[],bodies:[]};const ss=allSolids(oroot);
+      if(ss.length===1)tree.bodies.push(addInst(ss[0]));else ss.forEach((x,i)=>tree.children.push({name:`Körper ${i+1}`,children:[],bodies:[addInst(x)]}))}
+    numberNames(tree);lap('zuordnen');
+    // Unikate tessellieren und indizieren
+    progress(`${uniq.list.length} Einzelteile werden aufbereitet …`);
+    const U=uniq.list;const bbAll=M.bbox(shape);const diag=V.len(V.sub(bbAll.max,bbAll.min))||1;
+    U.forEach((u,ui)=>{
+      const bb=M.bbox(u.shape);const d=V.len(V.sub(bb.max,bb.min))||diag;
+      const defl=Math.min(Math.max(d/600,diag/20000),diag/1500);
+      tryCall(()=>new oc.BRepMesh_IncrementalMesh_2(u.shape,defl,false,0.35,false));
+      const faces=new Index(),edges=new Index(),verts=new Index();const pos=[],idx=[],fid=[];
+      explore(u.shape,TA.TopAbs_FACE,fs=>{const f=oc.TopoDS.Face_1(fs);const fi=faces.find(f,x=>M.faceInfo(oc.TopoDS.Face_1(x),ui));
+        const loc=new oc.TopLoc_Location_1();const h=oc.BRep_Tool.Triangulation(f,loc);
+        if(!h.IsNull()){const tri=h.get();const tr=loc.Transformation();const base=pos.length/3;
+          const nodes=tryCall(()=>{const a=tri.Nodes();return i=>a.Value(i)},()=>i=>tri.Node(i));
+          for(let i=1;i<=tri.NbNodes();i++){const q=nodes(i).Transformed(tr);pos.push(q.X(),q.Y(),q.Z())}
+          const tris=tryCall(()=>{const a=tri.Triangles();return i=>a.Value(i)},()=>i=>tri.Triangle(i));
+          const rev=f.Orientation_1()===oc.TopAbs_Orientation.TopAbs_REVERSED;
+          for(let i=1;i<=tri.NbTriangles();i++){const t=tris(i);let a=t.Value(1),b=t.Value(2),c=t.Value(3);if(rev)[b,c]=[c,b];idx.push(base+a-1,base+b-1,base+c-1);fid.push(fi)}}
+        explore(f,TA.TopAbs_EDGE,es=>{const ei=edges.find(es,x=>M.edgeInfo(oc.TopoDS.Edge_1(x)));const e=edges.list[ei];if(!e.faces.includes(fi))e.faces.push(fi)})});
+      explore(u.shape,TA.TopAbs_VERTEX,vs=>verts.find(vs,x=>({shape:oc.TopoDS.Vertex_1(x),p:P(oc.BRep_Tool.Pnt(oc.TopoDS.Vertex_1(x)))})));
+      Object.assign(u,{faces:faces.list,edges:edges.list,verts:verts.list,p:new Float32Array(pos),i:new Uint32Array(idx),f:new Uint32Array(fid),bb});
+      if(ui%20===0)progress(`Einzelteile werden aufbereitet … ${ui+1}/${U.length}`)});
+    lap('tessellieren');
+    M.shape=shape;M.uniq=U;M.inst=inst;M.unit=unit;M.vcache=new Map();
+    const nameOf=new Array(inst.length).fill('Körper');const w=n=>{n.bodies.forEach(b=>nameOf[b]=n.name);n.children.forEach(w)};w(tree);
+    M.faces=U[0]?.faces||[];M.edges=U[0]?.edges||[];
+    times.gesamt=Date.now()-t0;
+    return {name,unit,tree,times,stats:{...stats,unikate:U.length,instanzen:inst.length},
+      uniq:U.map(u=>({p:u.p,i:u.i,f:u.f,faces:u.faces.map(f=>({type:f.type})),edges:u.edges.map(e=>({type:e.type,pts:e.pts,c:e.circle?.c})),verts:u.verts.map(v=>v.p)})),
+      inst:inst.map((x,i)=>({u:x.u,m:x.m,name:nameOf[i]})),ms:Date.now()-t0}};
+  function numberNames(root){
+    const names=new Map(),cnt=new Map();const walk=(n,f)=>{f(n);n.children.forEach(c=>walk(c,f))};
+    walk(root,n=>{if(n!==root)names.set(n.name,(names.get(n.name)||0)+1)});
+    walk(root,n=>{if(n!==root&&names.get(n.name)>1){const c=(cnt.get(n.name)||0)+1;cnt.set(n.name,c);n.name=`${n.name} <${c}>`}})}
+  const uProps=u=>{if(!M.uniq[u].vp){const sh=M.uniq[u].shape;const v=props('V',sh),a=props('S',sh);M.uniq[u].vp={v:Math.abs(v.mass),c:v.c,a:a.mass}}return M.uniq[u].vp};
   M.solidProps=ids=>{let vol=0,area=0;const mn=[Infinity,Infinity,Infinity],mx=[-Infinity,-Infinity,-Infinity];
-    ids.forEach(i=>{const s=M.solids[i];vol+=Math.abs(props('V',s).mass);area+=props('S',s).mass;
-      M.faces.forEach(f=>{if(f.solid!==i)return});
-      M.edges.forEach(e=>{if(!e.faces.some(fi=>M.faces[fi].solid===i))return;e.pts.forEach(p=>{for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],p[k]);mx[k]=Math.max(mx[k],p[k])}})})});
+    ids.forEach(i=>{const I=M.inst[i],q=uProps(I.u);vol+=q.v;area+=q.a;
+      M.uniq[I.u].edges.forEach(e=>e.pts.forEach(p0=>{const p=T.p(I.m,p0);for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],p[k]);mx[k]=Math.max(mx[k],p[k])}}))});
     return {volume:vol,area,bbox:{min:mn,max:mx},bodies:ids.length}};
   M.bbox=s=>{const b=new oc.Bnd_Box_1();tryCall(()=>oc.BRepBndLib.Add(s,b,true),()=>oc.BRepBndLib.Add(s,b));return {min:P(b.CornerMin()),max:P(b.CornerMax())}};
   M.faceInfo=(f,solid)=>{
     const a=new oc.BRepAdaptor_Surface_2(f,true);const t=a.GetType();const rev=f.Orientation_1()===oc.TopAbs_Orientation.TopAbs_REVERSED;
-    const o={shape:f,solid,type:'sonstige',area:props('S',f).mass};
+    const o={shape:f,solid,type:'sonstige'};let _a;Object.defineProperty(o,'area',{get:()=>_a??=props('S',f).mass,enumerable:true});
     const u0=a.FirstUParameter(),u1=a.LastUParameter(),v0=a.FirstVParameter(),v1=a.LastVParameter();
     o.mid=P(a.Value((u0+u1)/2,(v0+v1)/2));
     if(t===ST.GeomAbs_Plane){const pl=a.Plane();let n=D(pl.Axis().Direction());if(rev)n=V.mul(n,-1);o.type='eben';o.plane={o:P(pl.Location()),n}}
@@ -125,24 +133,33 @@ export function createBrep(oc){
     return o};
   M.edgeInfo=e=>{
     const a=new oc.BRepAdaptor_Curve_2(e);const t=a.GetType();const u0=a.FirstParameter(),u1=a.LastParameter();
-    const o={shape:e,faces:[],type:'Kurve',len:props('L',e).mass};
+    const o={shape:e,faces:[],type:'Kurve'};let _l;Object.defineProperty(o,'len',{get:()=>_l??=props('L',e).mass,enumerable:true});
     let n=24;if(t===CT.GeomAbs_Line){o.type='Gerade';n=1;o.line={p:P(a.Value(u0)),d:V.norm(V.sub(P(a.Value(u1)),P(a.Value(u0))))}}
     else if(t===CT.GeomAbs_Circle){const c=a.Circle();o.type='Kreis';o.circle={c:P(c.Location()),n:D(c.Axis().Direction()),r:c.Radius(),ang:Math.abs(u1-u0)};n=Math.max(8,Math.ceil(o.circle.ang/(Math.PI/24)))}
     o.pts=[];for(let i=0;i<=n;i++)o.pts.push(P(a.Value(u0+(u1-u0)*i/n)));
     return o};
 
   // ---------- Messen ----------
-  const sel2shape=s=>s.k==='solid'?M.solids[s.id]:s.k==='face'?M.faces[s.id].shape:s.k==='edge'?M.edges[s.id].shape:s.k==='vertex'?M.verts[s.id].shape:mkVertex(selPoint(s));
-  const selPoint=s=>s.k==='vertex'?M.verts[s.id].p:(s.k==='center'?M.edges[s.id].circle.c:s.p);
-  const dirOf=s=>{if(s.k==='face'){const f=M.faces[s.id];if(f.plane)return{kind:'n',d:f.plane.n};if(f.cyl)return{kind:'a',d:f.cyl.d}}
-    if(s.k==='edge'){const e=M.edges[s.id];if(e.line)return{kind:'a',d:e.line.d};if(e.circle)return{kind:'n',d:e.circle.n}}return null};
+  // Auswahl {k,id,inst}: id lokal im Unikat der Instanz; alles in Weltkoordinaten auflösen
+  const RES=s=>{if(s._r)return s._r;const I=M.inst[s.inst??0],U=M.uniq[I.u],m=I.m;const o={};
+    if(s.k==='solid'){o.shape=U.shape.Moved(I.loc)}
+    if(s.k==='face'){const f=U.faces[s.id];o.f={type:f.type,area:f.area,plane:f.plane&&{o:T.p(m,f.plane.o),n:T.d(m,f.plane.n)},cyl:f.cyl&&{...f.cyl,c:T.p(m,f.cyl.c),d:T.d(m,f.cyl.d)}};o.shape=f.shape.Moved(I.loc)}
+    if(s.k==='edge'||s.k==='center'){const e=U.edges[s.id];o.e={type:e.type,len:e.len,line:e.line&&{p:T.p(m,e.line.p),d:T.d(m,e.line.d)},circle:e.circle&&{...e.circle,c:T.p(m,e.circle.c),n:T.d(m,e.circle.n)}};o.shape=e.shape.Moved(I.loc)}
+    if(s.k==='vertex'){o.p=T.p(m,U.verts[s.id].p);o.shape=U.verts[s.id].shape.Moved(I.loc)}
+    if(s.k==='center'){o.p=o.e.circle.c;o.shape=mkVertex(o.p)}
+    if(s.k==='point'){o.p=s.p;o.shape=mkVertex(s.p)}
+    return s._r=o};
+  const sel2shape=s=>RES(s).shape;
+  const selPoint=s=>RES(s).p;
+  const dirOf=s=>{const r=RES(s);if(r.f){if(r.f.plane)return{kind:'n',d:r.f.plane.n};if(r.f.cyl)return{kind:'a',d:r.f.cyl.d}}
+    if(r.e&&s.k==='edge'){if(r.e.line)return{kind:'a',d:r.e.line.d};if(r.e.circle)return{kind:'n',d:r.e.circle.n}}return null};
   M.minDist=(a,b)=>{const d=new oc.BRepExtrema_DistShapeShape_1();d.LoadS1(a);d.LoadS2(b);tryCall(()=>d.Perform(),()=>d.Perform(new oc.Message_ProgressRange_1()));
     if(!d.IsDone())throw new Error('Abstand konnte nicht berechnet werden');return {d:d.Value(),p1:P(d.PointOnShape1(1)),p2:P(d.PointOnShape2(1))}};
-  M.describe=s=>{const R=[];if(s.k==='solid'){const q=M.solidProps([s.id]);R.push(['Körper',s.id+1,'t'],['Volumen',q.volume,'V'],['Oberfläche',q.area,'A']);return R}
-    if(s.k==='face'){const f=M.faces[s.id];R.push(['Fläche',f.type,'t'],['Flächeninhalt',f.area,'A']);
+  M.describe=s=>{const R0=RES(s),R=[];if(s.k==='solid'){const q=M.solidProps([s.inst]);R.push(['Volumen',q.volume,'V'],['Oberfläche',q.area,'A']);return R}
+    if(s.k==='face'){const f=R0.f;R.push(['Fläche',f.type,'t'],['Flächeninhalt',f.area,'A']);
       if(f.cyl){R.push(['Radius',f.cyl.r,'L'],['Durchmesser',2*f.cyl.r,'L'],['Öffnungswinkel',f.cyl.ang*DEG,'W'])}
       if(f.plane)R.push(['Normale',f.plane.n.map(x=>x.toFixed(4)).join(' / '),'t'])}
-    if(s.k==='edge'){const e=M.edges[s.id];R.push(['Kante',e.type,'t'],['Kantenlänge',e.len,'L']);
+    if(s.k==='edge'){const e=R0.e;R.push(['Kante',e.type,'t'],['Kantenlänge',e.len,'L']);
       if(e.circle){R.push(['Radius',e.circle.r,'L'],['Durchmesser',2*e.circle.r,'L'],['Bogenwinkel',e.circle.ang*DEG,'W'],['Bogenlänge',e.circle.r*e.circle.ang,'L'],['Mittelpunkt',e.circle.c,'P'])}}
     if(s.k==='vertex'||s.k==='center'||s.k==='point')R.push([s.k==='center'?'Kreismittelpunkt':s.k==='vertex'?'Eckpunkt':'Punkt',selPoint(s),'P']);
     return R};
@@ -158,23 +175,31 @@ export function createBrep(oc){
       if(da.kind!==db.kind)ang=90-ang;
       if(da.kind==='n'&&db.kind==='n'){const s=V.dot(da.d,db.d);rows.push(['Winkel',ang,'W'],['Winkel (Normalen)',Math.acos(Math.max(-1,Math.min(1,s)))*DEG,'W'])}
       else rows.push(['Winkel',ang,'W']);
-      if(a.k==='face'&&b.k==='face'&&M.faces[a.id].plane&&M.faces[b.id].plane&&c>1-1e-9){const pa=M.faces[a.id].plane,pb=M.faces[b.id].plane;rows.push(['Paralleler Abstand',Math.abs(V.dot(V.sub(pb.o,pa.o),pa.n)),'L'])}
-      if(da.kind==='a'&&db.kind==='a'&&c>1-1e-9&&a.k==='edge'&&b.k==='edge'){const pa=M.edges[a.id].line.p,pb=M.edges[b.id].line.p,w=V.sub(pb,pa);rows.push(['Paralleler Abstand',V.len(V.sub(w,V.mul(da.d,V.dot(w,da.d)))),'L'])}}
-    const ax=s=>{if(s.k==='face'&&M.faces[s.id].cyl)return M.faces[s.id].cyl;if(s.k==='edge'&&M.edges[s.id].circle){const c=M.edges[s.id].circle;return{c:c.c,d:c.n}}return null};
+      if(a.k==='face'&&b.k==='face'&&RES(a).f.plane&&RES(b).f.plane&&c>1-1e-9){const pa=RES(a).f.plane,pb=RES(b).f.plane;rows.push(['Paralleler Abstand',Math.abs(V.dot(V.sub(pb.o,pa.o),pa.n)),'L'])}
+      if(da.kind==='a'&&db.kind==='a'&&c>1-1e-9&&a.k==='edge'&&b.k==='edge'){const pa=RES(a).e.line.p,pb=RES(b).e.line.p,w=V.sub(pb,pa);rows.push(['Paralleler Abstand',V.len(V.sub(w,V.mul(da.d,V.dot(w,da.d)))),'L'])}}
+    const ax=s=>{const r=RES(s);if(r.f&&r.f.cyl)return r.f.cyl;if(s.k==='edge'&&r.e.circle){const c=r.e.circle;return{c:c.c,d:c.n}}return null};
     const ca=ax(a),cb=ax(b);
     if(ca&&cb&&Math.abs(V.dot(ca.d,cb.d))>1-1e-9){const w=V.sub(cb.c,ca.c);rows.push(['Achsabstand',V.len(V.sub(w,V.mul(ca.d,V.dot(w,ca.d)))),'L'])}
     const isP=s=>['vertex','center','point'].includes(s.k);
     if(isP(a)&&isP(b)){const pa=selPoint(a),pb=selPoint(b);rows.splice(0,4,['Abstand',V.len(V.sub(pb,pa)),'L'],['ΔX',Math.abs(pb[0]-pa[0]),'L'],['ΔY',Math.abs(pb[1]-pa[1]),'L'],['ΔZ',Math.abs(pb[2]-pa[2]),'L']);gfx[0]=[pa,pb]}
     return {rows,gfx}};
-  M.model=()=>{const vp=props('V',M.shape),sp=props('S',M.shape),bb=M.bbox(M.shape);
-    // Bnd_Box enthält Toleranz-Zuschlag; enger über Vertices/Kanten-Punkte
-    const mn=[Infinity,Infinity,Infinity],mx=[-Infinity,-Infinity,-Infinity];
-    M.edges.forEach(e=>e.pts.forEach(p=>{for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],p[k]);mx[k]=Math.max(mx[k],p[k])}}));
-    const ok=isFinite(mn[0]);return {volume:Math.abs(vp.mass),area:sp.mass,centroid:vp.c,bbox:ok?{min:mn,max:mx}:bb,solids:M.solids.length,faces:M.faces.length,edges:M.edges.length}};
-
+  const meshVA=u=>{const U=M.uniq[u];if(U.mva)return U.mva;const p=U.p,ix=U.i;let v=0,A=0,cx=0,cy=0,cz=0;
+    for(let t=0;t<ix.length;t+=3){const a=ix[t]*3,b=ix[t+1]*3,c=ix[t+2]*3;const ax=p[a],ay=p[a+1],az=p[a+2],bx=p[b],by=p[b+1],bz=p[b+2],qx=p[c],qy=p[c+1],qz=p[c+2];
+      const dv=(ax*(by*qz-bz*qy)-ay*(bx*qz-bz*qx)+az*(bx*qy-by*qx))/6;v+=dv;cx+=dv*(ax+bx+qx)/4;cy+=dv*(ay+by+qy)/4;cz+=dv*(az+bz+qz)/4;
+      const ux=bx-ax,uy=by-ay,uz=bz-az,wx=qx-ax,wy=qy-ay,wz=qz-az;A+=Math.hypot(uy*wz-uz*wy,uz*wx-ux*wz,ux*wy-uy*wx)/2}
+    return U.mva={v:Math.abs(v),a:A,c:v?[cx/v,cy/v,cz/v]:[0,0,0]}};
+  M.modelFast=()=>{let vol=0,area=0,cx=[0,0,0];const mn=[Infinity,Infinity,Infinity],mx=[-Infinity,-Infinity,-Infinity];
+    M.inst.forEach(I=>{const q=meshVA(I.u);vol+=q.v;area+=q.a;const c=T.p(I.m,q.c);for(let k=0;k<3;k++)cx[k]+=c[k]*q.v;
+      const b=M.uniq[I.u].bb;for(let k=0;k<8;k++){const pt=T.p(I.m,[k&1?b.max[0]:b.min[0],k&2?b.max[1]:b.min[1],k&4?b.max[2]:b.min[2]]);for(let j=0;j<3;j++){mn[j]=Math.min(mn[j],pt[j]);mx[j]=Math.max(mx[j],pt[j])}}});
+    if(vol)cx=cx.map(x=>x/vol);
+    return {approx:true,volume:vol,area,centroid:cx,bbox:{min:mn,max:mx},solids:M.inst.length,unique:M.uniq.length,faces:M.inst.reduce((s,I)=>s+M.uniq[I.u].faces.length,0),edges:M.inst.reduce((s,I)=>s+M.uniq[I.u].edges.length,0)}};
+  M.model=()=>{const all=M.inst.map((_,i)=>i);const q=M.solidProps(all);let cx=[0,0,0];
+    M.inst.forEach(I=>{const v=uProps(I.u);const c=T.p(I.m,v.c);for(let k=0;k<3;k++)cx[k]+=c[k]*v.v});if(q.volume)cx=cx.map(x=>x/q.volume);
+    return {volume:q.volume,area:q.area,centroid:cx,bbox:isFinite(q.bbox.min[0])?q.bbox:M.bbox(M.shape),solids:M.inst.length,unique:M.uniq.length,faces:M.inst.reduce((s,I)=>s+M.uniq[I.u].faces.length,0),edges:M.inst.reduce((s,I)=>s+M.uniq[I.u].edges.length,0)}};
   // ---------- Blech ----------
   const coaxial=(A,B)=>{if(Math.abs(V.dot(A.d,B.d))<1-1e-6)return false;const w=V.sub(B.c,A.c);return V.len(V.sub(w,V.mul(A.d,V.dot(w,A.d))))<1e-3};
-  M.sheet=(K=0.5,solid=null)=>{const inS=f=>solid==null||f.solid===solid;
+  M.sheet=(K=0.5,inst=null)=>{if(inst==null){if(M.inst.length!==1)return {ok:false,msg:'Mehrere Körper: Bitte im Baum ein einzelnes Teil wählen (Rechtsklick → Blech-Abwicklung).'};inst=0}
+    const UU=M.uniq[M.inst[inst].u];M.faces=UU.faces;M.edges=UU.edges;const solid=null;const inS=()=>true;
     const cyl=M.faces.map((f,i)=>[f,i]).filter(([f])=>inS(f)&&f.cyl&&f.cyl.ang<Math.PI*1.999);
     const cand=new Map();const add=(t,w)=>{const k=t.toFixed(3);cand.set(k,(cand.get(k)||0)+w)};
     for(let i=0;i<cyl.length;i++)for(let j=i+1;j<cyl.length;j++){const A=cyl[i][0].cyl,B=cyl[j][0].cyl;if(coaxial(A,B)&&Math.abs(A.r-B.r)>1e-4)add(Math.abs(A.r-B.r),10*(cyl[i][0].area+cyl[j][0].area))}
@@ -231,7 +256,7 @@ export function createBrep(oc){
     res.flat={contour:lines,bendLines,min:mn,max:mx,size:[mx[0]-mn[0],mx[1]-mn[1]]};
     const nonSkinSheet=M.faces.filter((f,i)=>!skin.has(i)&&(f.plane||f.cyl)&&f.area>4*t*t*20).length;
     if(M.faces.some((f,i)=>inS(f)&&!skin.has(i)&&f.type!=='eben'&&f.type!=='zylindrisch'))res.warn.push('Das Teil enthält Freiform-/Kegelflächen; diese werden nicht abgewickelt.');
-    if(M.solids.length>1&&solid==null)res.warn.push('Mehrere Körper: Blechauswertung nur für zusammenhängende Flächen ab der größten ebenen Fläche.');
+    if(false)res.warn.push('Mehrere Körper: Blechauswertung nur für zusammenhängende Flächen ab der größten ebenen Fläche.');
     // Plausibilität: Fläche der Abwicklung vs. Hautfläche
     const skinArea=[...skin].reduce((s,i)=>s+M.faces[i].area,0);res.skinArea=skinArea;
     return res};
