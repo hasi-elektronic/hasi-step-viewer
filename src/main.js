@@ -120,13 +120,37 @@ async function act(a,n){
   if(a==='sheet'){if(n.all.length!==1)return;sheetSolid=n.all[0];tabTo('blech');await calcSheet()}}
 function zoomTo(n){const b=boxOf(n.all);if(b.isEmpty())return;const s=b.getSize(new THREE.Vector3()).length(),c=b.getCenter(new THREE.Vector3());
   const d=camera.position.clone().sub(controls.target).normalize();camera.position.copy(c).add(d.multiplyScalar(s*1.6));controls.target.copy(c);controls.update();needs=true}
-function ctxMenu(x,y,n){closeCtx();const m=document.createElement('div');m.id='ctx';
-  const one=n.all.length===1;
-  const items=[['toggle',n.checked?'Ausblenden':'Einblenden'],['isolate','Nur dieses anzeigen'],['showall','Alle einblenden'],['-'],['transp',n.transp?'Undurchsichtig':'Transparent'],['zoom','Heranzoomen'],['-'],['measure','Messen',!one],['props','Eigenschaften'],['sheet','Blech-Abwicklung',!one]];
+function ctxMenu(x,y,n,items,run){closeCtx();const m=document.createElement('div');m.id='ctx';
+  const one=n?n.all.length===1:false;
+  items=items||[['toggle',n.checked?'Ausblenden':'Einblenden'],['isolate','Nur dieses anzeigen'],['showall','Alle einblenden'],['-'],['transp',n.transp?'Undurchsichtig':'Transparent'],['zoom','Heranzoomen'],['-'],['measure','Messen',!one],['props','Eigenschaften'],['sheet','Blech-Abwicklung',!one]];
+  run=run||(a=>act(a,n));
   m.innerHTML=items.map(([a,t,dis])=>a==='-'?'<hr>':`<button data-a="${a}" ${dis?'disabled title="Nur bei genau einem Körper"':''}>${t}</button>`).join('');
   m.style.left=x+'px';m.style.top=y+'px';document.body.append(m);
-  const r=m.getBoundingClientRect();if(r.bottom>innerHeight)m.style.top=(y-r.height)+'px';
-  m.querySelectorAll('button').forEach(b=>b.onclick=()=>{closeCtx();act(b.dataset.a,n)})}
+  const r=m.getBoundingClientRect();if(r.bottom>innerHeight)m.style.top=Math.max(0,y-r.height)+'px';if(r.right>innerWidth)m.style.left=Math.max(0,x-r.width)+'px';
+  m.querySelectorAll('button').forEach(b=>b.onclick=()=>{closeCtx();run(b.dataset.a)})}
+// Kontextmenü in der 3D-Ansicht (wie eDrawings): Rechtsklick ohne Ziehen öffnet das Menü, mit Ziehen wird geschwenkt
+function viewMenu(x,y){const s=pickAt(x,y);const n=s&&s.body?nodeOfBody(s.body.userData.inst):null;
+  if(n){const one=n.all.length===1;selNode=n;renderTree();
+    ctxMenu(x,y,n,[['toggle','Ausblenden'],['isolate','Nur dieses anzeigen'],['transp',n.transp?'Undurchsichtig':'Transparent'],['zoom','Heranzoomen'],['tree','Im Baum zeigen'],['-'],['measureHere','Messen ab hier'],['props','Eigenschaften'],['-'],['sheet','Blech-Abwicklung',!one],['bendtab','Biegetabelle',!one]],
+      async a=>{if(a==='tree'){selectNode(n,true);$('tree').querySelector(`.trow[data-id="${n.id}"]`)?.scrollIntoView({block:'center'})}
+        else if(a==='measureHere'){tabTo('messen');clearSel();await select(s,false)}
+        else if(a==='bendtab'){await act('sheet',n);$('bends').scrollIntoView({block:'start'})}
+        else act(a,n)});return}
+  const cutOn=!!$('axis').value;
+  ctxMenu(x,y,null,[['showall','Alle einblenden'],['fit','Ansicht einpassen'],['-'],['vorne','Vorne'],['oben','Oben'],['rechts','Rechts'],['iso','Iso'],['-'],['cut',cutOn?'Schnitt aus':'Schnitt ein'],['dims','Alle Bemaßungen löschen',!dims.length],['shot','Screenshot speichern …']],
+    a=>{if(a==='showall'){nodes.forEach(x=>x.checked=true);applyVis();renderTree()}
+      if(a==='fit')fit();if(views[a])fit(views[a]);
+      if(a==='cut'){$('axis').value=cutOn?'':(lastAxis||'X');setCut()}
+      if(a==='dims'){dims=[];renderDims()}
+      if(a==='shot')screenshot()})}
+let lastAxis='';$('axis').addEventListener('change',()=>{if($('axis').value)lastAxis=$('axis').value});
+async function screenshot(){renderer.render(scene,camera);const url=renderer.domElement.toDataURL('image/png');
+  const bin=atob(url.split(',')[1]);const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+  const name=(window.__lastLoad?.name||'ansicht').replace(/\.(step|stp)$/i,'')+'-ansicht.png';await saveBytes(name,bytes,'PNG-Bild','png','image/png')}
+let rdown=null;
+renderer.domElement.addEventListener('pointerdown',e=>{if(e.button===2)rdown=[e.clientX,e.clientY]});
+renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
+renderer.domElement.addEventListener('pointerup',e=>{if(e.button!==2||!rdown)return;const moved=Math.hypot(e.clientX-rdown[0],e.clientY-rdown[1])>4;rdown=null;if(!moved&&model)viewMenu(e.clientX,e.clientY)});
 const closeCtx=()=>document.getElementById('ctx')?.remove();addEventListener('pointerdown',e=>{if(!e.target.closest('#ctx'))closeCtx()});addEventListener('keydown',e=>{if(e.key==='Escape'){closeCtx();$('props').hidden=true}});
 async function showProps(n){const q=await call('props',{ids:n.all});const d=parseFloat($('dens').value)||0;const s=V3(q.bbox.max).sub(V3(q.bbox.min));
   $('propsTitle').textContent='Eigenschaften: '+n.name;
@@ -200,7 +224,7 @@ renderer.domElement.addEventListener('pointerdown',e=>down=[e.clientX,e.clientY]
 renderer.domElement.addEventListener('pointermove',e=>{if(e.buttons||hoverRAF)return;hoverRAF=requestAnimationFrame(()=>{hoverRAF=0;hov=pickAt(e.clientX,e.clientY);hoverObj.clear();if(hov)hoverObj.add(hiObj(hov,0xff6a00));$('hover').textContent=hov?label(hov):'';
   const tip=$('snaptip'),r=$('view').getBoundingClientRect();tip.hidden=!hov;if(hov){tip.textContent=label(hov);tip.style.left=(e.clientX-r.left)+'px';tip.style.top=(e.clientY-r.top)+'px'}needs=true})});
 renderer.domElement.addEventListener('pointerleave',()=>{if(hoverRAF){cancelAnimationFrame(hoverRAF);hoverRAF=0}$('snaptip').hidden=true;hov=null;hoverObj.clear();$('hover').textContent='';needs=true});
-renderer.domElement.addEventListener('pointerup',e=>{if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;const s=pickAt(e.clientX,e.clientY);if(s){select(s,e.ctrlKey||e.shiftKey||e.metaKey);if(s.body){const n=nodeOfBody(s.body.userData.inst);if(n){selNode=n;for(let x=n.parent;x;x=x.parent)x.open=true;renderTree();document.querySelector(`.trow[data-id="${n.id}"]`)?.scrollIntoView({block:'nearest'})}}}});
+renderer.domElement.addEventListener('pointerup',e=>{if(e.button!==0)return;if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;const s=pickAt(e.clientX,e.clientY);if(s){select(s,e.ctrlKey||e.shiftKey||e.metaKey);if(s.body){const n=nodeOfBody(s.body.userData.inst);if(n){selNode=n;for(let x=n.parent;x;x=x.parent)x.open=true;renderTree();document.querySelector(`.trow[data-id="${n.id}"]`)?.scrollIntoView({block:'nearest'})}}}});
 addEventListener('keydown',e=>{if(e.code==='Space'&&document.activeElement.tagName!=='INPUT'){e.preventDefault();clearSel()}});
 $('clearSel').onclick=()=>clearSel();
 function clearSel(){sels=[];marks.clear();$('selinfo').textContent='';$('mresult').innerHTML='';window.__lastMeasure=null;needs=true}
@@ -288,7 +312,7 @@ $('expPdf').onclick=async()=>{if(!sheetCache?.flat||sheetCache.flat.incomplete)r
 $('expXlsx').onclick=async()=>{if(!sheetCache?.flat||sheetCache.flat.incomplete)return;const E=await import('./biegetabelle-export.js');await saveBytes(baseName()+'_Biegetabelle.xlsx',await E.xlsx(sheetCache,exportMeta()),'Excel-Arbeitsmappe','xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')};
 
 // ---------- Test-Schnittstelle ----------
-window.__loadUrl=async u=>load(await (await fetch(u)).arrayBuffer(),u.split('/').pop());
+window.__viewMenu=(x,y)=>viewMenu(x,y);window.__loadUrl=async u=>load(await (await fetch(u)).arrayBuffer(),u.split('/').pop());
 window.__app={hoverCount:()=>hoverObj.children.length,dimLabels:()=>dimGroup.children.map(g=>{const sp=g.children.find(o=>o.isSprite);return [sp.position.toArray(),sp.center.y]}),dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
   screenOf:p=>{const r=renderer.domElement.getBoundingClientRect();const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*r.width+r.left,(1-w.y)/2*r.height+r.top]}};
 window.__toggleMeasure=()=>{};
