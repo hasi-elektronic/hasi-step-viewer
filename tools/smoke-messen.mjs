@@ -22,7 +22,7 @@ const vi=await p.evaluate(()=>{const v=window.__app.data().uniq[0].verts;const f
 await sel(async v=>{const d=window.__app.data().uniq[0].verts;window.__app.clearSel();await window.__app.select({k:'vertex',id:v[0],inst:0,p:d[v[0]]});await window.__app.select({k:'vertex',id:v[1],inst:0,p:d[v[1]]})},vi);
 await sel(()=>window.__app.clearSel());
 const lab=await p.evaluate(()=>window.__app.dimLabels());const same=lab.filter(l=>Math.hypot(...l[0].map((x,i)=>x-lab[0][0][i]))<5);console.log('labels',JSON.stringify(lab.map(l=>l[1])));
-if(same.length<2||new Set(same.map(l=>l[1])).size!==same.length)fail('Labels mit gleichem Mittelpunkt überlappen');
+for(let i=0;i<lab.length;i++)for(let j=i+1;j<lab.length;j++)if(Math.hypot(lab[i][0][0]-lab[j][0][0],lab[i][0][1]-lab[j][0][1])<12)fail('Maßtexte überlappen');
 let dims=await p.evaluate(()=>window.__dims);console.log('bemassungen',JSON.stringify(dims.map(d=>d.text.split('\n')[1])));
 if(dims.length!==3)fail('3 Bemaßungen erwartet');if(!dims[0].text.includes('Abstand: 50,000 mm'))fail('Lochabstand falsch: '+dims[0].text);
 if(!dims[1].text.includes('Abstand max.: 63,000 mm'))fail('Abstand max fehlt');
