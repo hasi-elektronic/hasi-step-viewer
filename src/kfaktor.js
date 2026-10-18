@@ -1,0 +1,43 @@
+// K-Faktor und Biegetabellen.
+// Quelle der Formel: DIN 6935:2011-10 „Kaltbiegen von Flacherzeugnissen aus Stahl“, Abschnitt 4 (Ausgleichswert v)
+// mit dem Korrekturfaktor k = 0,65 + 0,5 · lg(ri / s) für ri/s < 5 und k = 1 für ri/s ≥ 5.
+// Die neutrale Faser liegt bei ri + k · s/2. Der hier verwendete K-Faktor (Anteil der Dicke) ist daher K = k/2.
+// Ausgleichswert (Biegeverkürzung) für den Biegewinkel φ (= 180° − Öffnungswinkel β):
+//   v = φ · (ri + k·s/2) − 2 · (ri + s) · tan(φ/2)     (0° < φ ≤ 90°: tan(φ/2) ≤ 1; DIN rechnet bis β ≥ 0°)
+export function dinKFaktor(ri,s){
+  const q=ri/s;let k=q>=5?1:0.65+0.5*Math.log10(q);
+  const hinweis=q<0.65?'ri/s < 0,65: außerhalb des üblichen Gültigkeitsbereichs der DIN-Formel':null;
+  k=Math.min(1,Math.max(0,k));return {K:k/2,k,hinweis};
+}
+const num=x=>{if(x==null)return NaN;const t=String(x).trim().replace(/\s/g,'');if(!t)return NaN;return parseFloat(t.replace(',','.'))};
+/** CSV mit Kopfzeile, Spalten (beliebige Reihenfolge): s|Dicke, ri|Radius, Winkel (optional), v und/oder K. Trenner ; oder , oder Tab. */
+export function parseBiegetabelle(text){
+  const lines=text.replace(/^\uFEFF/,'').split(/\r?\n/).filter(l=>l.trim()&&!l.trim().startsWith('#'));
+  if(lines.length<2)throw new Error('Biegetabelle: zu wenige Zeilen (Kopfzeile + mindestens eine Datenzeile nötig).');
+  const sep=lines[0].includes(';')?';':lines[0].includes('\t')?'\t':',';
+  const head=lines[0].split(sep).map(h=>h.trim().toLowerCase().replace(/[\s"()]|mm|°/g,''));
+  const col=(...names)=>head.findIndex(h=>names.includes(h));
+  const cs=col('s','dicke','blechdicke','t'),cr=col('ri','r','radius','innenradius'),cw=col('winkel','w','biegewinkel','phi'),cv=col('v','ausgleichswert','biegeverkürzung','verkuerzung','verkürzung'),ck=col('k','kfaktor','k-faktor');
+  if(cs<0||cr<0)throw new Error('Biegetabelle: Spalten „s“ und „ri“ fehlen.');
+  if(cv<0&&ck<0)throw new Error('Biegetabelle: Spalte „v“ oder „K“ fehlt.');
+  const rows=lines.slice(1).map((l,i)=>{const c=l.split(sep);const r={s:num(c[cs]),ri:num(c[cr]),w:cw>=0?num(c[cw]):NaN,v:cv>=0?num(c[cv]):NaN,K:ck>=0?num(c[ck]):NaN};
+    if(!(r.s>0)||!(r.ri>=0)||(isNaN(r.v)&&isNaN(r.K)))throw new Error(`Biegetabelle: Zeile ${i+2} ist ungültig.`);return r});
+  return rows;
+}
+/** Passenden Tabelleneintrag suchen (s ±1 %, ri ±2 %, Winkel ±1° bzw. Zeilen ohne Winkel gelten für alle). */
+export function sucheTabelle(rows,s,ri,wDeg){
+  if(!rows||!rows.length)return null;
+  const ok=rows.filter(r=>Math.abs(r.s-s)<=Math.max(0.01,0.01*s)&&Math.abs(r.ri-ri)<=Math.max(0.01,0.02*ri));
+  const mitW=ok.filter(r=>!isNaN(r.w)&&Math.abs(r.w-wDeg)<=1).sort((a,b)=>Math.abs(a.w-wDeg)-Math.abs(b.w-wDeg));
+  return mitW[0]||ok.find(r=>isNaN(r.w))||null;
+}
+/** Biegezugabe BZ, Ausgleichswert v und K für eine Biegung. opts: {modus:'din'|'manuell', K, tabelle} */
+export function biegung(ri,s,phi,opts){
+  const ossb=Math.tan(Math.min(phi,Math.PI-1e-9)/2)*(ri+s);
+  const tab=sucheTabelle(opts.tabelle,s,ri,phi*180/Math.PI);
+  if(tab&&!isNaN(tab.v)){const ba=tab.v+2*ossb;return {ba,v:tab.v,K:(ba/phi-ri)/s,quelle:'Tabelle'}}
+  if(tab&&!isNaN(tab.K)){const ba=phi*(ri+tab.K*s);return {ba,v:ba-2*ossb,K:tab.K,quelle:'Tabelle'}}
+  let K,quelle,hinweis=null;
+  if(opts.modus==='din'){const d=dinKFaktor(ri,s);K=d.K;quelle='DIN 6935';hinweis=d.hinweis}else{K=opts.K;quelle='manuell'}
+  const ba=phi*(ri+K*s);return {ba,v:ba-2*ossb,K,quelle,hinweis};
+}

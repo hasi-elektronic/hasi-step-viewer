@@ -21,6 +21,10 @@ console.log('mess3',JSON.stringify(await p.evaluate(()=>window.__lastMeasure.row
 await p.evaluate(()=>{window.__app.clearSel();window.__app.tab('blech')});await p.waitForFunction(()=>window.__lastSheet);await p.waitForTimeout(400);
 console.log('blech',JSON.stringify(await p.evaluate(()=>{const s=window.__lastSheet;return {t:s.t,bends:s.bends,size:s.flat?.size,warn:s.warn,dxfBytes:s.dxf?.length}})));
 await p.screenshot({path:'docs/blech-abwicklung.png'});
+// eigene Biegetabelle (Vorrang vor DIN 6935)
+await p.setInputFiles('#csv','testdaten/biegetabelle-beispiel.csv');await p.waitForFunction(()=>window.__lastSheet&&window.__lastSheet.bends[0]?.quelle==='Tabelle');await p.waitForTimeout(300);
+console.log('tabelle',JSON.stringify(await p.evaluate(()=>window.__lastSheet.bends.map(b=>[b.quelle,b.v]))));await p.screenshot({path:'docs/blech-biegetabelle.png'});
+await p.click('#csvClear');await p.waitForFunction(()=>window.__lastSheet.bends[0]?.quelle==='DIN 6935');
 const dxf=await p.evaluate(()=>window.__lastSheet.dxf);fs.writeFileSync('docs/testblech_Abwicklung.dxf',dxf);
 // 5) Schnitt
 await p.evaluate(()=>{window.__app.tab('messen');window.__setCut('Y',500)});await p.waitForTimeout(400);await p.screenshot({path:'docs/schnitt.png'});

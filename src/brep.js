@@ -1,3 +1,4 @@
+import {biegung} from './kfaktor.js';
 // B-Rep-Kern: Einlesen, Topologie, Messen, Blech. Läuft im Worker (Browser) und in Node (Tests).
 // Alle Längen intern in mm (OCCT rechnet STEP-Dateien beim Import in mm um).
 const V = {
@@ -198,7 +199,7 @@ export function createBrep(oc){
     return {volume:q.volume,area:q.area,centroid:cx,bbox:isFinite(q.bbox.min[0])?q.bbox:M.bbox(M.shape),solids:M.inst.length,unique:M.uniq.length,faces:M.inst.reduce((s,I)=>s+M.uniq[I.u].faces.length,0),edges:M.inst.reduce((s,I)=>s+M.uniq[I.u].edges.length,0)}};
   // ---------- Blech ----------
   const coaxial=(A,B)=>{if(Math.abs(V.dot(A.d,B.d))<1-1e-6)return false;const w=V.sub(B.c,A.c);return V.len(V.sub(w,V.mul(A.d,V.dot(w,A.d))))<1e-3};
-  M.sheet=(K=0.5,inst=null)=>{if(inst==null){if(M.inst.length!==1)return {ok:false,msg:'Mehrere Körper: Bitte im Baum ein einzelnes Teil wählen (Rechtsklick → Blech-Abwicklung).'};inst=0}
+  M.sheet=(opts=0.5,inst=null)=>{if(typeof opts==='number')opts={modus:'manuell',K:opts};const K=opts.K??0.5;if(inst==null){if(M.inst.length!==1)return {ok:false,msg:'Mehrere Körper: Bitte im Baum ein einzelnes Teil wählen (Rechtsklick → Blech-Abwicklung).'};inst=0}
     const UU=M.uniq[M.inst[inst].u];M.faces=UU.faces;M.edges=UU.edges;const solid=null;const inS=()=>true;
     const cyl=M.faces.map((f,i)=>[f,i]).filter(([f])=>inS(f)&&f.cyl&&f.cyl.ang<Math.PI*1.999);
     const cand=new Map();const add=(t,w)=>{const k=t.toFixed(3);cand.set(k,(cand.get(k)||0)+w)};
@@ -207,7 +208,7 @@ export function createBrep(oc){
     for(let i=0;i<pl.length;i++)for(let j=i+1;j<pl.length;j++){const A=pl[i][0].plane,B=pl[j][0].plane;if(V.dot(A.n,B.n)<-1+1e-6){const d=Math.abs(V.dot(V.sub(B.o,A.o),A.n));if(d>1e-4)add(d,Math.min(pl[i][0].area,pl[j][0].area))}}
     if(!cand.size)return {ok:false,msg:'Keine Blechdicke erkennbar (keine parallelen Gegenflächen oder koaxialen Biegeflächen).'};
     const t=+[...cand.entries()].sort((a,b)=>b[1]-a[1])[0][0];
-    const res={ok:true,t,K,bends:[],warn:[]};
+    const res={ok:true,t,K,modus:opts.modus,bends:[],warn:[]};
     // Basis: größte ebene Fläche
     const base=pl.sort((a,b)=>b[0].area-a[0].area)[0];if(!base){res.warn.push('Keine ebene Basisfläche gefunden.');return res}
     // Kanten-Nachbarschaft
@@ -229,15 +230,16 @@ export function createBrep(oc){
           let t0=V.cross(d,r0);const phiOf=(p,tt)=>{const w=V.sub(p,C.c),wr=V.sub(w,V.mul(d,V.dot(w,d)));let f=Math.atan2(V.dot(wr,tt),V.dot(wr,r0));if(f<-1e-7)f+=2*Math.PI;return f};
           if(phiOf(G.mid,t0)>C.ang)t0=V.mul(t0,-1);
           const rin=C.r>t*0.999&&coaxialPartner(gi,t)?.r<C.r?C.r-t:C.r; // Innenradius
-          const rn=rin+K*t;const Q0=mF.f(q0),D2=norm2(mF.lin(d)),W2=norm2(mF.lin(t0));
+          const th=C.ang;const bz=biegung(rin,t,th,opts);if(bz.hinweis&&!res.warn.includes(bz.hinweis))res.warn.push(bz.hinweis);
+          const rn=bz.ba/th;const Q0=mF.f(q0),D2=norm2(mF.lin(d)),W2=norm2(mF.lin(t0));
           const mC={kind:'c',f:p=>{const ax=V.dot(V.sub(p,q0),d),ph=phiOf(p,t0);return [Q0[0]+ax*D2[0]+ph*rn*W2[0],Q0[1]+ax*D2[1]+ph*rn*W2[1]]},phiOf,t0,d,C,D2,W2,rn};
           maps.set(gi,mC);skin.add(gi);
           // Richtung: Achse auf der Seite der Flächennormale -> nach oben (zur Normalen)
           const side=V.dot(V.sub(C.c,q0),F.plane.n);
-          const th=C.ang;const ba=th*rn;const ossb=Math.tan(Math.min(th,Math.PI-1e-9)/2)*(rin+t);
+          const ba=bz.ba;
           const ends=e.pts;const mid=ends.map(p=>{const P2=mF.f(p);return [P2[0]+th*rn/2*W2[0],P2[1]+th*rn/2*W2[1]]});
           bendLines.push(mid);
-          res.bends.push({nr:res.bends.length+1,face:gi,ri:rin,ang:th*DEG,dir:side>0?'nach oben':'nach unten',len:V.len(V.sub(ends[1],ends[0])),ba,v:ba-2*ossb});
+          res.bends.push({nr:res.bends.length+1,face:gi,ri:rin,ang:th*DEG,dir:side>0?'nach oben':'nach unten',len:V.len(V.sub(ends[1],ends[0])),ba,v:bz.v,K:bz.K,quelle:bz.quelle});
           // weiter zur nächsten ebenen Fläche über die zweite Tangentenkante
           for(const [e2_,ei2] of lineEdgesOf(gi)){const hi=e2_.faces.find(x=>x!==gi);if(skin.has(hi)||ei2===ei)continue;const H=M.faces[hi];
             if(H.plane&&Math.abs(V.dot(e2_.line.d,d))>1-1e-6){const q1=e2_.line.p;const w1=V.sub(q1,C.c),r1=V.norm(V.sub(w1,V.mul(d,V.dot(w1,d))));

@@ -17,7 +17,7 @@ self.onmessage=async e=>{const {id,cmd,args}=e.data;
       r=B.load(bytes,args.name,hier,prog);r.times.namen=thier;prog('Volumen und Masse werden berechnet …');const tm=Date.now();r.model=B.inst.length>50?B.modelFast():B.model();r.times.modell=Date.now()-tm;r.hierOk=!!hier}
     else if(cmd==='props')r=B.solidProps(args.ids);
     else if(cmd==='measure')r=B.measure(args.sels);
-    else if(cmd==='sheet'){r=B.sheet(args.K,args.inst);if(r.flat)r.dxf=B.dxf(r.flat)}
+    else if(cmd==='sheet'){r=B.sheet(args.opts??args.K,args.inst);if(r.flat)r.dxf=B.dxf(r.flat)}
     const tr=[];if(cmd==='load')r.uniq.forEach(m=>tr.push(m.p.buffer,m.i.buffer,m.f.buffer));
     self.postMessage({id,ok:true,r},tr);
   }catch(err){
