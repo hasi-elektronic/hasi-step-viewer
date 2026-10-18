@@ -49,20 +49,34 @@ async fn kern_laden(app: tauri::AppHandle, request: tauri::ipc::Request<'_>, zus
     std::fs::write(&ein, daten).map_err(|e| format!("Temporäre Datei: {e}"))?;
     let mut cmd = std::process::Command::new(&prog);
     cmd.arg(&ein).arg(&ordner);
-    // OCCT-Bibliotheken liegen in den App-Ressourcen unter kern/ (macOS findet sie zusätzlich über den rpath des Programms)
+    // Windows: OCCT-DLLs liegen neben hasi-kern.exe und werden vom Lader dort gefunden.
+    // macOS: @rpath/@loader_path zeigen auf Contents/Resources/kern.
+    // Linux: LD_LIBRARY_PATH auf die Ressourcen unter kern/.
     {
         use tauri::Manager;
+        let mut lib_dirs: Vec<std::path::PathBuf> = Vec::new();
+        if let Some(neben) = prog.parent() {
+            lib_dirs.push(neben.to_path_buf());
+        }
         if let Ok(res) = app.path().resource_dir() {
-            let libs = res.join("kern");
-            if libs.is_dir() {
-                let alt = std::env::var_os("PATH").unwrap_or_default();
-                let mut pfade = vec![libs.clone()];
-                pfade.extend(std::env::split_paths(&alt));
-                if let Ok(neu) = std::env::join_paths(pfade) {
-                    cmd.env("PATH", neu);
-                }
-                #[cfg(target_os = "linux")]
-                cmd.env("LD_LIBRARY_PATH", &libs);
+            let kern = res.join("kern");
+            if kern.is_dir() {
+                lib_dirs.push(kern);
+            }
+            if res.is_dir() {
+                lib_dirs.push(res);
+            }
+        }
+        if !lib_dirs.is_empty() {
+            let alt = std::env::var_os("PATH").unwrap_or_default();
+            let mut pfade = lib_dirs.clone();
+            pfade.extend(std::env::split_paths(&alt));
+            if let Ok(neu) = std::env::join_paths(pfade) {
+                cmd.env("PATH", neu);
+            }
+            #[cfg(target_os = "linux")]
+            if let Some(kern) = lib_dirs.iter().find(|p| p.ends_with("kern")) {
+                cmd.env("LD_LIBRARY_PATH", kern);
             }
         }
     }
