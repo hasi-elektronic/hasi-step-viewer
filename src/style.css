@@ -52,3 +52,6 @@ aside.left{width:300px}.search{padding:0 10px 6px}.search input{width:100%;font:
 #dimlist .dim{display:grid;grid-template-columns:22px 1fr auto auto;gap:6px;align-items:center;padding:3px 5px;border:1px solid var(--line);border-radius:6px}
 #dimlist .dim b{font-variant-numeric:tabular-nums}#dimlist .dim .t{color:var(--m)}#dimlist button{border:0;background:none;cursor:pointer;color:var(--m);padding:2px 4px}#dimlist button:hover{color:var(--a)}
 .sym{display:inline-block;width:11px;height:11px;margin-right:4px;vertical-align:-1px}.sym-v{background:#ff6a00}.sym-m{background:#ff6a00;clip-path:polygon(50% 0,100% 100%,0 100%)}.sym-c{border:2px solid #ff6a00;border-radius:50%;width:7px;height:7px}.sym-e{border-bottom:3px solid #ff6a00;height:6px}.sym-f{background:rgba(255,106,0,.35)}.sym-a{border-bottom:2px dashed #ff6a00;height:6px}
+
+#sheeterr .err{color:#c62828;background:#fdecea;border:1px solid #f5c2c0;border-radius:6px;padding:6px 8px;margin-bottom:6px}
+.flatbad{stroke:#c62828!important}
