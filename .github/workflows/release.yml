@@ -22,6 +22,45 @@ jobs:
       - run: node tools/test-export.mjs
       - run: node tools/test-baum.mjs
       - run: npm run build
+  kern:
+    # Nativer Kern unter Linux: OCCT bauen (Cache), Kern bauen, Abgleich mit OCCT-Referenztransfer, alle Tests über den nativen Pfad
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - uses: actions/cache/restore@v4  # Wiederherstellen; Speichern direkt nach dem OCCT-Build, auch wenn spätere Schritte scheitern
+        id: occt
+        with:
+          path: ${{ runner.temp }}/occt
+          key: occt-7.8.1-${{ runner.os }}-${{ hashFiles('tools/occt-bauen.sh') }}
+      - run: sudo apt-get update -q && sudo apt-get install -y -q libgl-dev libegl-dev  # TKV3d linkt unter Linux libGL/libEGL
+      - if: steps.occt.outputs.cache-hit != 'true'
+        run: tools/occt-bauen.sh "${{ runner.temp }}/occt"
+      - if: steps.occt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/occt
+          key: ${{ steps.occt.outputs.cache-primary-key }}
+      - run: cmake -S kern -B kern/build -DCMAKE_PREFIX_PATH="${{ runner.temp }}/occt" -DCMAKE_BUILD_TYPE=Release && cmake --build kern/build --parallel
+      - run: echo "LD_LIBRARY_PATH=$RUNNER_TEMP/occt/lib" >> "$GITHUB_ENV"  # OCCT-Bibliotheken für den Kern-Probelauf
+      - run: node tools/make-testblech.mjs public/testblech.step
+      - name: Abgleich mit dem seriellen OCCT-Transfer (--pruefen)
+        run: for f in testdaten/*.step public/testblech.step; do kern/build/hasi-kern "$f" "$RUNNER_TEMP" --pruefen; done
+      - run: sudo apt-get install -y poppler-utils unzip
+      - name: Tests über den nativen Kern
+        env: { KERN: native, KERN_PRUEFEN: '1' }
+        run: |
+          node tools/test-brep.mjs public/testblech.step
+          node tools/test-kfaktor.mjs public/testblech.step
+          node tools/test-einheit.mjs public/testblech.step
+          node tools/test-messen.mjs
+          node tools/test-abwicklung.mjs
+          node tools/test-export.mjs
+          node tools/test-baum.mjs
+      - name: Paket (Probe)
+        run: python3 tools/kern-paket.py kern/build/hasi-kern "${{ runner.temp }}/occt" kern-paket --triple x86_64-unknown-linux-gnu
   build:
     strategy:
       fail-fast: false
@@ -42,7 +81,79 @@ jobs:
         with:
           targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - run: npm ci
-      - run: npx tauri build ${{ matrix.args }}
+      # Nativer Kern: OCCT (Cache) + hasi-kern, als Sidecar mit Bibliotheken in die App
+      - uses: actions/cache/restore@v4  # Wiederherstellen; Speichern direkt nach dem OCCT-Build, auch wenn spätere Schritte scheitern
+        id: occt
+        with:
+          path: ${{ runner.temp }}/occt
+          key: occt-7.8.1-${{ runner.os }}-${{ hashFiles('tools/occt-bauen.sh') }}
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - if: steps.occt.outputs.cache-hit != 'true'
+        shell: bash
+        run: tools/occt-bauen.sh "$RUNNER_TEMP/occt"
+      - if: steps.occt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/occt
+          key: ${{ steps.occt.outputs.cache-primary-key }}
+      - name: Kern bauen und packen
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then ARCH='-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0'; TRIPLE=universal-apple-darwin; EXE=kern/build/hasi-kern; else ARCH=''; TRIPLE=x86_64-pc-windows-msvc; EXE=kern/build/Release/hasi-kern.exe; fi
+          cmake -S kern -B kern/build -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/occt" -DCMAKE_BUILD_TYPE=Release $ARCH
+          cmake --build kern/build --config Release --parallel
+          [ "$RUNNER_OS" = "Windows" ] && pip install pefile
+          python3 tools/kern-paket.py "$EXE" "$RUNNER_TEMP/occt" kern-paket --triple $TRIPLE || python tools/kern-paket.py "$EXE" "$RUNNER_TEMP/occt" kern-paket --triple $TRIPLE
+          node tools/make-testblech.mjs public/testblech.step
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            lipo -info kern-paket/hasi-kern-universal-apple-darwin kern-paket/hasi-kern-aarch64-apple-darwin kern-paket/hasi-kern-x86_64-apple-darwin
+            mkdir -p probe/MacOS probe/Resources
+            cp kern-paket/hasi-kern-$TRIPLE probe/MacOS/hasi-kern
+            cp -R kern-paket/kern probe/Resources/kern
+            otool -L probe/MacOS/hasi-kern | grep -q '@rpath/'
+            otool -l probe/MacOS/hasi-kern | grep -q '@executable_path/../Resources/kern'
+            otool -l probe/Resources/kern/*.dylib | grep -q '@loader_path'
+            # Bauinstallation verstecken, damit der Probelauf die Bibliotheken im Bundle benutzt
+            mv "$RUNNER_TEMP/occt" "$RUNNER_TEMP/occt-versteckt"
+            probe/MacOS/hasi-kern public/testblech.step "$RUNNER_TEMP" --pruefen || { mv "$RUNNER_TEMP/occt-versteckt" "$RUNNER_TEMP/occt"; exit 1; }
+            mv "$RUNNER_TEMP/occt-versteckt" "$RUNNER_TEMP/occt"
+            ZIEL='kern/'
+          else
+            # Windows findet DLLs im Ordner der EXE, nicht über einen Unterordner
+            mkdir -p probe
+            cp kern-paket/hasi-kern-$TRIPLE.exe probe/
+            cp kern-paket/kern/*.dll probe/
+            probe/hasi-kern-$TRIPLE.exe public/testblech.step "$RUNNER_TEMP" --pruefen
+            ZIEL='./'
+          fi
+          printf '%s\n' "{\"bundle\":{\"externalBin\":[\"../kern-paket/hasi-kern\"],\"resources\":{\"../kern-paket/kern/*\":\"$ZIEL\"}}}" > src-tauri/tauri.kern.json
+      - run: npx tauri build ${{ matrix.args }} --config src-tauri/tauri.kern.json
+      - name: Kern im Installer prüfen
+        shell: bash
+        run: |
+          set -e; n=$(ls kern-paket/kern | wc -l | tr -d ' '); echo "Bibliotheken im Paket: $n"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            APP=$(ls -d src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app); ls -la "$APP/Contents/MacOS"; test -x "$APP/Contents/MacOS/hasi-kern"
+            test $(ls "$APP/Contents/Resources/kern" | wc -l) -ge $n
+            otool -L "$APP/Contents/MacOS/hasi-kern" | grep -q '@rpath/'
+            otool -l "$APP/Contents/MacOS/hasi-kern" | grep -q '@executable_path/../Resources/kern'
+            otool -l "$APP/Contents/Resources/kern"/* | grep -q '@loader_path'
+            if otool -L "$APP/Contents/MacOS/hasi-kern" | tail -n +2 | grep -E '/occt/|/Users/'; then echo 'absoluter Bibliothekspfad im Sidecar'; exit 1; fi
+            mv "$RUNNER_TEMP/occt" "$RUNNER_TEMP/occt-versteckt"
+            "$APP/Contents/MacOS/hasi-kern" public/testblech.step "$RUNNER_TEMP" --pruefen || { mv "$RUNNER_TEMP/occt-versteckt" "$RUNNER_TEMP/occt"; exit 1; }
+            mv "$RUNNER_TEMP/occt-versteckt" "$RUNNER_TEMP/occt"
+            DMG=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg); hdiutil attach -nobrowse -mountpoint /tmp/dmg "$DMG"; test -x /tmp/dmg/*.app/Contents/MacOS/hasi-kern; test $(ls /tmp/dmg/*.app/Contents/Resources/kern | wc -l) -ge $n; hdiutil detach /tmp/dmg
+          else
+            MSI=$(ls src-tauri/target/release/bundle/msi/*.msi); msiexec //a "$(cygpath -w "$MSI")" //qn TARGETDIR="$(cygpath -w "$RUNNER_TEMP/msi")"
+            K=""; for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do K=$(find "$RUNNER_TEMP/msi" -iname 'hasi-kern*.exe' -print -quit); [ -n "$K" ] && break; sleep 5; done
+            echo "MSI: $K"; test -n "$K"
+            D=$(dirname "$K")
+            test "$(find "$D" -maxdepth 1 -iname '*.dll' | wc -l)" -ge "$n"
+            "$K" public/testblech.step "$RUNNER_TEMP" --pruefen
+            EXE=$(ls src-tauri/target/release/bundle/nsis/*.exe); 7z l "$EXE" | grep -i -E 'hasi-kern|TKernel'
+          fi
+          ls -la ${{ matrix.out }} 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         with:
           name: hasi-step-viewer-${{ matrix.os }}

@@ -7,3 +7,6 @@ samples/
 public/ocjs/
 public/occt/
 !testdaten/*.step
+kern/build/
+kern-paket/
+src-tauri/tauri.kern.json

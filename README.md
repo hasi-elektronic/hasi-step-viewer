@@ -119,3 +119,15 @@ Im Blech-Panel stehen die Knöpfe **„Biegetabelle als PDF“** und **„Bieget
 Tests: `tools/test-export.mjs` (CI, prüft PDF-Text, XLSX-Inhalt und die Lage der Biegelinien gegen Sollwerte) und `tools/smoke-export.mjs` (headless, Knöpfe im Blech-Panel).
 
 ![Export](docs/biegetabelle-export.png) ![PDF](docs/biegetabelle-pdf.png)
+
+## Nativer Kern (Desktop-App, ab feat/nativer-kern)
+
+Die Desktop-App lädt STEP-Dateien mit einem nativen OCCT-Kern (`kern/hasi_kern.cpp`, Programm `hasi-kern`), der als Sidecar neben der App liegt. Der WASM-Kern bleibt als Rückfall (Browser, fehlender Sidecar, Fehler im nativen Lauf) und für das Messen.
+
+- **Ablauf:** STEP parsen → Produktstruktur und Baugruppen-Lagen direkt aus der STEP-Datei (CONTEXT_DEPENDENT_SHAPE_REPRESENTATION) → Blatt-Teile parallel übersetzen, Mehrkörper-Teile je Körper → Unikate parallel tessellieren und indizieren (gleiche Reihenfolge der Flächen/Kanten wie im WASM-Kern).
+- **Ausgabe:** `modell.bin` (Netze, Flächen-/Kanteninfo, Baum, Lagen) für die sofortige Anzeige und `modell.brep` (Unikate als BREP). Das BREP wird danach im Hintergrund in den WASM-Kern geladen; Flächen und Kanten eines Teils werden beim ersten Messen indiziert und gegen die nativen Zahlen geprüft. Gemessen wird also weiter mit demselben JS/WASM-Code.
+- **Threads:** Das Parsen ist in OCCT nicht threadsicher und läuft nacheinander; bis zu 3 Leser übersetzen parallel, Tessellierung auf allen Kernen.
+- **Prüfung:** `hasi-kern <datei> <ordner> --pruefen` vergleicht alle Instanzen (Welt-Bounding-Boxen) mit dem seriellen OCCT-Transfer. Unbekannte Strukturen → serieller Transfer (`--seriell`).
+- **Tests:** `KERN=native node tools/test-*.mjs` lädt über den nativen Kern (`kern/build/hasi-kern`); `node tools/smoke-kern.mjs` prüft den nativen Ladepfad im Browser mit simulierten Tauri-Aufrufen.
+- **Bauen:** `tools/occt-bauen.sh <ordner>` baut OCCT 7.8.1 ohne Fremdbibliotheken, dann `cmake -S kern -B kern/build -DCMAKE_PREFIX_PATH=<ordner> && cmake --build kern/build`. In CI mit Cache (Schlüssel: OCCT-Version und Betriebssystem); `tools/kern-paket.py` legt Programm und Bibliotheken für Tauri bereit. Windows: DLLs neben `hasi-kern.exe`. macOS universal: Bibliotheken unter `Contents/Resources/kern`, gefunden über `@rpath`/`@loader_path`.
+- **Abschalten:** `localStorage.kern = 'wasm'` in der App oder Umgebungsvariable `HASI_KERN=aus`.

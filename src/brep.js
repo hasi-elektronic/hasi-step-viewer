@@ -113,6 +113,71 @@ export function createBrep(oc){
     return {name,unit,tree,times,stats:{...stats,unikate:U.length,instanzen:inst.length},
       uniq:U.map(u=>({p:u.p,i:u.i,f:u.f,faces:u.faces.map(f=>({type:f.type,ax:f.cyl&&{c:f.cyl.c,d:f.cyl.d,r:f.cyl.r}})),edges:u.edges.map(e=>({type:e.type,pts:e.pts,c:e.circle?.c,n:e.circle?.n,r:e.circle?.r,mid:e.mid})),verts:u.verts.map(v=>v.p)})),
       inst:inst.map((x,i)=>({u:x.u,m:x.m,name:nameOf[i]})),ms:Date.now()-t0}};
+  // ---------- Nativer Kern ----------
+  // fromNative: Anzeige-Daten aus modell.bin des nativen Kerns (Netze, Flächen-/Kanteninfo, Baum, Lagen).
+  // attachBrep: Unikate als BREP nachladen; Flächen/Kanten werden je Unikat erst beim ersten Messen indiziert (gleiche Reihenfolge wie M.load).
+  const mul34=(a,b)=>{const r=new Array(12);for(let i=0;i<3;i++){for(let j=0;j<4;j++){let v=0;for(let k=0;k<3;k++)v+=a[i*4+k]*b[k*4+j];r[i*4+j]=v+(j===3?a[i*4+3]:0)}}return r};
+  const ID34=[1,0,0,0,0,1,0,0,0,0,1,0];
+  M.fromNative=(buf,stepHead,name='modell.step',hier=null)=>{
+    const t0=Date.now(),dv=new DataView(buf),hl=dv.getUint32(0,true);
+    const meta=JSON.parse(new TextDecoder().decode(new Uint8Array(buf,4,hl)));let ds=4+hl;while(ds%4)ds++;
+    if(meta.version!==1)throw new Error('Nativer Kern: unbekanntes Datenformat');
+    const text=typeof stepHead==='string'?stepHead:new TextDecoder('latin1').decode(stepHead.subarray(0,Math.min(stepHead.length,4e6)));
+    const unit=stepUnit(text);
+    const arr=(C,[o,n])=>new C(buf,ds+o,n/4);
+    const U=meta.uniq.map((q,ui)=>{const u={nf:q.n[0],ne:q.n[1],nv:q.n[2],bb:q.bb,p:arr(Float32Array,q.p),i:arr(Uint32Array,q.i),f:arr(Uint32Array,q.f),native:q,ui};
+      for(const k of ['faces','edges','verts','shape'])Object.defineProperty(u,k,{get:()=>(M.ensure(ui),u['_'+k]),enumerable:false,configurable:true});return u});
+    const inst=[];const addInst=(u,m)=>{inst.push({u,m});return inst.length-1};
+    const stats={knoten:0,passend:0};let tree;const base=name.replace(/\.(step|stp)$/i,'');
+    if(meta.modus==='parallel'){
+      const pd=meta.pd;const isChild=new Set();Object.values(pd).forEach(e=>e.kids.forEach(k=>isChild.add(k[0])));
+      const solidsOf=(id,W)=>{const e=pd[id];if(!e)return [];const r=e.bodies.map(([u,m])=>addInst(u,mul34(W,m)));e.kids.forEach(([c,,m])=>r.push(...solidsOf(c,mul34(W,m))));return r};
+      const build=(id,sn,W)=>{stats.knoten++;const e=pd[id]||{kids:[],bodies:[]};const node={name:sn?sn.name:'Teil',children:[],bodies:[]};
+        if(!sn||!sn.children.length||!e.kids.length){node.bodies.push(...solidsOf(id,W));if(sn)stats.passend++;return node}
+        if(e.kids.length===sn.children.length)stats.passend++;
+        e.kids.forEach(([c,,m],i)=>{const cs=sn.children[i]&&sn.children[i].product===c?sn.children[i]:null;const ch=build(c,cs||{name:'Teil',children:[]},mul34(W,m));if(ch.bodies.length||ch.children.length)node.children.push(ch)});
+        e.bodies.forEach(([u,m])=>node.bodies.push(addInst(u,mul34(W,m))));return node};
+      const roots=Object.keys(pd).map(Number).filter(id=>!isChild.has(id)).sort((a,b)=>a-b);
+      const hroots=hier&&hier.roots||[];const sOf=id=>hroots.find(r=>r.product===id)||null;
+      if(roots.length===1&&pd[roots[0]].kids.length){tree=build(roots[0],sOf(roots[0])||{name:base,children:[]},ID34);if(!sOf(roots[0]))tree.name=base}
+      else if(roots.some(r=>pd[r].kids.length)){tree={name:base,children:[],bodies:[]};roots.forEach(r=>{const c=build(r,sOf(r)||{name:'Teil',children:[]},ID34);if(c.bodies.length||c.children.length)tree.children.push(c)})}
+      else{const ids=roots.flatMap(r=>solidsOf(r,ID34));const sr=hroots.length===1?hroots[0]:null;tree={name:(sr&&sr.name)||base,children:[],bodies:[]};
+        if(ids.length===1)tree.bodies.push(ids[0]);else ids.forEach((x,i)=>tree.children.push({name:`Körper ${i+1}`,children:[],bodies:[x]}))}
+    }else{
+      // Rückfall-Modus des Kerns: OCCT-Struktur wie in M.load, Namen aus der STEP-Hierarchie
+      meta.inst.forEach(q=>inst.push({u:q.u,m:q.m}));const allS=n=>[...n.solids,...n.kids.flatMap(allS)];
+      const match=(sn,on)=>{stats.knoten++;const node={name:sn?sn.name:'Körper',children:[],bodies:[]};
+        if(!sn||!sn.children.length){node.bodies.push(...allS(on));if(sn)stats.passend++;return node}
+        let o=on;while(o.kids.length===1&&!o.solids.length&&sn.children.length>1)o=o.kids[0];
+        if(o.kids.length===sn.children.length)stats.passend++;const n=Math.min(o.kids.length,sn.children.length);
+        for(let i=0;i<n;i++){const c=match(sn.children[i],o.kids[i]);if(c.bodies.length||c.children.length)node.children.push(c)}
+        for(let i=n;i<o.kids.length;i++)allS(o.kids[i]).forEach(x=>node.children.push({name:'Körper',children:[],bodies:[x]}));
+        node.bodies.push(...o.solids);return node};
+      const sroot=hier&&hier.roots&&hier.roots.length===1?hier.roots[0]:(hier&&hier.roots&&hier.roots.length>1?{name:base,children:hier.roots}:null);
+      if(sroot&&sroot.children.length)tree=match(sroot,meta.tree);
+      else{tree={name:(sroot&&sroot.name)||base,children:[],bodies:[]};const ss=allS(meta.tree);if(ss.length===1)tree.bodies.push(ss[0]);else ss.forEach((x,i)=>tree.children.push({name:`Körper ${i+1}`,children:[],bodies:[x]}))}
+    }
+    numberNames(tree);
+    inst.forEach(I=>{let _l;Object.defineProperty(I,'loc',{get:()=>_l??=(()=>{const t=new oc.gp_Trsf_1();const m=I.m;t.SetValues(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8],m[9],m[10],m[11]);return new oc.TopLoc_Location_2(t)})(),enumerable:false})});
+    M.shape=null;M.uniq=U;M.inst=inst;M.unit=unit;M.vcache=new Map();M.nativeBrep=null;M.faces=[];M.edges=[];
+    const nameOf=new Array(inst.length).fill('Körper');const w=n=>{n.bodies.forEach(b=>nameOf[b]=n.name);n.children.forEach(w)};w(tree);
+    const times={...meta.times,js:Date.now()-t0};
+    return {name,unit,tree,times,kern:{modus:meta.modus,threads:meta.threads,fehler:meta.fehler},stats:{...stats,unikate:U.length,instanzen:inst.length},
+      uniq:U.map(u=>({p:u.p,i:u.i,f:u.f,faces:u.native.faces.map(f=>({type:f.type,ax:f.ax})),edges:u.native.edges.map(e=>({type:e.type,pts:e.pts,c:e.c,n:e.n,r:e.r,mid:e.mid})),verts:u.native.verts})),
+      inst:inst.map((x,i)=>({u:x.u,m:x.m,name:nameOf[i]}))}};
+  M.attachBrep=text=>{const t0=Date.now();oc.FS.writeFile('/m.brep',text);const sh=new oc.TopoDS_Shape();const b=new oc.BRep_Builder();
+    const ok=tryCall(()=>oc.BRepTools.Read_2(sh,'/m.brep',b,new oc.Handle_Message_ProgressIndicator_1()),()=>oc.BRepTools.Read_2(sh,'/m.brep',b,new oc.Message_ProgressRange_1()));oc.FS.unlink('/m.brep'); // kurzer Name: ocjs 1.1.1 liest längere Pfade hier nicht
+    if(ok===false||sh.IsNull())throw new Error('Messdaten des nativen Kerns konnten nicht gelesen werden ('+ok+','+text.length+')');
+    const list=[];const it=new oc.TopoDS_Iterator_2(sh,true,true);for(;it.More();it.Next())list.push(it.Value());
+    if(list.length!==M.uniq.length)throw new Error(`Messdaten passen nicht zum Modell (${list.length} statt ${M.uniq.length} Teile)`);
+    M.nativeBrep=list;if(M.uniq.length){M.faces=M.uniq[0].faces;M.edges=M.uniq[0].edges}return {ms:Date.now()-t0,teile:list.length}};
+  M.ensure=ui=>{const u=M.uniq[ui];if(u._shape)return;if(!M.nativeBrep)throw new Error('Messdaten werden noch vorbereitet – bitte kurz warten.');
+    const shape=M.nativeBrep[ui];const faces=new Index(),edges=new Index(),verts=new Index();
+    explore(shape,TA.TopAbs_FACE,fs=>{const f=oc.TopoDS.Face_1(fs);const fi=faces.find(f,x=>M.faceInfo(oc.TopoDS.Face_1(x),ui));
+      explore(f,TA.TopAbs_EDGE,es=>{const ei=edges.find(es,x=>M.edgeInfo(oc.TopoDS.Edge_1(x)));const e=edges.list[ei];if(!e.faces.includes(fi))e.faces.push(fi)})});
+    explore(shape,TA.TopAbs_VERTEX,vs=>verts.find(vs,x=>({shape:oc.TopoDS.Vertex_1(x),p:P(oc.BRep_Tool.Pnt(oc.TopoDS.Vertex_1(x)))})));
+    if(faces.list.length!==u.nf||edges.list.length!==u.ne||verts.list.length!==u.nv)throw new Error(`Messdaten weichen ab (Teil ${ui+1}: Flächen ${faces.list.length}/${u.nf}, Kanten ${edges.list.length}/${u.ne})`);
+    u._shape=shape;u._faces=faces.list;u._edges=edges.list;u._verts=verts.list};
   function numberNames(root){
     const names=new Map(),cnt=new Map();const walk=(n,f)=>{f(n);n.children.forEach(c=>walk(c,f))};
     walk(root,n=>{if(n!==root)names.set(n.name,(names.get(n.name)||0)+1)});
@@ -263,7 +328,7 @@ export function createBrep(oc){
     M.inst.forEach(I=>{const q=meshVA(I.u);vol+=q.v;area+=q.a;const c=T.p(I.m,q.c);for(let k=0;k<3;k++)cx[k]+=c[k]*q.v;
       const b=M.uniq[I.u].bb;for(let k=0;k<8;k++){const pt=T.p(I.m,[k&1?b.max[0]:b.min[0],k&2?b.max[1]:b.min[1],k&4?b.max[2]:b.min[2]]);for(let j=0;j<3;j++){mn[j]=Math.min(mn[j],pt[j]);mx[j]=Math.max(mx[j],pt[j])}}});
     if(vol)cx=cx.map(x=>x/vol);
-    return {approx:true,volume:vol,area,centroid:cx,bbox:{min:mn,max:mx},solids:M.inst.length,unique:M.uniq.length,faces:M.inst.reduce((s,I)=>s+M.uniq[I.u].faces.length,0),edges:M.inst.reduce((s,I)=>s+M.uniq[I.u].edges.length,0)}};
+    return {approx:true,volume:vol,area,centroid:cx,bbox:{min:mn,max:mx},solids:M.inst.length,unique:M.uniq.length,faces:M.inst.reduce((s,I)=>s+(M.uniq[I.u].nf??M.uniq[I.u].faces.length),0),edges:M.inst.reduce((s,I)=>s+(M.uniq[I.u].ne??M.uniq[I.u].edges.length),0)}};
   M.model=()=>{const all=M.inst.map((_,i)=>i);const q=M.solidProps(all);let cx=[0,0,0];
     M.inst.forEach(I=>{const v=uProps(I.u);const c=T.p(I.m,v.c);for(let k=0;k<3;k++)cx[k]+=c[k]*v.v});if(q.volume)cx=cx.map(x=>x/q.volume);
     return {volume:q.volume,area:q.area,centroid:cx,bbox:isFinite(q.bbox.min[0])?q.bbox:M.bbox(M.shape),solids:M.inst.length,unique:M.uniq.length,faces:M.inst.reduce((s,I)=>s+M.uniq[I.u].faces.length,0),edges:M.inst.reduce((s,I)=>s+M.uniq[I.u].edges.length,0)}};
@@ -291,7 +356,10 @@ export function createBrep(oc){
     const partner=gi=>{const A=F[gi].cyl;for(const [f,i] of cyl)if(i!==gi&&coaxial(A,f.cyl)&&Math.abs(Math.abs(A.r-f.cyl.r)-t)<1e-3)return f.cyl;return null};
     // Basis: größte ebene Fläche mit Gegenfläche im Abstand t (also eine Hautfläche, keine Stirnfläche)
     const hasOpp=([f])=>pl.some(([g])=>V.dot(f.plane.n,g.plane.n)<-1+1e-6&&Math.abs(Math.abs(V.dot(V.sub(g.plane.o,f.plane.o),f.plane.n))-t)<1e-3);
-    const base=pl.filter(hasOpp).sort((a,b)=>b[0].area-a[0].area)[0]||pl.sort((a,b)=>b[0].area-a[0].area)[0];
+    // Gleich große Flächen (z. B. Innen-/Außenseite eines Flansches) geometrisch entscheiden, nicht nach Flächenreihenfolge (die hängt von der OCCT-Version ab)
+    const byArea=(a,b)=>{const d=b[0].area-a[0].area;if(Math.abs(d)>1e-6*Math.max(a[0].area,b[0].area))return d;const na=a[0].plane.n,nb=b[0].plane.n;
+      for(let k=0;k<3;k++)if(Math.abs(na[k]-nb[k])>1e-9)return nb[k]-na[k];return V.dot(b[0].plane.o,nb)-V.dot(a[0].plane.o,na)};
+    const base=pl.filter(hasOpp).sort(byArea)[0]||pl.sort(byArea)[0];
     if(!base){res.warn.push('Keine ebene Basisfläche gefunden.');res.fehler.push('Keine ebene Basisfläche – keine Abwicklung möglich.');return res}
     const lineEdgesOf=fi=>E.map((e,i)=>[e,i]).filter(([e])=>e.faces.includes(fi)&&e.line&&e.faces.length===2);
     const n0=base[0].plane.n;let e1=null;

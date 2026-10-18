@@ -1,5 +1,5 @@
 // Messen gegen bekannte Sollmaße (testdaten/messteil.step, erzeugt mit tools/make-messteil.py). Toleranz < 0,001 mm.
-import assert from 'assert';import fs from 'fs';import {loadOC} from './oc-node.mjs';import {createBrep} from '../src/brep.js';
+import assert from 'assert';import fs from 'fs';import {loadOC} from './oc-node.mjs';import {createBrep} from './kern-loader.mjs';
 const B=createBrep(await loadOC());B.load(new Uint8Array(fs.readFileSync(process.argv[2]||'testdaten/messteil.step')),'messteil.step');
 const U=B.uniq[0],TOL=1e-4,PI=Math.PI;let n=0;
 const eq=(a,b)=>Math.abs(a-b)<1e-6, near3=(p,q)=>p.every((x,i)=>Math.abs(x-q[i])<1e-6);

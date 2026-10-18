@@ -1,5 +1,5 @@
 // Prüft den B-Rep-Kern mit dem selbst erzeugten Testblech (Sollwerte aus der Konstruktion).
-import {loadOC} from './oc-node.mjs';import {createBrep} from '../src/brep.js';import fs from 'fs';import assert from 'assert';
+import {loadOC} from './oc-node.mjs';import {createBrep} from './kern-loader.mjs';import fs from 'fs';import assert from 'assert';
 const f=process.argv[2]||'public/testblech.step';const oc=await loadOC();const B=createBrep(oc);
 const r=B.load(new Uint8Array(fs.readFileSync(f)),'testblech.step');const near=(a,b,e=1e-3,m='')=>assert(Math.abs(a-b)<e,`${m}: ${a} ≠ ${b}`);
 assert.equal(r.unit.sym,'mm');assert.equal(r.uniq[0].faces.length,15);

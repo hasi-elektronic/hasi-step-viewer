@@ -45,7 +45,16 @@ $('showEdges').onchange=()=>{edgeObjs.forEach(e=>e.visible=$('showEdges').checke
 async function load(buf,name){
   const t0=performance.now();$('status').textContent='Lade '+name+' …';$('drop').style.display='none';$('busy').style.display='block';$('busy').textContent='Kern wird gestartet …';
   const size=buf.byteLength;
-  try{data=await call('load',{buf,name},[buf])}finally{$('busy').style.display='none'}
+  // Desktop-App: zuerst der native Kern (schnell, mehrere Threads); bei Fehlern oder im Browser der WASM-Kern
+  const inv=window.__TAURI_INTERNALS__?.invoke;let nativ=false;
+  try{
+    if(inv&&localStorage.getItem('kern')!=='wasm'&&await inv('kern_verfuegbar').catch(()=>false)){
+      try{$('busy').textContent='Nativer Kern liest die Datei …';const bin=await inv('kern_laden',new Uint8Array(buf),{headers:{'x-name':encodeURIComponent(name)}});
+        data=await call('loadNative',{bin,step:buf,name},[bin]);nativ=true}
+      catch(e){console.warn('Nativer Kern fehlgeschlagen, WASM-Kern übernimmt:',e);$('busy').textContent='Nativer Kern nicht verfügbar – WASM-Kern lädt …'}}
+    if(!nativ)data=await call('load',{buf,name},[buf]);
+  }finally{$('busy').style.display='none'}
+  data.kernArt=nativ?'nativ':'wasm';
   U=data.unit;
   if(model){scene.remove(model);model.traverse(o=>{o.geometry?.dispose();o.material?.dispose?.()})}
   model=new THREE.Group();model.rotation.x=-Math.PI/2;bodies=[];
@@ -68,7 +77,11 @@ async function load(buf,name){
   if(!$('tab-blech').hidden)calcSheet();
   const ms=Math.round(performance.now()-t0);const tris=data.inst.reduce((s,I)=>s+data.uniq[I.u].i.length/3,0);
   const info={name,bytes:size,bodies:data.inst.length,unique:data.uniq.length,faces:data.model.faces,edges:data.model.edges,triangles:tris,totalMs:ms,unit:U.sym,times:data.times,stats:data.stats};window.__lastLoad=info;
-  $('status').textContent=`${name} · ${(size/1024).toFixed(0)} KB · ${info.bodies} Körper · ${info.faces} Flächen · Datei: ${U.sym} → Anzeige: mm · ${ms} ms`;return info}
+  info.kern=data.kernArt;
+  $('status').textContent=`${name} · ${(size/1024).toFixed(0)} KB · ${info.bodies} Körper · ${info.faces} Flächen · Datei: ${U.sym} → Anzeige: mm · ${ms} ms${nativ?' · Messdaten werden vorbereitet …':''}`;
+  if(nativ){const st=$('status').textContent;window.__messBereit=inv('kern_brep').then(text=>call('attach',{text})).then(a=>{info.attachMs=a.ms;if($('status').textContent===st)$('status').textContent=st.replace(' · Messdaten werden vorbereitet …',' · nativer Kern')})
+    .catch(e=>{$('status').textContent=st.replace(' · Messdaten werden vorbereitet …',' · Messen nicht verfügbar: '+(e.message||e))})}
+  return info}
 const key=p=>p.map(x=>x.toFixed(5)).join(',');let vIdx=new Map();
 const vIndexOf=u=>{if(!vIdx.has(u)){const m=new Map();data.uniq[u].verts.forEach((p,i)=>m.set(key(p),i));vIdx.set(u,m)}return vIdx.get(u)};
 const toModel=(i,p)=>V3(p).applyMatrix4(bodies[i].matrix).toArray();
@@ -289,6 +302,7 @@ $('expXlsx').onclick=async()=>{if(!sheetCache?.flat||sheetCache.flat.incomplete)
 
 // ---------- Test-Schnittstelle ----------
 window.__loadUrl=async u=>load(await (await fetch(u)).arrayBuffer(),u.split('/').pop());
+window.__loadBytes=(buf,name)=>load(buf,name);window.__call=call;
 window.__app={hoverCount:()=>hoverObj.children.length,dimLabels:()=>dimGroup.children.map(g=>{const sp=g.children.find(o=>o.isSprite);return [sp.position.toArray(),sp.center.y]}),dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
   screenOf:p=>{const r=renderer.domElement.getBoundingClientRect();const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*r.width+r.left,(1-w.y)/2*r.height+r.top]}};
 window.__toggleMeasure=()=>{};
