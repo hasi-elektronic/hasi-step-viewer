@@ -268,71 +268,101 @@ export function createBrep(oc){
     M.inst.forEach(I=>{const v=uProps(I.u);const c=T.p(I.m,v.c);for(let k=0;k<3;k++)cx[k]+=c[k]*v.v});if(q.volume)cx=cx.map(x=>x/q.volume);
     return {volume:q.volume,area:q.area,centroid:cx,bbox:isFinite(q.bbox.min[0])?q.bbox:M.bbox(M.shape),solids:M.inst.length,unique:M.uniq.length,faces:M.inst.reduce((s,I)=>s+M.uniq[I.u].faces.length,0),edges:M.inst.reduce((s,I)=>s+M.uniq[I.u].edges.length,0)}};
   // ---------- Blech ----------
+  // Abwicklung als Baum über den Flächengraphen einer Blechseite („Haut“): Start an der größten ebenen Hautfläche,
+  // Übergänge nur über tangentiale gerade Kanten (Ebene↔Zylinder, Zylinder↔Zylinder bei direkt aufeinanderfolgenden Biegungen,
+  // Ebene↔Ebene bei geteilten Flächen). Jede Kante liefert einen „Kantenrahmen“ (Punkt q, Kantenrichtung d, Tangente t in die
+  // Nachbarfläche, Bild Q in 2D mit Richtungen D2/W2); daran wird die Nachbarfläche angehängt. Zylinder werden über die neutrale
+  // Faser abgewickelt (Bogenlänge = Biegezugabe). Danach Prüfung: Flächenbilanz, Selbstüberschneidung, nicht erreichte Flächen.
   const coaxial=(A,B)=>{if(Math.abs(V.dot(A.d,B.d))<1-1e-6)return false;const w=V.sub(B.c,A.c);return V.len(V.sub(w,V.mul(A.d,V.dot(w,A.d))))<1e-3};
+  const norm2=v=>{const l=Math.hypot(v[0],v[1])||1;return [v[0]/l,v[1]/l]};
+  const radial=(C,p)=>{const w=V.sub(p,C.c);return V.norm(V.sub(w,V.mul(C.d,V.dot(w,C.d))))};
+  const segX=(a,b,c,d)=>{const o=(p,q,r)=>(q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]);const e=1e-9;
+    const d1=o(c,d,a),d2=o(c,d,b),d3=o(a,b,c),d4=o(a,b,d);return ((d1>e&&d2<-e)||(d1<-e&&d2>e))&&((d3>e&&d4<-e)||(d3<-e&&d4>e))};
   M.sheet=(opts=0.5,inst=null)=>{if(typeof opts==='number')opts={modus:'manuell',K:opts};const K=opts.K??0.5;if(inst==null){if(M.inst.length!==1)return {ok:false,msg:'Mehrere Körper: Bitte im Baum ein einzelnes Teil wählen (Rechtsklick → Blech-Abwicklung).'};inst=0}
-    const UU=M.uniq[M.inst[inst].u];M.faces=UU.faces;M.edges=UU.edges;const solid=null;const inS=()=>true;
-    const cyl=M.faces.map((f,i)=>[f,i]).filter(([f])=>inS(f)&&f.cyl&&f.cyl.ang<Math.PI*1.999);
+    const UU=M.uniq[M.inst[inst].u];M.faces=UU.faces;M.edges=UU.edges;const F=M.faces,E=M.edges;
+    const cyl=F.map((f,i)=>[f,i]).filter(([f])=>f.cyl&&f.cyl.ang<Math.PI*1.999);
     const cand=new Map();const add=(t,w)=>{const k=t.toFixed(3);cand.set(k,(cand.get(k)||0)+w)};
     for(let i=0;i<cyl.length;i++)for(let j=i+1;j<cyl.length;j++){const A=cyl[i][0].cyl,B=cyl[j][0].cyl;if(coaxial(A,B)&&Math.abs(A.r-B.r)>1e-4)add(Math.abs(A.r-B.r),10*(cyl[i][0].area+cyl[j][0].area))}
-    const pl=M.faces.map((f,i)=>[f,i]).filter(([f])=>inS(f)&&f.plane);
+    const pl=F.map((f,i)=>[f,i]).filter(([f])=>f.plane);
     for(let i=0;i<pl.length;i++)for(let j=i+1;j<pl.length;j++){const A=pl[i][0].plane,B=pl[j][0].plane;if(V.dot(A.n,B.n)<-1+1e-6){const d=Math.abs(V.dot(V.sub(B.o,A.o),A.n));if(d>1e-4)add(d,Math.min(pl[i][0].area,pl[j][0].area))}}
-    if(!cand.size)return {ok:false,msg:'Keine Blechdicke erkennbar (keine parallelen Gegenflächen oder koaxialen Biegeflächen).'};
+    if(!cand.size){const fr=[...new Set(F.filter(f=>!f.plane&&!f.cyl).map(f=>f.type))];return {ok:false,msg:fr.length?`Nicht abwickelbar: Das Teil besteht aus ${fr.join(', ')}en Flächen ohne erkennbare Blechdicke.`:'Keine Blechdicke erkennbar (keine parallelen Gegenflächen oder koaxialen Biegeflächen).'}}
     const t=+[...cand.entries()].sort((a,b)=>b[1]-a[1])[0][0];
-    const res={ok:true,t,K,modus:opts.modus,bends:[],warn:[]};
-    // Basis: größte ebene Fläche
-    const base=pl.sort((a,b)=>b[0].area-a[0].area)[0];if(!base){res.warn.push('Keine ebene Basisfläche gefunden.');return res}
-    // Kanten-Nachbarschaft
-    const lineEdgesOf=fi=>M.edges.map((e,i)=>[e,i]).filter(([e])=>e.faces.includes(fi)&&e.line&&e.faces.length===2);
-    const maps=new Map();const skin=new Set([base[1]]);
-    // Basis-Frame
+    const res={ok:true,t,K,modus:opts.modus,bends:[],warn:[],fehler:[]};
+    const partner=gi=>{const A=F[gi].cyl;for(const [f,i] of cyl)if(i!==gi&&coaxial(A,f.cyl)&&Math.abs(Math.abs(A.r-f.cyl.r)-t)<1e-3)return f.cyl;return null};
+    // Basis: größte ebene Fläche mit Gegenfläche im Abstand t (also eine Hautfläche, keine Stirnfläche)
+    const hasOpp=([f])=>pl.some(([g])=>V.dot(f.plane.n,g.plane.n)<-1+1e-6&&Math.abs(Math.abs(V.dot(V.sub(g.plane.o,f.plane.o),f.plane.n))-t)<1e-3);
+    const base=pl.filter(hasOpp).sort((a,b)=>b[0].area-a[0].area)[0]||pl.sort((a,b)=>b[0].area-a[0].area)[0];
+    if(!base){res.warn.push('Keine ebene Basisfläche gefunden.');res.fehler.push('Keine ebene Basisfläche – keine Abwicklung möglich.');return res}
+    const lineEdgesOf=fi=>E.map((e,i)=>[e,i]).filter(([e])=>e.faces.includes(fi)&&e.line&&e.faces.length===2);
     const n0=base[0].plane.n;let e1=null;
-    for(const [e] of lineEdgesOf(base[1])){const o=M.faces[e.faces.find(x=>x!==base[1])];if(o.cyl&&Math.abs(V.dot(e.line.d,o.cyl.d))>1-1e-6){e1=e.line.d;break}}
+    for(const [e] of lineEdgesOf(base[1])){const o=F[e.faces.find(x=>x!==base[1])];if(o.cyl&&Math.abs(V.dot(e.line.d,o.cyl.d))>1-1e-6){e1=e.line.d;break}}
     if(!e1)e1=lineEdgesOf(base[1])[0]?.[0].line.d||(Math.abs(n0[0])<.9?V.norm(V.cross(n0,[1,0,0])):V.norm(V.cross(n0,[0,1,0])));
     const e2=V.norm(V.cross(n0,e1));
-    const planeMap=(o,a1,a2,O2,U2,V2)=>({kind:'p',o,a1,a2,O2,U2,V2,f:p=>{const w=V.sub(p,o),x=V.dot(w,a1),y=V.dot(w,a2);return [O2[0]+x*U2[0]+y*V2[0],O2[1]+x*U2[1]+y*V2[1]]},
-      lin:v=>{const x=V.dot(v,a1),y=V.dot(v,a2);return [x*U2[0]+y*V2[0],x*U2[1]+y*V2[1]]}});
-    maps.set(base[1],planeMap(base[0].plane.o,e1,e2,[0,0],[1,0],[0,1]));
-    const queue=[base[1]];const bendLines=[];
-    while(queue.length){const fi=queue.shift();const F=M.faces[fi],mF=maps.get(fi);
-      for(const [e,ei] of lineEdgesOf(fi)){const gi=e.faces.find(x=>x!==fi);if(skin.has(gi))continue;const G=M.faces[gi];
-        if(F.plane&&G.cyl&&Math.abs(V.dot(e.line.d,G.cyl.d))>1-1e-6){
-          const C=G.cyl,d=C.d,q0=e.line.p;const w0=V.sub(q0,C.c);const r0=V.norm(V.sub(w0,V.mul(d,V.dot(w0,d))));
-          let t0=V.cross(d,r0);const phiOf=(p,tt)=>{const w=V.sub(p,C.c),wr=V.sub(w,V.mul(d,V.dot(w,d)));let f=Math.atan2(V.dot(wr,tt),V.dot(wr,r0));if(f<-1e-7)f+=2*Math.PI;return f};
-          if(phiOf(G.mid,t0)>C.ang)t0=V.mul(t0,-1);
-          const rin=C.r>t*0.999&&coaxialPartner(gi,t)?.r<C.r?C.r-t:C.r; // Innenradius
-          const th=C.ang;const bz=biegung(rin,t,th,opts);if(bz.hinweis&&!res.warn.includes(bz.hinweis))res.warn.push(bz.hinweis);
-          const rn=bz.ba/th;const Q0=mF.f(q0),D2=norm2(mF.lin(d)),W2=norm2(mF.lin(t0));
-          const mC={kind:'c',f:p=>{const ax=V.dot(V.sub(p,q0),d),ph=phiOf(p,t0);return [Q0[0]+ax*D2[0]+ph*rn*W2[0],Q0[1]+ax*D2[1]+ph*rn*W2[1]]},phiOf,t0,d,C,D2,W2,rn};
-          maps.set(gi,mC);skin.add(gi);
-          // Richtung: Achse auf der Seite der Flächennormale -> nach oben (zur Normalen)
-          const side=V.dot(V.sub(C.c,q0),F.plane.n);
-          const ba=bz.ba;
-          const ends=e.pts;const mid=ends.map(p=>{const P2=mF.f(p);return [P2[0]+th*rn/2*W2[0],P2[1]+th*rn/2*W2[1]]});
-          bendLines.push(mid);
-          res.bends.push({nr:res.bends.length+1,face:gi,ri:rin,ang:th*DEG,dir:side>0?'nach oben':'nach unten',len:V.len(V.sub(ends[1],ends[0])),ba,v:bz.v,K:bz.K,quelle:bz.quelle,schenkel:(M.bendInfo(M.inst[inst].u,gi)?.legs)||[]});
-          // weiter zur nächsten ebenen Fläche über die zweite Tangentenkante
-          for(const [e2_,ei2] of lineEdgesOf(gi)){const hi=e2_.faces.find(x=>x!==gi);if(skin.has(hi)||ei2===ei)continue;const H=M.faces[hi];
-            if(H.plane&&Math.abs(V.dot(e2_.line.d,d))>1-1e-6){const q1=e2_.line.p;const w1=V.sub(q1,C.c),r1=V.norm(V.sub(w1,V.mul(d,V.dot(w1,d))));
-              let t1=V.cross(d,r1);if(V.dot(t1,t0)*Math.sign(V.dot(V.cross(d,r0),t0))<0||V.dot(V.cross(d,r1),V.cross(d,r0))*0!==0){} // Vorzeichen wie t0
-              t1=V.mul(V.cross(d,r1),Math.sign(V.dot(V.cross(d,r0),t0)));
-              maps.set(hi,planeMap(q1,d,t1,mC.f(q1),D2,W2));skin.add(hi);queue.push(hi)}
-            else if(H.cyl)res.warn.push('Zwei Biegungen ohne geraden Abschnitt dazwischen werden nicht abgewickelt.')}
-        }
-      }
+    const maps=new Map(),skin=new Set([base[1]]),bendLines=[],sharp=new Set(),tree=new Set();
+    // Ebenen-Abbildung; frame(e,q) = Kantenrahmen in 2D: Bildpunkt Q, Bild der Kantenrichtung D2, Bild der Richtung aus der Fläche heraus W2
+    const planeMap=(fi,o,a1,a2,O2,U2,V2)=>{const m={kind:'p',f:p=>{const w=V.sub(p,o),x=V.dot(w,a1),y=V.dot(w,a2);return [O2[0]+x*U2[0]+y*V2[0],O2[1]+x*U2[1]+y*V2[1]]},
+      lin:v=>{const x=V.dot(v,a1),y=V.dot(v,a2);return [x*U2[0]+y*V2[0],x*U2[1]+y*V2[1]]}};
+      m.frame=(e,q)=>({Q:m.f(q),D2:norm2(m.lin(e.line.d)),W2:norm2(m.lin(V.mul(tanInto(F[fi],e,q),-1)))});return m};
+    // Tangente in Fläche G an der geraden Kante e im Punkt q, zeigt in G hinein
+    const tanInto=(G,e,q)=>{if(G.plane){let m=V.norm(V.cross(G.plane.n,e.line.d));const c=props('S',G.shape).c;if(V.dot(V.sub(c,q),m)<0)m=V.mul(m,-1);return m}
+      const C=G.cyl,r0=radial(C,q);let t0=V.norm(V.cross(C.d,r0));const w=radial(C,G.mid);let f=Math.atan2(V.dot(w,t0),V.dot(w,r0));if(f<0)f+=2*Math.PI;
+      return f<=C.ang+1e-7?t0:V.mul(t0,-1)};
+    const isTangent=(Fa,Gb,e,q)=>{if(Fa.cyl&&Math.abs(V.dot(e.line.d,Fa.cyl.d))<1-1e-6)return false;if(Gb.cyl&&Math.abs(V.dot(e.line.d,Gb.cyl.d))<1-1e-6)return false;
+      const na=Fa.plane?Fa.plane.n:radial(Fa.cyl,q),nb=Gb.plane?Gb.plane.n:radial(Gb.cyl,q);return Math.abs(Math.abs(V.dot(na,nb))-1)<1e-6};
+    maps.set(base[1],planeMap(base[1],base[0].plane.o,e1,e2,[0,0],[1,0],[0,1]));
+    const isSkinPlane=G=>pl.some(([g])=>V.dot(G.plane.n,g.plane.n)<-1+1e-6&&Math.abs(Math.abs(V.dot(V.sub(g.plane.o,G.plane.o),G.plane.n))-t)<1e-3);
+    const queue=[base[1]];
+    while(queue.length){const fi=queue.shift();const Fa=F[fi],mF=maps.get(fi);
+      for(const [e,ei] of lineEdgesOf(fi)){const gi=e.faces.find(x=>x!==fi);if(skin.has(gi))continue;const G=F[gi];if(!G.plane&&!G.cyl)continue;
+        const q=e.line.p;
+        if(!isTangent(Fa,G,e,q)){const c=Fa.plane&&G.plane?Math.abs(V.dot(Fa.plane.n,G.plane.n)):1;
+          if(c<1-1e-6&&Fa.plane&&G.plane&&isSkinPlane(G)&&G.area>t*t*4)sharp.add(gi);continue}
+        const {Q,D2,W2}=mF.frame(e,q),tq=tanInto(G,e,q),eD=e.line.d;
+        if(G.plane)maps.set(gi,planeMap(gi,q,eD,tq,Q,D2,W2));
+        else{const C=G.cyl,r0=radial(C,q),t0=tq;
+          const phiOf=p=>{const w=radial(C,p);let f=Math.atan2(V.dot(w,t0),V.dot(w,r0));if(f<-1e-7)f+=2*Math.PI;return f};
+          const pc=partner(gi),rin=pc&&pc.r<C.r?pc.r:C.r,th=C.ang;
+          const bz=biegung(rin,t,th,opts);if(bz.hinweis&&!res.warn.includes(bz.hinweis))res.warn.push(bz.hinweis);
+          const rn=bz.ba/th;
+          const m={kind:'c',f:p=>{const ax=V.dot(V.sub(p,q),eD),ph=phiOf(p);return [Q[0]+ax*D2[0]+ph*rn*W2[0],Q[1]+ax*D2[1]+ph*rn*W2[1]]},
+            lin:v=>{const ax=V.dot(v,eD);return [ax*D2[0],ax*D2[1]]}};
+          m.frame=(e2,q2)=>{const out=phiOf(q2)>th/2?W2:[-W2[0],-W2[1]];return {Q:m.f(q2),D2:norm2(m.lin(e2.line.d)),W2:out}};
+          maps.set(gi,m);
+          const ends=e.pts.map(mF.f);bendLines.push(ends.map(P2=>[P2[0]+th*rn/2*W2[0],P2[1]+th*rn/2*W2[1]]));
+          const inner=!pc||pc.r>C.r;
+          res.bends.push({nr:res.bends.length+1,face:gi,ri:rin,ang:th*DEG,dir:inner?'nach oben':'nach unten',len:V.len(V.sub(e.pts.at(-1),e.pts[0])),ba:bz.ba,v:bz.v,K:bz.K,quelle:bz.quelle,schenkel:(M.bendInfo(M.inst[inst].u,gi)?.legs)||[]})}
+        skin.add(gi);queue.push(gi);tree.add(ei)}
     }
-    function coaxialPartner(gi,t){const A=M.faces[gi].cyl;for(const [f,i] of cyl)if(i!==gi&&coaxial(A,f.cyl)&&Math.abs(Math.abs(A.r-f.cyl.r)-t)<1e-3)return f.cyl;return null}
-    // Konturen
+    // ---- Kontur ----
     const lines=[];
-    M.edges.forEach(e=>{const inSkin=e.faces.filter(f=>skin.has(f));if(!inSkin.length)return;if(inSkin.length===2)return;const m=maps.get(inSkin[0]);lines.push(e.pts.map(m.f))});
-    const all=lines.flat();const mn=[Math.min(...all.map(p=>p[0])),Math.min(...all.map(p=>p[1]))],mx=[Math.max(...all.map(p=>p[0])),Math.max(...all.map(p=>p[1]))];
+    E.forEach(e=>{const inSkin=e.faces.filter(f=>skin.has(f));if(!inSkin.length||inSkin.length===2)return;const m=maps.get(inSkin[0]);lines.push(e.pts.map(m.f))});
+    const all=lines.flat();
+    if(!all.length){res.fehler.push('Keine Kontur erzeugt.');return res}
+    const mn=[Math.min(...all.map(p=>p[0])),Math.min(...all.map(p=>p[1]))],mx=[Math.max(...all.map(p=>p[0])),Math.max(...all.map(p=>p[1]))];
     res.flat={contour:lines,bendLines,min:mn,max:mx,size:[mx[0]-mn[0],mx[1]-mn[1]]};
-    const nonSkinSheet=M.faces.filter((f,i)=>!skin.has(i)&&(f.plane||f.cyl)&&f.area>4*t*t*20).length;
-    if(M.faces.some((f,i)=>inS(f)&&!skin.has(i)&&f.type!=='eben'&&f.type!=='zylindrisch'))res.warn.push('Das Teil enthält Freiform-/Kegelflächen; diese werden nicht abgewickelt.');
-    if(false)res.warn.push('Mehrere Körper: Blechauswertung nur für zusammenhängende Flächen ab der größten ebenen Fläche.');
-    // Plausibilität: Fläche der Abwicklung vs. Hautfläche
-    const skinArea=[...skin].reduce((s,i)=>s+M.faces[i].area,0);res.skinArea=skinArea;
+    // ---- Prüfungen ----
+    const free=F.filter(f=>!f.plane&&!f.cyl);if(free.length)res.fehler.push(`Das Teil enthält ${free.length} nicht abwickelbare Fläche(n) (${[...new Set(free.map(f=>f.type))].join(', ')}).`);
+    // Zyklen im Flächengraphen: Kanten zwischen zwei Hautflächen, die nicht im Abwicklungsbaum liegen, müssen in 2D
+    // aus beiden Flächen auf dieselbe Stelle fallen – sonst ist die Ecke geschlossen (Eckfreischnitt fehlt)
+    let closed=0;E.forEach((e,ei)=>{if(tree.has(ei)||e.faces.length!==2||!e.faces.every(f=>skin.has(f)))return;const [a,b]=e.faces.map(f=>maps.get(f));
+      const dev=Math.max(...e.pts.map(p=>{const u=a.f(p),v=b.f(p);return Math.hypot(u[0]-v[0],u[1]-v[1])}));if(dev>1e-3)closed++});
+    if(closed)res.fehler.push(`Geschlossene Ecken (${closed} Kanten): Laschen hängen in 3D zusammen und lassen sich nicht ohne Eckfreischnitt abwickeln.`);
+    if(sharp.size)res.fehler.push(`${sharp.size} scharfkantige Biegung(en) ohne Radius gefunden – nicht abgewickelt.`);
+    // Flächenbilanz: neutrale Fläche der Haut vs. Volumen / t
+    const vol=Math.abs(props('V',UU.shape).mass);
+    const mid=[...skin].reduce((s,i)=>{const f=F[i];if(f.cyl){const pc=partner(i);const rin=pc&&pc.r<f.cyl.r?pc.r:f.cyl.r;return s+f.area*(rin+t/2)/f.cyl.r}return s+f.area},0);
+    res.flaeche={erreicht:mid,soll:vol/t,anteil:mid/(vol/t)};
+    if(res.flaeche.anteil<0.97)res.fehler.push(`Nur ${(res.flaeche.anteil*100).toFixed(1).replace('.',',')} % der Blechfläche wurden abgewickelt – Kontur unvollständig.`);
+    // Selbstüberschneidung der Kontur (überlappende Laschen)
+    const segs=[];lines.forEach(l=>{for(let i=1;i<l.length;i++)segs.push([l[i-1],l[i]])});
+    let hit=0;const tol=1e-6*Math.max(...res.flat.size);
+    outer:for(let i=0;i<segs.length;i++)for(let j=i+1;j<segs.length;j++){const [a,b]=segs[i],[c,d]=segs[j];
+      const sh=(p,q)=>Math.hypot(p[0]-q[0],p[1]-q[1])<tol;if(sh(a,c)||sh(a,d)||sh(b,c)||sh(b,d))continue;if(segX(a,b,c,d)){hit++;if(hit>0)break outer}}
+    if(hit)res.fehler.push('Die abgewickelte Kontur überschneidet sich selbst (überlappende Laschen, Eckfreischnitt fehlt?).');
+    res.flat.incomplete=res.fehler.length>0;
+    if(res.flat.incomplete)res.warn.unshift('ACHTUNG: Abwicklung unvollständig oder fehlerhaft – DXF-Export gesperrt.');
+    res.skinArea=[...skin].reduce((s,i)=>s+F[i].area,0);
     return res};
-  const norm2=v=>{const l=Math.hypot(v[0],v[1])||1;return [v[0]/l,v[1]/l]};
 
   M.dxf=(flat,unitsMm=true)=>{const L=[];const g=(c,v)=>L.push(String(c),String(v));
     g(0,'SECTION');g(2,'HEADER');g(9,'$INSUNITS');g(70,4);g(0,'ENDSEC');

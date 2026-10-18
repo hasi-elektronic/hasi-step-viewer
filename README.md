@@ -79,3 +79,27 @@ Umsetzung: `src/kfaktor.js`. Werkstoffe (Dichte für die Masse): Stahl 7,85, Ede
 **Eigene Biegetabelle (CSV):** Spalten `s;ri;Winkel;v` oder `s;ri;Winkel;K` (Trennzeichen `;`, `,` oder Tab, Dezimalkomma erlaubt, Winkel optional). Passende Zeilen (s ±1 %, ri ±2 %, Winkel ±1°) haben Vorrang vor DIN 6935. Beispiel: `testdaten/biegetabelle-beispiel.csv` (Beispielwerte, keine Herstellerangaben).
 
 ![Biegetabelle](docs/blech-biegetabelle.png)
+
+## Abwicklung
+
+Die Abwicklung ist ein Baum über den Flächengraphen einer Blechseite. Sie startet an der größten ebenen Hautfläche und geht nur über tangentiale gerade Kanten weiter: Ebene ↔ Zylinder, Zylinder ↔ Zylinder (Biegung direkt an Biegung) und geteilte ebene Flächen. Dadurch werden Laschen in mehrere Richtungen und Eckfreischnitte unterstützt. Biegungen werden über die neutrale Faser abgewickelt (Biegezugabe nach DIN 6935, Biegetabelle oder manueller K-Faktor).
+
+Statt einer stillschweigend falschen Kontur erscheint eine **rote Warnung**, und der DXF-Export wird gesperrt, wenn mindestens eines davon zutrifft:
+
+- Die Flächenbilanz geht nicht auf: Die abgewickelte neutrale Fläche liegt unter 97 % von Volumen/Blechdicke.
+- Es gibt geschlossene Ecken: Kanten zwischen zwei Hautflächen, die außerhalb des Baums in 2D nicht deckungsgleich sind (Eckfreischnitt fehlt).
+- Es gibt scharfkantige Biegungen ohne Radius.
+- Es gibt nicht abwickelbare Flächen (Kegel, Kugel, Torus, Freiform).
+- Die Kontur überschneidet sich selbst.
+
+Testteile (selbst erzeugt mit `tools/make-abwicklung-teile.py`, CadQuery):
+
+- S-Profil (Biegung an Biegung)
+- Wanne mit vier Laschen und Eckfreischnitten
+- Wanne ohne Eckfreischnitte
+- Winkel mit Senkung
+- Kuppel
+
+Geprüft durch `tools/test-abwicklung.mjs` (CI, Sollmaße) und `tools/smoke-abwicklung.mjs` (headless).
+
+![Wanne](docs/abwicklung-wanne.png) ![Abwicklung Wanne](docs/abwicklung-wanne-flach.png) ![Warnung](docs/abwicklung-warnung.png)
