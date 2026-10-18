@@ -16,6 +16,6 @@ cmake -S "OCCT-${TAG#V}" -B build -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUI
   -DBUILD_MODULE_Draw=OFF -DBUILD_MODULE_Visualization=ON -DBUILD_MODULE_ApplicationFramework=ON -DBUILD_MODULE_DataExchange=ON \
   -DUSE_FREETYPE=OFF -DUSE_OPENGL=OFF -DUSE_GLES2=OFF -DUSE_D3D=OFF -DUSE_TK=OFF -DUSE_FREEIMAGE=OFF -DUSE_XLIB=OFF -DUSE_TBB=OFF \
   -DUSE_VTK=OFF -DUSE_RAPIDJSON=OFF -DUSE_DRACO=OFF -DUSE_OPENVR=OFF -DUSE_FFMPEG=OFF -DBUILD_DOC_Overview=OFF "${EXTRA[@]}"
-cmake --build build --config Release --parallel
+cmake --build build --config Release --parallel "$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 cmake --install build --config Release
 echo "OCCT $VER installiert in $ZIEL"
