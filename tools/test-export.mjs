@@ -1,5 +1,5 @@
 // Export der Biegetabelle (PDF/XLSX) am Testblech und an der Wanne: Inhalt und Dateiformat prüfen.
-import assert from 'assert';import fs from 'fs';import {execSync} from 'child_process';import {loadOC} from './oc-node.mjs';import {createBrep} from '../src/brep.js';
+import assert from 'assert';import fs from 'fs';import {execSync} from 'child_process';import {loadOC} from './oc-node.mjs';import {createBrep} from './kern-loader.mjs';
 import {tabelle,pdf,xlsx,biegelinie} from '../src/biegetabelle-export.js';
 const B=createBrep(await loadOC());fs.mkdirSync('/tmp/hasi-export',{recursive:true});
 for(const [f,nb] of [['public/testblech.step',2],['testdaten/wanne.step',4]]){
@@ -16,6 +16,9 @@ for(const [f,nb] of [['public/testblech.step',2],['testdaten/wanne.step',4]]){
 B.load(new Uint8Array(fs.readFileSync('public/testblech.step')),'t');const s=B.sheet(0.5);const L=s.flat.bendLines.map(b=>biegelinie(b,s.flat));
 const pos=L.map(l=>l.y1!==l.y2?l.x1:l.y1).sort((a,b)=>a-b);const soll=[60+Math.PI*2/2,60+Math.PI*2+26+Math.PI*2/2];
 // Flansch 1 gerade 60, Biegezone π/2·4 (Mitte: +π), Steg gerade 22 (30−3−5), Biegezone 2π
-const exp=[60+Math.PI,60+2*Math.PI+22+Math.PI];pos.forEach((v,i)=>assert(Math.abs(v-exp[i])<1e-4,`Biegelinie ${i+1}: ${v} ≠ ${exp[i]}`));
+const exp=[60+Math.PI,60+2*Math.PI+22+Math.PI];
+// Die Abwicklung darf gespiegelt liegen (Basisfläche Innen-/Außenseite); dann zählen die Lagen vom anderen Ende
+const Lx=L[0]&&L[0].y1!==L[0].y2?s.flat.size[0]:s.flat.size[1];const fits=p=>p.every((v,i)=>Math.abs(v-exp[i])<1e-4);
+const mir=Lx?pos.map(v=>Lx-v).sort((a,b)=>a-b):[];assert(fits(pos)||(Lx&&fits(mir)),`Biegelinien: ${pos} ≠ ${exp}`);
 console.log('  ok  Lage der Biegelinien am Testblech',pos.map(v=>v.toFixed(4)).join(' / '));
 console.log('OK: Export Biegetabelle');

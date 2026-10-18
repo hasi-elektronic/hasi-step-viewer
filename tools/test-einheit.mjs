@@ -1,5 +1,5 @@
 // Prüft: STEP in cm wird intern in mm umgerechnet; Maße, Blech und DXF sind identisch zur mm-Datei.
-import assert from 'assert';import fs from 'fs';import {loadOC} from './oc-node.mjs';import {createBrep} from '../src/brep.js';
+import assert from 'assert';import fs from 'fs';import {loadOC} from './oc-node.mjs';import {createBrep} from './kern-loader.mjs';
 const B=createBrep(await loadOC());
 const run=f=>{const r=B.load(new Uint8Array(fs.readFileSync(f)),f);const m=B.model();const s=B.sheet(0.5);return {unit:r.unit,m,s,dxf:B.dxf(s.flat)}};
 const a=run(process.argv[2]||'public/testblech.step'),b=run('testdaten/testblech-cm.step');

@@ -1,5 +1,5 @@
 // Prüft Hierarchie/Namen-Zuordnung (occt-import-js -> B-Rep-Körper) mit der eigenen Test-Baugruppe.
-import {loadOC} from './oc-node.mjs';import {createBrep} from '../src/brep.js';import {parseStepHierarchy} from '../src/stephier.js';import fs from 'fs';import assert from 'assert';import {createRequire} from 'module';
+import {loadOC} from './oc-node.mjs';import {createBrep} from './kern-loader.mjs';import {parseStepHierarchy} from '../src/stephier.js';import fs from 'fs';import assert from 'assert';import {createRequire} from 'module';
 const B=createBrep(await loadOC());const bytes=new Uint8Array(fs.readFileSync('testdaten/testbaugruppe.step'));
 const r=B.load(bytes,'testbaugruppe.step',parseStepHierarchy(bytes));
 const flat=[];const walk=(n,d)=>{flat.push('  '.repeat(d)+n.name+':'+n.bodies.join(','));n.children.forEach(c=>walk(c,d+1))};walk(r.tree,0);

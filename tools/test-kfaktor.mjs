@@ -1,6 +1,6 @@
 // Prüft K-Faktor nach DIN 6935, CSV-Biegetabelle und Vorrang der Tabelle.
 import assert from 'assert';import fs from 'fs';import {dinKFaktor,parseBiegetabelle,biegung} from '../src/kfaktor.js';
-import {loadOC} from './oc-node.mjs';import {createBrep} from '../src/brep.js';
+import {loadOC} from './oc-node.mjs';import {createBrep} from './kern-loader.mjs';
 const near=(a,b,e=1e-6,m='')=>assert(Math.abs(a-b)<e,`${m}: ${a} ≠ ${b}`);
 near(dinKFaktor(3,2).K,(0.65+0.5*Math.log10(1.5))/2,1e-12,'K bei ri/s=1,5');near(dinKFaktor(10,2).K,0.5,1e-12,'K bei ri/s≥5');near(dinKFaktor(2,2).K,0.325,1e-12,'K bei ri/s=1');
 assert(dinKFaktor(0.5,2).hinweis,'Hinweis bei ri/s<0,65');

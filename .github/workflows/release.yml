@@ -22,6 +22,38 @@ jobs:
       - run: node tools/test-export.mjs
       - run: node tools/test-baum.mjs
       - run: npm run build
+  kern:
+    # Nativer Kern unter Linux: OCCT bauen (Cache), Kern bauen, Abgleich mit OCCT-Referenztransfer, alle Tests über den nativen Pfad
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - uses: actions/cache@v4
+        id: occt
+        with:
+          path: ${{ runner.temp }}/occt
+          key: occt-7.8.1-${{ runner.os }}-${{ hashFiles('tools/occt-bauen.sh') }}
+      - if: steps.occt.outputs.cache-hit != 'true'
+        run: tools/occt-bauen.sh "${{ runner.temp }}/occt"
+      - run: cmake -S kern -B kern/build -DCMAKE_PREFIX_PATH="${{ runner.temp }}/occt" -DCMAKE_BUILD_TYPE=Release && cmake --build kern/build --parallel
+      - run: node tools/make-testblech.mjs public/testblech.step
+      - name: Abgleich mit dem seriellen OCCT-Transfer (--pruefen)
+        run: for f in testdaten/*.step public/testblech.step; do kern/build/hasi-kern "$f" "$RUNNER_TEMP" --pruefen; done
+      - run: sudo apt-get install -y poppler-utils unzip
+      - name: Tests über den nativen Kern
+        env: { KERN: native, KERN_PRUEFEN: '1' }
+        run: |
+          node tools/test-brep.mjs public/testblech.step
+          node tools/test-kfaktor.mjs public/testblech.step
+          node tools/test-einheit.mjs public/testblech.step
+          node tools/test-messen.mjs
+          node tools/test-abwicklung.mjs
+          node tools/test-export.mjs
+          node tools/test-baum.mjs
+      - name: Paket (Probe)
+        run: python3 tools/kern-paket.py kern/build/hasi-kern "${{ runner.temp }}/occt" kern-paket --triple x86_64-unknown-linux-gnu
   build:
     strategy:
       fail-fast: false
@@ -42,7 +74,31 @@ jobs:
         with:
           targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - run: npm ci
-      - run: npx tauri build ${{ matrix.args }}
+      # Nativer Kern: OCCT (Cache) + hasi-kern, als Sidecar mit Bibliotheken in die App
+      - uses: actions/cache@v4
+        id: occt
+        with:
+          path: ${{ runner.temp }}/occt
+          key: occt-7.8.1-${{ runner.os }}-${{ hashFiles('tools/occt-bauen.sh') }}
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - if: steps.occt.outputs.cache-hit != 'true'
+        shell: bash
+        run: tools/occt-bauen.sh "$RUNNER_TEMP/occt"
+      - name: Kern bauen und packen
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then ARCH='-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0'; TRIPLE=universal-apple-darwin; EXE=kern/build/hasi-kern; else ARCH=''; TRIPLE=x86_64-pc-windows-msvc; EXE=kern/build/Release/hasi-kern.exe; fi
+          cmake -S kern -B kern/build -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/occt" -DCMAKE_BUILD_TYPE=Release $ARCH
+          cmake --build kern/build --config Release --parallel
+          [ "$RUNNER_OS" = "Windows" ] && pip install pefile
+          python3 tools/kern-paket.py "$EXE" "$RUNNER_TEMP/occt" kern-paket --triple $TRIPLE || python tools/kern-paket.py "$EXE" "$RUNNER_TEMP/occt" kern-paket --triple $TRIPLE
+          [ "$RUNNER_OS" = "macOS" ] && lipo -info kern-paket/hasi-kern-$TRIPLE
+          node tools/make-testblech.mjs public/testblech.step
+          if [ "$RUNNER_OS" = "macOS" ]; then mkdir -p probe/MacOS probe/Resources && cp kern-paket/hasi-kern-$TRIPLE probe/MacOS/hasi-kern && cp -R kern-paket/kern probe/Resources/kern && probe/MacOS/hasi-kern public/testblech.step "$RUNNER_TEMP" --pruefen;
+          else PATH="$PWD/kern-paket/kern:$PATH" kern-paket/hasi-kern-$TRIPLE.exe public/testblech.step "$RUNNER_TEMP" --pruefen; fi
+          echo '{"bundle":{"externalBin":["../kern-paket/hasi-kern"],"resources":{"../kern-paket/kern/*":"kern/"}}}' > src-tauri/tauri.kern.json
+      - run: npx tauri build ${{ matrix.args }} --config src-tauri/tauri.kern.json
       - uses: actions/upload-artifact@v4
         with:
           name: hasi-step-viewer-${{ matrix.os }}

@@ -1,5 +1,5 @@
 // Abwicklung: Testteile aus tools/make-abwicklung-teile.py (CadQuery) mit bekannten Zuschnittmaßen. K = 0,5 (manuell).
-import assert from 'assert';import fs from 'fs';import {loadOC} from './oc-node.mjs';import {createBrep} from '../src/brep.js';
+import assert from 'assert';import fs from 'fs';import {loadOC} from './oc-node.mjs';import {createBrep} from './kern-loader.mjs';
 const B=createBrep(await loadOC());const PI=Math.PI,TOL=1e-4;
 const run=f=>{B.load(new Uint8Array(fs.readFileSync('testdaten/'+f)),f);return B.sheet(0.5)};
 const size=(r,a,b,n)=>{const s=[...r.flat.size].sort((x,y)=>x-y);assert(Math.abs(s[0]-a)<TOL&&Math.abs(s[1]-b)<TOL,`${n}: Zuschnitt ${s} ≠ ${a} × ${b}`);console.log(`  ok  ${n.padEnd(34)} ${a.toFixed(4)} × ${b.toFixed(4)}`)};

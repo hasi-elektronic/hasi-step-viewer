@@ -6,6 +6,8 @@
 | three.js | 0.186.1 | MIT | https://github.com/mrdoob/three.js/blob/dev/LICENSE |
 | opencascade.js | 1.1.1 | LGPL-2.1-only (package.json, LICENSE) | https://github.com/donalffons/opencascade.js/blob/master/LICENSE |
 | Open CASCADE Technology (in opencascade.wasm.wasm) | 7.4/7.5 | LGPL-2.1 mit "Open CASCADE Exception" | https://github.com/Open-Cascade-SAS/OCCT/blob/master/LICENSE_LGPL_21.txt , https://github.com/Open-Cascade-SAS/OCCT/blob/master/OCCT_LGPL_EXCEPTION.txt |
+| Open CASCADE Technology (nativer Kern `hasi-kern`, Desktop-App) | 7.8.1 (aus Quellen gebaut, `tools/occt-bauen.sh`) | LGPL-2.1 mit "Open CASCADE Exception" | https://github.com/Open-Cascade-SAS/OCCT/blob/V7_8_1/LICENSE_LGPL_21.txt , https://github.com/Open-Cascade-SAS/OCCT/blob/V7_8_1/OCCT_LGPL_EXCEPTION.txt |
+| Microsoft Visual C++ Laufzeit (nur Windows, app-lokal neben `hasi-kern.exe`) | VS 2022 (14.x) | Microsoft-Software-Lizenz, als „Distributable Code“ weitergebbar | https://learn.microsoft.com/de-de/visualstudio/releases/2022/redistribution |
 | Vite (nur Build) | 8.x | MIT | https://github.com/vitejs/vite/blob/main/LICENSE |
 | playwright-core (nur Test) | 1.64 | Apache-2.0 | https://github.com/microsoft/playwright/blob/main/LICENSE |
 | CadQuery (nur Entwicklerwerkzeug für Testdaten, nicht ausgeliefert) | 2.8 | Apache-2.0 | https://github.com/CadQuery/cadquery/blob/master/LICENSE |
@@ -21,6 +23,8 @@
 | Rust-Crates (über Tauri) | – | überwiegend MIT/Apache-2.0; vor Release mit `cargo about`/`cargo deny` prüfen | – |
 
 LGPL-Hinweis: opencascade.wasm.js/.wasm werden unverändert als separate, austauschbare Dateien (`ocjs/`) ausgeliefert und zur Laufzeit dynamisch geladen; der Lizenztext liegt als `ocjs/LICENSE-opencascade.js.txt` bei. Bei Weitergabe: LGPL-Text + Quellverweis mitliefern.
+
+LGPL-Hinweis nativer Kern: `hasi-kern` (eigener Code) linkt OCCT **dynamisch**. Die OCCT-Bibliotheken liegen unverändert als eigene Dateien im App-Paket (`kern/`: Windows `TK*.dll`, macOS `Contents/Resources/kern/libTK*.dylib`) und können vom Nutzer gegen eine kompatible, selbst gebaute OCCT-Version 7.8.x ausgetauscht werden. OCCT wird ohne Fremdbibliotheken gebaut (kein FreeType, FreeImage, OpenGL, Tcl/Tk, TBB, VTK, RapidJSON, Draco, FFmpeg) – damit kommen keine weiteren Lizenzen hinzu. Bauanleitung und genaue Optionen: `tools/occt-bauen.sh`; Quelle: Tag `V7_8_1` von https://github.com/Open-Cascade-SAS/OCCT. Bei Weitergabe: LGPL-Text, OCCT-Ausnahme und Quellverweis mitliefern (vor Release noch als Datei ins Paket legen). Die Kopplung zur App läuft über einen eigenen Prozess (Sidecar) und Dateien, nicht über Linken mit dem Rust-Programm.
 
 Keine kommerziellen Komponenten (kein CAD Exchanger, HOOPS, Parasolid).
 
