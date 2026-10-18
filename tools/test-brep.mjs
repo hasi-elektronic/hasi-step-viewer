@@ -2,7 +2,7 @@
 import {loadOC} from './oc-node.mjs';import {createBrep} from '../src/brep.js';import fs from 'fs';import assert from 'assert';
 const f=process.argv[2]||'public/testblech.step';const oc=await loadOC();const B=createBrep(oc);
 const r=B.load(new Uint8Array(fs.readFileSync(f)),'testblech.step');const near=(a,b,e=1e-3,m='')=>assert(Math.abs(a-b)<e,`${m}: ${a} ≠ ${b}`);
-assert.equal(r.unit.sym,'mm');assert.equal(r.faces.length,15);
+assert.equal(r.unit.sym,'mm');assert.equal(r.uniq[0].faces.length,15);
 const m=B.model();near(m.volume,(2*134.56637-0)*50-Math.PI*25*2,0.05,'Volumen');near(m.bbox.max[0]-m.bbox.min[0],108,1e-3,'BBox X');
 const get=(rows,k)=>rows.find(x=>x[0]===k)[1];
 const pl=B.faces.map((x,i)=>[x,i]).filter(([x])=>x.plane&&x.area>2900);near(get(B.measure([{k:'face',id:pl[0][1]},{k:'face',id:pl[1][1]}]).rows,'Paralleler Abstand'),2,1e-6,'Dicke parallel');

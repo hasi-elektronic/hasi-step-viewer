@@ -34,6 +34,6 @@ Tests: `npm run testblech && node tools/test-brep.mjs` (Node), `npm run build &&
 
 ## Baugruppenbaum (ab feat/baugruppenbaum)
 
-Hybrid: occt-import-js liefert nur Hierarchie und Namen, die Körper werden über Bounding-Boxen den B-Rep-Körpern aus opencascade.js zugeordnet (XCAF ist in den opencascade.js-1.1.1-Bindings nicht nutzbar).
+Eigener schneller STEP-Strukturparser (`src/stephier.js`) liefert Namen und Hierarchie; diese wird strukturgleich auf den Baum aus opencascade.js gelegt. Gleiche Teile werden nur einmal aufbereitet (Instanzen teilen Geometrie).
 Baum mit Unterbaugruppen, Sichtbarkeit (vererbt), Suche, Kontextmenü und Zeilen-Icons, Auswahl Baum ↔ 3D.
 Tests: `node tools/test-baum.mjs`, Headless: `node tools/smoke-baugruppe.mjs` (Screenshots `docs/baum-*.png`).
