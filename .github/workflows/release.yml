@@ -39,6 +39,7 @@ jobs:
       - if: steps.occt.outputs.cache-hit != 'true'
         run: tools/occt-bauen.sh "${{ runner.temp }}/occt"
       - run: cmake -S kern -B kern/build -DCMAKE_PREFIX_PATH="${{ runner.temp }}/occt" -DCMAKE_BUILD_TYPE=Release && cmake --build kern/build --parallel
+      - run: echo "LD_LIBRARY_PATH=$RUNNER_TEMP/occt/lib" >> "$GITHUB_ENV"  # OCCT-Bibliotheken für den Kern-Probelauf
       - run: node tools/make-testblech.mjs public/testblech.step
       - name: Abgleich mit dem seriellen OCCT-Transfer (--pruefen)
         run: for f in testdaten/*.step public/testblech.step; do kern/build/hasi-kern "$f" "$RUNNER_TEMP" --pruefen; done
