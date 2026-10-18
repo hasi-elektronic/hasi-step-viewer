@@ -110,7 +110,7 @@ export function createBrep(oc){
     M.faces=U[0]?.faces||[];M.edges=U[0]?.edges||[];
     times.gesamt=Date.now()-t0;
     return {name,unit,tree,times,stats:{...stats,unikate:U.length,instanzen:inst.length},
-      uniq:U.map(u=>({p:u.p,i:u.i,f:u.f,faces:u.faces.map(f=>({type:f.type})),edges:u.edges.map(e=>({type:e.type,pts:e.pts,c:e.circle?.c})),verts:u.verts.map(v=>v.p)})),
+      uniq:U.map(u=>({p:u.p,i:u.i,f:u.f,faces:u.faces.map(f=>({type:f.type,ax:f.cyl&&{c:f.cyl.c,d:f.cyl.d,r:f.cyl.r}})),edges:u.edges.map(e=>({type:e.type,pts:e.pts,c:e.circle?.c,n:e.circle?.n,r:e.circle?.r,mid:e.mid})),verts:u.verts.map(v=>v.p)})),
       inst:inst.map((x,i)=>({u:x.u,m:x.m,name:nameOf[i]})),ms:Date.now()-t0}};
   function numberNames(root){
     const names=new Map(),cnt=new Map();const walk=(n,f)=>{f(n);n.children.forEach(c=>walk(c,f))};
@@ -136,53 +136,121 @@ export function createBrep(oc){
     const o={shape:e,faces:[],type:'Kurve'};let _l;Object.defineProperty(o,'len',{get:()=>_l??=props('L',e).mass,enumerable:true});
     let n=24;if(t===CT.GeomAbs_Line){o.type='Gerade';n=1;o.line={p:P(a.Value(u0)),d:V.norm(V.sub(P(a.Value(u1)),P(a.Value(u0))))}}
     else if(t===CT.GeomAbs_Circle){const c=a.Circle();o.type='Kreis';o.circle={c:P(c.Location()),n:D(c.Axis().Direction()),r:c.Radius(),ang:Math.abs(u1-u0)};n=Math.max(8,Math.ceil(o.circle.ang/(Math.PI/24)))}
-    o.pts=[];for(let i=0;i<=n;i++)o.pts.push(P(a.Value(u0+(u1-u0)*i/n)));
+    o.pts=[];for(let i=0;i<=n;i++)o.pts.push(P(a.Value(u0+(u1-u0)*i/n)));o.mid=P(a.Value((u0+u1)/2));
     return o};
 
   // ---------- Messen ----------
-  // Auswahl {k,id,inst}: id lokal im Unikat der Instanz; alles in Weltkoordinaten auflösen
+  // Alle Werte exakt aus der B-Rep (OCCT), immer in mm. Auswahl {k,id,inst}: id lokal im Unikat der Instanz.
+  // Arten: solid, face, edge, vertex, center (Kreismittelpunkt), mid (Kantenmitte), axis (Achse einer Zylinderfläche/Kreiskante), point
   const RES=s=>{if(s._r)return s._r;const I=M.inst[s.inst??0],U=M.uniq[I.u],m=I.m;const o={};
     if(s.k==='solid'){o.shape=U.shape.Moved(I.loc)}
-    if(s.k==='face'){const f=U.faces[s.id];o.f={type:f.type,area:f.area,plane:f.plane&&{o:T.p(m,f.plane.o),n:T.d(m,f.plane.n)},cyl:f.cyl&&{...f.cyl,c:T.p(m,f.cyl.c),d:T.d(m,f.cyl.d)}};o.shape=f.shape.Moved(I.loc)}
-    if(s.k==='edge'||s.k==='center'){const e=U.edges[s.id];o.e={type:e.type,len:e.len,line:e.line&&{p:T.p(m,e.line.p),d:T.d(m,e.line.d)},circle:e.circle&&{...e.circle,c:T.p(m,e.circle.c),n:T.d(m,e.circle.n)}};o.shape=e.shape.Moved(I.loc)}
+    const cylW=c=>c&&{...c,c:T.p(m,c.c),d:T.d(m,c.d)};
+    if(s.k==='face'||(s.k==='axis'&&s.src==='face')){const f=U.faces[s.id];o.f={type:f.type,area:f.area,plane:f.plane&&{o:T.p(m,f.plane.o),n:T.d(m,f.plane.n)},cyl:cylW(f.cyl)};o.shape=f.shape.Moved(I.loc)}
+    if(s.k==='edge'||s.k==='center'||s.k==='mid'||(s.k==='axis'&&s.src!=='face')){const e=U.edges[s.id];o.e={type:e.type,len:e.len,mid:T.p(m,e.mid),line:e.line&&{p:T.p(m,e.line.p),d:T.d(m,e.line.d)},circle:e.circle&&{...e.circle,c:T.p(m,e.circle.c),n:T.d(m,e.circle.n)}};o.shape=e.shape.Moved(I.loc)}
     if(s.k==='vertex'){o.p=T.p(m,U.verts[s.id].p);o.shape=U.verts[s.id].shape.Moved(I.loc)}
     if(s.k==='center'){o.p=o.e.circle.c;o.shape=mkVertex(o.p)}
+    if(s.k==='mid'){o.p=o.e.mid;o.shape=mkVertex(o.p)}
+    if(s.k==='axis'){const a=o.f?o.f.cyl:o.e.circle&&{c:o.e.circle.c,d:o.e.circle.n,r:o.e.circle.r};if(!a)throw new Error('Keine Achse vorhanden');
+      o.axis={c:a.c,d:V.norm(a.d),r:a.r};const L=1e5;o.shape=new oc.BRepBuilderAPI_MakeEdge_3(new oc.gp_Pnt_3(...V.add(a.c,V.mul(o.axis.d,-L))),new oc.gp_Pnt_3(...V.add(a.c,V.mul(o.axis.d,L)))).Edge()}
     if(s.k==='point'){o.p=s.p;o.shape=mkVertex(s.p)}
     return s._r=o};
   const sel2shape=s=>RES(s).shape;
   const selPoint=s=>RES(s).p;
-  const dirOf=s=>{const r=RES(s);if(r.f){if(r.f.plane)return{kind:'n',d:r.f.plane.n};if(r.f.cyl)return{kind:'a',d:r.f.cyl.d}}
+  const isP=s=>['vertex','center','mid','point'].includes(s.k);
+  // Richtung: n = Normale (ebene Fläche, Kreisebene), a = Achse/Richtung (Gerade, Zylinder, Achse)
+  const dirOf=s=>{const r=RES(s);if(r.axis)return{kind:'a',d:r.axis.d};if(r.f){if(r.f.plane)return{kind:'n',d:r.f.plane.n};if(r.f.cyl)return{kind:'a',d:r.f.cyl.d}}
     if(r.e&&s.k==='edge'){if(r.e.line)return{kind:'a',d:r.e.line.d};if(r.e.circle)return{kind:'n',d:r.e.circle.n}}return null};
+  // Mitte einer Auswahl (für Mitte-Mitte): Punkt, Kreismitte, Kantenmitte, Flächen-/Körperschwerpunkt (Zylinder: auf die Achse projiziert)
+  const centerOf=s=>{const r=RES(s);if(r.p)return r.p;if(r.axis)return r.axis.c;
+    if(r.e)return r.e.circle?r.e.circle.c:r.e.mid;
+    if(r.f){const c=props('S',r.shape).c;if(r.f.cyl){const a=r.f.cyl,dd=V.norm(a.d);return V.add(a.c,V.mul(dd,V.dot(V.sub(c,a.c),dd)))}return c}
+    return props('V',r.shape).c};
+  const holeAxis=s=>{const r=RES(s);if(r.axis)return r.axis;if(r.f&&r.f.cyl)return{c:r.f.cyl.c,d:V.norm(r.f.cyl.d),r:r.f.cyl.r};if(r.e&&r.e.circle&&(s.k==='edge'||s.k==='center'))return{c:r.e.circle.c,d:r.e.circle.n,r:r.e.circle.r};return null};
   M.minDist=(a,b)=>{const d=new oc.BRepExtrema_DistShapeShape_1();d.LoadS1(a);d.LoadS2(b);tryCall(()=>d.Perform(),()=>d.Perform(new oc.Message_ProgressRange_1()));
     if(!d.IsDone())throw new Error('Abstand konnte nicht berechnet werden');return {d:d.Value(),p1:P(d.PointOnShape1(1)),p2:P(d.PointOnShape2(1))}};
+  // ---- Maximaler Abstand ----
+  // Ebenen, Zylinder und Kegel sind Regelflächen: der Abstand² zu einem Punkt ist entlang jeder Regelgeraden konvex,
+  // das Maximum liegt deshalb auf dem Rand. Es genügt, die Randkanten zu betrachten.
+  // Je Kante: Gerade → Endpunkte, Kreis → analytisch (Gegenpunkt oder Endpunkte), sonst Abtastung + Goldener Schnitt.
+  const curvesOf=s=>{const r=RES(s);if(r.p)return [{pt:r.p}];if(r.axis)return null;const out=[];
+    const add=e=>{const a=new oc.BRepAdaptor_Curve_2(e);out.push({a,t:a.GetType(),u0:a.FirstParameter(),u1:a.LastParameter()})};
+    if(s.k==='edge')add(oc.TopoDS.Edge_1(r.shape));else explore(r.shape,TA.TopAbs_EDGE,e=>add(oc.TopoDS.Edge_1(e)));return out};
+  const val=(c,u)=>P(c.a.Value(u));
+  const far=(c,q)=>{if(c.pt)return c.pt;const d2=p=>{const w=V.sub(p,q);return V.dot(w,w)};
+    const cand=[val(c,c.u0),val(c,c.u1)];
+    if(c.t===CT.GeomAbs_Circle){const ci=c.a.Circle(),ctr=P(ci.Location()),X=D(ci.XAxis().Direction()),Y=D(ci.YAxis().Direction());
+      const w=V.sub(q,ctr);let t=Math.atan2(V.dot(w,Y),V.dot(w,X))+Math.PI;const TW=2*Math.PI;while(t<c.u0)t+=TW;while(t>c.u0+TW)t-=TW;if(t<=c.u1+1e-12)cand.push(val(c,t))}
+    else if(c.t!==CT.GeomAbs_Line){const n=64;let bi=0,bv=-1;for(let i=0;i<=n;i++){const v=d2(val(c,c.u0+(c.u1-c.u0)*i/n));if(v>bv){bv=v;bi=i}}
+      let lo=c.u0+(c.u1-c.u0)*Math.max(0,bi-1)/n,hi=c.u0+(c.u1-c.u0)*Math.min(n,bi+1)/n;const g=(Math.sqrt(5)-1)/2;
+      for(let k=0;k<80;k++){const x1=hi-g*(hi-lo),x2=lo+g*(hi-lo);if(d2(val(c,x1))>d2(val(c,x2)))hi=x2;else lo=x1}cand.push(val(c,(lo+hi)/2))}
+    let best=cand[0];for(const p of cand)if(d2(p)>d2(best))best=p;return best};
+  M.maxDist=(sa,sb)=>{const A=curvesOf(sa),B=curvesOf(sb);if(!A||!B||!A.length||!B.length)return null;
+    const samp=c=>c.pt?[c.pt]:Array.from({length:17},(_,i)=>val(c,c.u0+(c.u1-c.u0)*i/16));
+    let best={d:-1};
+    for(const ca of A)for(const cb of B){const pa0=samp(ca),pb0=samp(cb);let p1=pa0[0],p2=pb0[0],bd=-1;
+      for(const x of pa0)for(const y of pb0){const d=V.len(V.sub(x,y));if(d>bd){bd=d;p1=x;p2=y}}
+      for(let it=0;it<60;it++){const n2=far(cb,p1),n1=far(ca,n2);const d=V.len(V.sub(n1,n2));const done=d<=bd+1e-12;if(d>=bd){bd=d;p1=n1;p2=n2}if(done)break}
+      if(bd>best.d)best={d:bd,p1,p2}}
+    return best};
+  const perimeter=f=>{let s=0,outer=0;explore(f,TA.TopAbs_EDGE,e=>{s+=props('L',e).mass});
+    try{const w=tryCall(()=>oc.BRepTools.OuterWire(oc.TopoDS.Face_1(f)));outer=props('L',w).mass}catch{outer=s}return {s,outer}};
+  // ---- Blech-Biegung per Ein-Klick auf eine Rundung ----
+  // Partner = koaxiale Zylinderfläche mit anderem Radius (Innen-/Außenseite). Schenkel = ebene Flächen, die tangential an den
+  // geraden Randkanten der Rundung anschließen. Schenkellänge = gerader Anteil + R·tan(φ/2) (bis zum virtuellen Knickpunkt).
+  M.bendInfo=(u,fi)=>{const U=M.uniq[u],F=U.faces,f=F[fi].cyl;if(!f)return null;
+    const coax=(A,B)=>Math.abs(V.dot(A.d,B.d))>1-1e-6&&V.len(V.sub(V.sub(B.c,A.c),V.mul(A.d,V.dot(V.sub(B.c,A.c),A.d))))<1e-4;
+    const pi=F.findIndex((g,i)=>i!==fi&&g.cyl&&coax(f,g.cyl)&&Math.abs(g.cyl.r-f.r)>1e-4&&Math.abs(g.cyl.r-f.r)<Math.max(f.r,g.cyl.r)&&Math.abs(g.cyl.ang-f.ang)<1e-3);
+    if(pi<0)return null;
+    const [ii,oi]=F[pi].cyl.r<f.r?[pi,fi]:[fi,pi];const ri=F[ii].cyl.r,ro=F[oi].cyl.r,phi=f.ang,ax=V.norm(f.d);
+    const legs=ci=>{const C=F[ci].cyl,out=[];U.edges.forEach(e=>{if(!e.line||!e.faces.includes(ci))return;const gi=e.faces.find(x=>x!==ci);const G=F[gi];if(gi==null||!G?.plane)return;
+        const w=V.sub(e.line.p,C.c),rad=V.norm(V.sub(w,V.mul(ax,V.dot(w,ax))));
+        let L=0;U.edges.forEach(e2=>{if(!e2.faces.includes(gi))return;e2.pts.forEach(p=>{const q=V.sub(p,e.line.p);L=Math.max(L,V.len(V.sub(q,V.mul(e.line.d,V.dot(q,e.line.d)))))})});
+        out.push({rad,L})});return out};
+    const li=legs(ii),lo=legs(oi),tn=phi<Math.PI-1e-6?Math.tan(phi/2):NaN;
+    const pair=lo.map(o=>({o,i:li.find(x=>V.dot(x.rad,o.rad)>0.99)}));
+    return {ri,ro,t:ro-ri,phi,inner:ii,outer:oi,legs:pair.map(({o,i})=>({aussen:o.L+ro*tn,innen:i?i.L+ri*tn:null,geradeAussen:o.L}))}};
   M.describe=s=>{const R0=RES(s),R=[];if(s.k==='solid'){const q=M.solidProps([s.inst]);R.push(['Volumen',q.volume,'V'],['Oberfläche',q.area,'A']);return R}
-    if(s.k==='face'){const f=R0.f;R.push(['Fläche',f.type,'t'],['Flächeninhalt',f.area,'A']);
-      if(f.cyl){R.push(['Radius',f.cyl.r,'L'],['Durchmesser',2*f.cyl.r,'L'],['Öffnungswinkel',f.cyl.ang*DEG,'W'])}
+    if(s.k==='face'){const f=R0.f;R.push(['Fläche',f.type,'t'],['Flächeninhalt',f.area,'A']);const u=perimeter(R0.shape);R.push(['Umfang (gesamt)',u.s,'L']);if(Math.abs(u.outer-u.s)>1e-9)R.push(['Umfang (außen)',u.outer,'L']);
+      if(f.cyl){const bi=M.bendInfo(M.inst[s.inst??0].u,s.id);
+        if(bi){R.unshift(['Radius innen Ri',bi.ri,'L','!'],['Radius außen Ra',bi.ro,'L','!'],['Bogenlänge (angeklickt)',f.cyl.r*f.cyl.ang,'L','!'],['Biegewinkel',bi.phi*DEG,'W','!']);
+          R.push(['Blechdicke',bi.t,'L'],['Bogenlänge innen',bi.ri*bi.phi,'L'],['Bogenlänge außen',bi.ro*bi.phi,'L'],['Öffnungswinkel der Schenkel',180-bi.phi*DEG,'W']);
+          bi.legs.forEach((l,i)=>{R.push(['Schenkel '+(i+1)+' außen',l.aussen,'L']);if(l.innen!=null)R.push(['Schenkel '+(i+1)+' innen',l.innen,'L'])});
+          if(bi.legs.length===2)R.push(['Außenmaß über die Biegung',bi.legs[0].aussen+bi.legs[1].aussen,'L'])}
+        else{R.unshift(['Radius R',f.cyl.r,'L','!'],['Bogenlänge',f.cyl.r*f.cyl.ang,'L','!']);R.push(['Durchmesser Ø',2*f.cyl.r,'L'],['Radius R',f.cyl.r,'L'],['Öffnungswinkel',f.cyl.ang*DEG,'W'],['Bogenlänge',f.cyl.r*f.cyl.ang,'L'])}}
       if(f.plane)R.push(['Normale',f.plane.n.map(x=>x.toFixed(4)).join(' / '),'t'])}
     if(s.k==='edge'){const e=R0.e;R.push(['Kante',e.type,'t'],['Kantenlänge',e.len,'L']);
-      if(e.circle){R.push(['Radius',e.circle.r,'L'],['Durchmesser',2*e.circle.r,'L'],['Bogenwinkel',e.circle.ang*DEG,'W'],['Bogenlänge',e.circle.r*e.circle.ang,'L'],['Mittelpunkt',e.circle.c,'P'])}}
-    if(s.k==='vertex'||s.k==='center'||s.k==='point')R.push([s.k==='center'?'Kreismittelpunkt':s.k==='vertex'?'Eckpunkt':'Punkt',selPoint(s),'P']);
-    return R};
+      if(e.circle){R.unshift(e.circle.ang>2*Math.PI-1e-6?['Durchmesser Ø',2*e.circle.r,'L','!']:['Radius R',e.circle.r,'L','!'],['Bogenlänge',e.circle.r*e.circle.ang,'L','!']);R.push(['Durchmesser Ø',2*e.circle.r,'L'],['Radius R',e.circle.r,'L'],['Bogenwinkel',e.circle.ang*DEG,'W'],['Bogenlänge',e.circle.r*e.circle.ang,'L'],['Mittelpunkt',e.circle.c,'P'])}
+      R.push(['Kantenmitte',e.mid,'P'])}
+    if(s.k==='axis'){const a=R0.axis;R.push(['Achse durch',a.c,'P'],['Richtung',a.d.map(x=>x.toFixed(4)).join(' / '),'t']);if(a.r)R.push(['Durchmesser Ø',2*a.r,'L'],['Radius R',a.r,'L'])}
+    if(isP(s))R.push([{center:'Kreismittelpunkt',vertex:'Eckpunkt',mid:'Kantenmitte',point:'Punkt'}[s.k],selPoint(s),'P']);
+    const seen=new Set();return R.filter(r=>!seen.has(r[0])&&seen.add(r[0]))};
+  const delta=(rows,p1,p2,pre='')=>rows.push([pre+'ΔX',Math.abs(p2[0]-p1[0]),'L'],[pre+'ΔY',Math.abs(p2[1]-p1[1]),'L'],[pre+'ΔZ',Math.abs(p2[2]-p1[2]),'L']);
   M.measure=sels=>{
     const rows=[],gfx=[];
     if(sels.length===1)return {rows:M.describe(sels[0]),gfx};
+    if(sels.length>2){const ed=sels.filter(s=>s.k==='edge');
+      if(ed.length)rows.push(['Gesamtlänge ('+ed.length+' Kanten)',ed.reduce((a,s)=>a+RES(s).e.len,0),'L']);
+      const fa=sels.filter(s=>s.k==='face');if(fa.length)rows.push(['Gesamtfläche ('+fa.length+' Flächen)',fa.reduce((a,s)=>a+RES(s).f.area,0),'A']);
+      if(!rows.length)rows.push(['Hinweis','Mehrfachauswahl nur für Kanten (Gesamtlänge) oder Flächen','t']);
+      return {rows,gfx}}
     const [a,b]=sels;
+    if(isP(a)&&isP(b)){const pa=selPoint(a),pb=selPoint(b);rows.push(['Abstand',V.len(V.sub(pb,pa)),'L']);delta(rows,pa,pb);gfx.push([pa,pb]);return {rows,gfx,label:rows[0]}}
     const md=M.minDist(sel2shape(a),sel2shape(b));
-    rows.push(['Minimaler Abstand',md.d,'L'],['ΔX',Math.abs(md.p2[0]-md.p1[0]),'L'],['ΔY',Math.abs(md.p2[1]-md.p1[1]),'L'],['ΔZ',Math.abs(md.p2[2]-md.p1[2]),'L']);gfx.push([md.p1,md.p2]);
+    rows.push(['Abstand min.',md.d,'L']);delta(rows,md.p1,md.p2);gfx.push([md.p1,md.p2]);
+    const mx=M.maxDist(a,b);if(mx)rows.push(['Abstand max.',mx.d,'L']);
+    if(a.k!=='axis'&&b.k!=='axis'){const ca=centerOf(a),cb=centerOf(b);rows.push(['Abstand Mitte–Mitte',V.len(V.sub(cb,ca)),'L']);delta(rows,ca,cb,'Mitte ')}
     const da=dirOf(a),db=dirOf(b);
-    if(da&&db){let c=Math.min(1,Math.abs(V.dot(da.d,db.d)));let ang=Math.acos(c)*DEG;
-      // Fläche–Fläche: Winkel zwischen Normalen (Diederwinkel), Kante–Kante: zwischen Richtungen, Kante–Fläche: 90°-Winkel zur Normalen
+    if(da&&db){const c=Math.min(1,Math.abs(V.dot(da.d,db.d)));let ang=Math.acos(c)*DEG;
+      // Fläche–Fläche: Winkel zwischen den Flächen (über die Normalen), Kante–Kante: zwischen den Richtungen, Kante–Fläche: Winkel zur Fläche (90° − Winkel zur Normalen)
       if(da.kind!==db.kind)ang=90-ang;
-      if(da.kind==='n'&&db.kind==='n'){const s=V.dot(da.d,db.d);rows.push(['Winkel',ang,'W'],['Winkel (Normalen)',Math.acos(Math.max(-1,Math.min(1,s)))*DEG,'W'])}
-      else rows.push(['Winkel',ang,'W']);
+      const kind=x=>x.k==='face'?'Fläche':'Kante';
+      rows.push(['Winkel '+kind(a)+'–'+kind(b),ang,'W']);
+      if(da.kind==='n'&&db.kind==='n'){const s=V.dot(da.d,db.d);rows.push(['Winkel der Normalen',Math.acos(Math.max(-1,Math.min(1,s)))*DEG,'W'])}
       if(a.k==='face'&&b.k==='face'&&RES(a).f.plane&&RES(b).f.plane&&c>1-1e-9){const pa=RES(a).f.plane,pb=RES(b).f.plane;rows.push(['Paralleler Abstand',Math.abs(V.dot(V.sub(pb.o,pa.o),pa.n)),'L'])}
-      if(da.kind==='a'&&db.kind==='a'&&c>1-1e-9&&a.k==='edge'&&b.k==='edge'){const pa=RES(a).e.line.p,pb=RES(b).e.line.p,w=V.sub(pb,pa);rows.push(['Paralleler Abstand',V.len(V.sub(w,V.mul(da.d,V.dot(w,da.d)))),'L'])}}
-    const ax=s=>{const r=RES(s);if(r.f&&r.f.cyl)return r.f.cyl;if(s.k==='edge'&&r.e.circle){const c=r.e.circle;return{c:c.c,d:c.n}}return null};
-    const ca=ax(a),cb=ax(b);
-    if(ca&&cb&&Math.abs(V.dot(ca.d,cb.d))>1-1e-9){const w=V.sub(cb.c,ca.c);rows.push(['Achsabstand',V.len(V.sub(w,V.mul(ca.d,V.dot(w,ca.d)))),'L'])}
-    const isP=s=>['vertex','center','point'].includes(s.k);
-    if(isP(a)&&isP(b)){const pa=selPoint(a),pb=selPoint(b);rows.splice(0,4,['Abstand',V.len(V.sub(pb,pa)),'L'],['ΔX',Math.abs(pb[0]-pa[0]),'L'],['ΔY',Math.abs(pb[1]-pa[1]),'L'],['ΔZ',Math.abs(pb[2]-pa[2]),'L']);gfx[0]=[pa,pb]}
-    return {rows,gfx}};
+      if(da.kind==='a'&&db.kind==='a'&&c>1-1e-9&&a.k==='edge'&&b.k==='edge'&&RES(a).e.line&&RES(b).e.line){const pa=RES(a).e.line.p,pb=RES(b).e.line.p,w=V.sub(pb,pa);rows.push(['Paralleler Abstand',V.len(V.sub(w,V.mul(da.d,V.dot(w,da.d)))),'L'])}}
+    const ha=holeAxis(a),hb=holeAxis(b);
+    if(ha&&hb&&Math.abs(V.dot(ha.d,hb.d))>1-1e-9){const w=V.sub(hb.c,ha.c);const d=V.len(V.sub(w,V.mul(ha.d,V.dot(w,ha.d))));rows.push(['Lochabstand Mitte–Mitte',d,'L'])}
+    return {rows,gfx,label:rows[0]}};
   const meshVA=u=>{const U=M.uniq[u];if(U.mva)return U.mva;const p=U.p,ix=U.i;let v=0,A=0,cx=0,cy=0,cz=0;
     for(let t=0;t<ix.length;t+=3){const a=ix[t]*3,b=ix[t+1]*3,c=ix[t+2]*3;const ax=p[a],ay=p[a+1],az=p[a+2],bx=p[b],by=p[b+1],bz=p[b+2],qx=p[c],qy=p[c+1],qz=p[c+2];
       const dv=(ax*(by*qz-bz*qy)-ay*(bx*qz-bz*qx)+az*(bx*qy-by*qx))/6;v+=dv;cx+=dv*(ax+bx+qx)/4;cy+=dv*(ay+by+qy)/4;cz+=dv*(az+bz+qz)/4;
