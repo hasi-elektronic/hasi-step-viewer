@@ -23,7 +23,7 @@ console.log('blech',JSON.stringify(await p.evaluate(()=>{const s=window.__lastSh
 await p.screenshot({path:'docs/blech-abwicklung.png'});
 // eigene Biegetabelle (Vorrang vor DIN 6935)
 await p.setInputFiles('#csv','testdaten/biegetabelle-beispiel.csv');await p.waitForFunction(()=>window.__lastSheet&&window.__lastSheet.bends[0]?.quelle==='Tabelle');await p.waitForTimeout(300);
-console.log('tabelle',JSON.stringify(await p.evaluate(()=>window.__lastSheet.bends.map(b=>[b.quelle,b.v]))));const ktxt=await p.textContent('#sheetinfo');if(!ktxt.includes('nach Biegetabelle')||ktxt.includes('DIN'))throw new Error('K-Faktor-Zeile ohne „nach Biegetabelle“');await p.screenshot({path:'docs/blech-biegetabelle.png'});
+console.log('tabelle',JSON.stringify(await p.evaluate(()=>window.__lastSheet.bends.map(b=>[b.quelle,b.v]))));const st=await p.textContent('#bends');if(!st.includes('bis Biegep. außen')||!st.includes('gerade innen'))throw new Error('Schenkel fehlen in der Biegetabelle');const ktxt=await p.textContent('#sheetinfo');if(!ktxt.includes('nach Biegetabelle')||ktxt.includes('DIN'))throw new Error('K-Faktor-Zeile ohne „nach Biegetabelle“');await p.screenshot({path:'docs/blech-biegetabelle.png'});
 await p.click('#csvClear');await p.waitForFunction(()=>window.__lastSheet.bends[0]?.quelle==='DIN 6935');
 const dxf=await p.evaluate(()=>window.__lastSheet.dxf);fs.writeFileSync('docs/testblech_Abwicklung.dxf',dxf);
 // 5) Schnitt

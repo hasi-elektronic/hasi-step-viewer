@@ -209,13 +209,15 @@ export function createBrep(oc){
         out.push({rad,L})});return out};
     const li=legs(ii),lo=legs(oi),tn=phi<Math.PI-1e-6?Math.tan(phi/2):NaN;
     const pair=lo.map(o=>({o,i:li.find(x=>V.dot(x.rad,o.rad)>0.99)}));
-    return {ri,ro,t:ro-ri,phi,inner:ii,outer:oi,legs:pair.map(({o,i})=>({aussen:o.L+ro*tn,innen:i?i.L+ri*tn:null,geradeAussen:o.L}))}};
+    return {ri,ro,t:ro-ri,phi,inner:ii,outer:oi,legs:pair.map(({o,i})=>({aussen:o.L+ro*tn,innen:i?i.L+ri*tn:null,geradeAussen:o.L,geradeInnen:i?i.L:null}))}};
   M.describe=s=>{const R0=RES(s),R=[];if(s.k==='solid'){const q=M.solidProps([s.inst]);R.push(['Volumen',q.volume,'V'],['Oberfläche',q.area,'A']);return R}
     if(s.k==='face'){const f=R0.f;R.push(['Fläche',f.type,'t'],['Flächeninhalt',f.area,'A']);const u=perimeter(R0.shape);R.push(['Umfang (gesamt)',u.s,'L']);if(Math.abs(u.outer-u.s)>1e-9)R.push(['Umfang (außen)',u.outer,'L']);
       if(f.cyl){const bi=M.bendInfo(M.inst[s.inst??0].u,s.id);
         if(bi){R.unshift(['Radius innen Ri',bi.ri,'L','!'],['Radius außen Ra',bi.ro,'L','!'],['Bogenlänge (angeklickt)',f.cyl.r*f.cyl.ang,'L','!'],['Biegewinkel',bi.phi*DEG,'W','!']);
           R.push(['Blechdicke',bi.t,'L'],['Bogenlänge innen',bi.ri*bi.phi,'L'],['Bogenlänge außen',bi.ro*bi.phi,'L'],['Öffnungswinkel der Schenkel',180-bi.phi*DEG,'W']);
-          bi.legs.forEach((l,i)=>{R.push(['Schenkel '+(i+1)+' außen',l.aussen,'L']);if(l.innen!=null)R.push(['Schenkel '+(i+1)+' innen',l.innen,'L'])});
+          // Schenkellänge in zwei Varianten: bis Biegepunkt (gerader Teil + R·tan(φ/2)) und gerader Teil ohne Biegung
+          bi.legs.forEach((l,i)=>{const n='Schenkel '+(i+1);R.push([n+' (bis Biegepunkt) außen',l.aussen,'L']);if(l.innen!=null)R.push([n+' (bis Biegepunkt) innen',l.innen,'L']);
+            R.push([n+' gerader Teil außen',l.geradeAussen,'L']);if(l.geradeInnen!=null)R.push([n+' gerader Teil innen',l.geradeInnen,'L'])});
           if(bi.legs.length===2)R.push(['Außenmaß über die Biegung',bi.legs[0].aussen+bi.legs[1].aussen,'L'])}
         else{R.unshift(['Radius R',f.cyl.r,'L','!'],['Bogenlänge',f.cyl.r*f.cyl.ang,'L','!']);R.push(['Durchmesser Ø',2*f.cyl.r,'L'],['Radius R',f.cyl.r,'L'],['Öffnungswinkel',f.cyl.ang*DEG,'W'],['Bogenlänge',f.cyl.r*f.cyl.ang,'L'])}}
       if(f.plane)R.push(['Normale',f.plane.n.map(x=>x.toFixed(4)).join(' / '),'t'])}
@@ -307,7 +309,7 @@ export function createBrep(oc){
           const ba=bz.ba;
           const ends=e.pts;const mid=ends.map(p=>{const P2=mF.f(p);return [P2[0]+th*rn/2*W2[0],P2[1]+th*rn/2*W2[1]]});
           bendLines.push(mid);
-          res.bends.push({nr:res.bends.length+1,face:gi,ri:rin,ang:th*DEG,dir:side>0?'nach oben':'nach unten',len:V.len(V.sub(ends[1],ends[0])),ba,v:bz.v,K:bz.K,quelle:bz.quelle});
+          res.bends.push({nr:res.bends.length+1,face:gi,ri:rin,ang:th*DEG,dir:side>0?'nach oben':'nach unten',len:V.len(V.sub(ends[1],ends[0])),ba,v:bz.v,K:bz.K,quelle:bz.quelle,schenkel:(M.bendInfo(M.inst[inst].u,gi)?.legs)||[]});
           // weiter zur nächsten ebenen Fläche über die zweite Tangentenkante
           for(const [e2_,ei2] of lineEdgesOf(gi)){const hi=e2_.faces.find(x=>x!==gi);if(skin.has(hi)||ei2===ei)continue;const H=M.faces[hi];
             if(H.plane&&Math.abs(V.dot(e2_.line.d,d))>1-1e-6){const q1=e2_.line.p;const w1=V.sub(q1,C.c),r1=V.norm(V.sub(w1,V.mul(d,V.dot(w1,d))));
