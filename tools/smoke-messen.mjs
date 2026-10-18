@@ -12,6 +12,8 @@ const found=await p.evaluate(()=>{const o={};for(let y=150;y<800;y+=6)for(let x=
 console.log('fangen',JSON.stringify(Object.keys(found)));for(const k of ['vertex','mid','center','edge','face'])if(!found[k])fail('Fangart fehlt: '+k);
 await p.mouse.move(...found.center);await p.waitForTimeout(250);const tip=await p.textContent('#snaptip');console.log('hover',tip);if(tip!=='Kreismittelpunkt')fail('Hover-Vorschau fehlt');
 await p.screenshot({path:'docs/messen-fangen.png'});
+await p.mouse.move(1400,450);await p.waitForTimeout(150);if(await p.evaluate(()=>window.__app.hoverCount())!==0||await p.isVisible('#snaptip'))fail('Hover-Marker bleibt nach Verlassen stehen');
+await p.mouse.move(...found.center);await p.waitForTimeout(150);await p.mouse.move(600,860);await p.waitForTimeout(150);if(await p.evaluate(()=>window.__app.hoverCount())!==0)fail('Hover-Marker bleibt neben dem Objekt stehen');console.log('hover-verlassen ok');
 // Bemaßungen
 const ids=await p.evaluate(()=>{const U=window.__app.data().uniq[0];const c=U.edges.map((e,i)=>[e,i]).filter(([e])=>e.type==='Kreis'&&e.c[2]>19.9&&e.pts.length>40);return c.map(x=>x[1])});
 await sel(async i=>{window.__app.clearSel();await window.__app.select({k:'center',id:i[0],inst:0,p:window.__app.data().uniq[0].edges[i[0]].c});await window.__app.select({k:'center',id:i[1],inst:0,p:window.__app.data().uniq[0].edges[i[1]].c})},ids);
@@ -19,6 +21,8 @@ await sel(async i=>{window.__app.clearSel();await window.__app.select({k:'edge',
 const vi=await p.evaluate(()=>{const v=window.__app.data().uniq[0].verts;const f=q=>v.findIndex(p=>p.every((x,j)=>Math.abs(x-q[j])<1e-6));return [f([100,0,0]),f([0,60,20])]});
 await sel(async v=>{const d=window.__app.data().uniq[0].verts;window.__app.clearSel();await window.__app.select({k:'vertex',id:v[0],inst:0,p:d[v[0]]});await window.__app.select({k:'vertex',id:v[1],inst:0,p:d[v[1]]})},vi);
 await sel(()=>window.__app.clearSel());
+const lab=await p.evaluate(()=>window.__app.dimLabels());const same=lab.filter(l=>Math.hypot(...l[0].map((x,i)=>x-lab[0][0][i]))<5);console.log('labels',JSON.stringify(lab.map(l=>l[1])));
+if(same.length<2||new Set(same.map(l=>l[1])).size!==same.length)fail('Labels mit gleichem Mittelpunkt überlappen');
 let dims=await p.evaluate(()=>window.__dims);console.log('bemassungen',JSON.stringify(dims.map(d=>d.text.split('\n')[1])));
 if(dims.length!==3)fail('3 Bemaßungen erwartet');if(!dims[0].text.includes('Abstand: 50,000 mm'))fail('Lochabstand falsch: '+dims[0].text);
 if(!dims[1].text.includes('Abstand max.: 63,000 mm'))fail('Abstand max fehlt');

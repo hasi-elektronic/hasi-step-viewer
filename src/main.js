@@ -64,7 +64,7 @@ async function load(buf,name){
     model.add(mesh);bodies.push(mesh)});
   model.add(marks);model.add(hoverObj);scene.add(model);model.updateMatrixWorld(true);box.setFromObject(model);
   vIdx=new Map();
-  buildTree();clearSel();dims=[];dimNo=0;lastRes=null;renderDims();sheetSolid=null;fit();setCut();showModel();sheetCache=null;$('sheetinfo').innerHTML='';$('bends').innerHTML='';$('flatprev').innerHTML='';$('dxf').disabled=true;$('sheetwarn').textContent='';
+  buildTree();clearSel();hov=null;hoverObj.clear();$('snaptip').hidden=true;dims=[];dimNo=0;lastRes=null;renderDims();sheetSolid=null;fit();setCut();showModel();sheetCache=null;$('sheetinfo').innerHTML='';$('bends').innerHTML='';$('flatprev').innerHTML='';$('dxf').disabled=true;$('sheetwarn').textContent='';
   if(!$('tab-blech').hidden)calcSheet();
   const ms=Math.round(performance.now()-t0);const tris=data.inst.reduce((s,I)=>s+data.uniq[I.u].i.length/3,0);
   const info={name,bytes:size,bodies:data.inst.length,unique:data.uniq.length,faces:data.model.faces,edges:data.model.edges,triangles:tris,totalMs:ms,unit:U.sym,times:data.times,stats:data.stats};window.__lastLoad=info;
@@ -199,7 +199,7 @@ let down=null,hoverRAF=0;
 renderer.domElement.addEventListener('pointerdown',e=>down=[e.clientX,e.clientY]);
 renderer.domElement.addEventListener('pointermove',e=>{if(e.buttons||hoverRAF)return;hoverRAF=requestAnimationFrame(()=>{hoverRAF=0;hov=pickAt(e.clientX,e.clientY);hoverObj.clear();if(hov)hoverObj.add(hiObj(hov,0xff6a00));$('hover').textContent=hov?label(hov):'';
   const tip=$('snaptip'),r=$('view').getBoundingClientRect();tip.hidden=!hov;if(hov){tip.textContent=label(hov);tip.style.left=(e.clientX-r.left)+'px';tip.style.top=(e.clientY-r.top)+'px'}needs=true})});
-renderer.domElement.addEventListener('pointerleave',()=>{$('snaptip').hidden=true});
+renderer.domElement.addEventListener('pointerleave',()=>{if(hoverRAF){cancelAnimationFrame(hoverRAF);hoverRAF=0}$('snaptip').hidden=true;hov=null;hoverObj.clear();$('hover').textContent='';needs=true});
 renderer.domElement.addEventListener('pointerup',e=>{if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;const s=pickAt(e.clientX,e.clientY);if(s){select(s,e.ctrlKey||e.shiftKey||e.metaKey);if(s.body){const n=nodeOfBody(s.body.userData.inst);if(n){selNode=n;for(let x=n.parent;x;x=x.parent)x.open=true;renderTree();document.querySelector(`.trow[data-id="${n.id}"]`)?.scrollIntoView({block:'nearest'})}}}});
 addEventListener('keydown',e=>{if(e.code==='Space'&&document.activeElement.tagName!=='INPUT'){e.preventDefault();clearSel()}});
 $('clearSel').onclick=()=>clearSel();
@@ -219,12 +219,15 @@ function textSprite(txt){const c=document.createElement('canvas'),x=c.getContext
   x.font=f;x.fillStyle='rgba(29,29,31,.88)';x.beginPath();x.roundRect?x.roundRect(0,0,w,44,10):x.rect(0,0,w,44);x.fill();x.fillStyle='#fff';x.textBaseline='middle';x.fillText(txt,12,23);
   const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:t,depthTest:false,sizeAttenuation:false}));
   const h=0.03;sp.center.set(0.5,-0.2);sp.scale.set(h*w/44,h,1);sp.renderOrder=21;return sp}
-function dimObject(d){const g=new THREE.Group();const col=0x0a7cc2;const r=mainRow(d.r);
+function dimObject(d,k=0){const g=new THREE.Group();const col=0x0a7cc2;const r=mainRow(d.r);
   let at=null;for(const [a,b] of d.r.gfx){const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(a),V3(b)]),new THREE.LineBasicMaterial({color:col,depthTest:false}));l.renderOrder=20;g.add(l);
     for(const p of [a,b])g.add(snapSym('vertex',p,col));at=V3(a).add(V3(b)).multiplyScalar(.5)}
   if(!at){const s=d.sels[0];at=V3(s.p||[0,0,0])}
-  const sp=textSprite(`${d.no}: ${fmt(r[1],r[2])}`);sp.position.copy(at);g.add(sp);g.userData.dim=d.no;return g}
-function renderDims(){dimGroup.clear();dims.forEach(d=>dimGroup.add(dimObject(d)));if(model&&dimGroup.parent!==model)model.add(dimGroup);
+  const sp=textSprite(`${d.no}: ${fmt(r[1],r[2])}`);sp.position.copy(at);sp.center.set(0.5,-0.2-1.35*k);g.add(sp);g.userData.dim=d.no;return g}
+// Labels mit gleichem oder nahem Ankerpunkt (< 4 % der Modellgröße) übereinander versetzen statt überlappen
+const dimAnchor=d=>{const g=d.r.gfx[0];return g?g[0].map((x,i)=>(x+g[1][i])/2):(d.sels[0].p||[0,0,0])};
+function renderDims(){dimGroup.clear();const tol=box.getSize(new THREE.Vector3()).length()*0.04,placed=[];
+  dims.forEach(d=>{const a=dimAnchor(d);const k=placed.filter(q=>Math.hypot(q[0]-a[0],q[1]-a[1],q[2]-a[2])<tol).length;placed.push(a);dimGroup.add(dimObject(d,k))});if(model&&dimGroup.parent!==model)model.add(dimGroup);
   $('dimcount').textContent=dims.length?`(${dims.length})`:'';
   $('dimlist').innerHTML=dims.map(d=>{const r=mainRow(d.r);return `<div class="dim" data-no="${d.no}"><b>${d.no}</b><span title="${d.title}"><span class="t">${r[0]}</span> <b>${fmt(r[1],r[2])}</b></span><button data-a="copy" title="Kopieren">Kopieren</button><button data-a="del" title="Löschen">Löschen</button></div>`}).join('')||'<p class="hint">Noch keine Bemaßungen.</p>';
   window.__dims=dims.map(d=>({no:d.no,title:d.title,text:dimText(d)}));needs=true}
@@ -257,7 +260,7 @@ async function calcSheet(){if(!data)return;const K=parseFloat(String($('kf').val
   const opts={modus:$('kmode').value,K,tabelle:biegetabelle?.rows||null};
   const r=await call('sheet',{opts,inst:sheetSolid});sheetCache=r;window.__lastSheet=r;
   if(!r.ok){$('sheetinfo').innerHTML='';$('bends').innerHTML='';$('flatprev').innerHTML='';$('dxf').disabled=true;$('sheetwarn').textContent=r.msg;return}
-  const rows=[['Teil',sheetSolid==null?'gesamtes Modell':(nodeOfBody(sheetSolid)?.name||'Körper '+(sheetSolid+1))],['Blechdicke (erkannt)',r.t,'L'],['K-Faktor',r.modus==='din'?'nach DIN 6935 (je Biegung)':nf(K,2)],...(biegetabelle?[['Biegetabelle',biegetabelle.name]]:[]),['Biegungen',r.bends.length]];
+  const rows=[['Teil',sheetSolid==null?'gesamtes Modell':(nodeOfBody(sheetSolid)?.name||'Körper '+(sheetSolid+1))],['Blechdicke (erkannt)',r.t,'L'],['K-Faktor',r.modus==='din'?(r.bends.some(b=>b.quelle==='Tabelle')?(r.bends.every(b=>b.quelle==='Tabelle')?'nach Biegetabelle':'nach Biegetabelle / DIN 6935 (je Biegung)'):'nach DIN 6935 (je Biegung)'):nf(K,2)],...(biegetabelle?[['Biegetabelle',biegetabelle.name]]:[]),['Biegungen',r.bends.length]];
   if(r.flat)rows.push(['Zuschnitt Länge',Math.max(...r.flat.size),'L'],['Zuschnitt Breite',Math.min(...r.flat.size),'L']);
   try{const q=await call('props',{ids:[sheetSolid??0]});const d=parseFloat($('mat2').value);rows.push(['Werkstoff',$('mat2').selectedOptions[0].textContent],['Masse',q.volume/1000*d,'M'])}catch{}
   kv($('sheetinfo'),rows);
@@ -274,6 +277,6 @@ $('dxf').onclick=async()=>{if(!sheetCache?.dxf)return;const name=(window.__lastL
 
 // ---------- Test-Schnittstelle ----------
 window.__loadUrl=async u=>load(await (await fetch(u)).arrayBuffer(),u.split('/').pop());
-window.__app={dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
+window.__app={hoverCount:()=>hoverObj.children.length,dimLabels:()=>dimGroup.children.map(g=>{const sp=g.children.find(o=>o.isSprite);return [sp.position.toArray(),sp.center.y]}),dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
   screenOf:p=>{const r=renderer.domElement.getBoundingClientRect();const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*r.width+r.left,(1-w.y)/2*r.height+r.top]}};
 window.__toggleMeasure=()=>{};
