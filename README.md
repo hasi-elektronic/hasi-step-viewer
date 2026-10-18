@@ -63,3 +63,19 @@ Alle Werte werden exakt aus der B-Rep (OCCT) berechnet, nicht aus dem Dreiecksne
 Testsuite: `tools/test-messen.mjs` (läuft in CI). Sie prüft 58 Sollmaße am Messteil `testdaten/messteil.step` (erzeugt mit `tools/make-messteil.py`, CadQuery) und am Testblech mit einer Toleranz von 0,0001 mm. Der Headless-Test `tools/smoke-messen.mjs` erzeugt die Screenshots.
 
 ![Fangen](docs/messen-fangen.png) ![Bemaßungen](docs/messen-bemassungen.png) ![Blech-Rundung](docs/messen-blech-rundung.png)
+
+## K-Faktor und Biegetabelle
+
+Im Blech-Panel wird der K-Faktor standardmäßig automatisch je Biegung aus dem Verhältnis Innenradius zu Blechdicke berechnet.
+
+**Quelle der Formel:** DIN 6935:2011-10 „Kaltbiegen von Flacherzeugnissen aus Stahl“, Beiblatt 1 / Ausgleichswert:
+
+- Korrekturfaktor k = 0,65 + 0,5 · lg(ri/s) für ri/s < 5, sonst k = 1
+- neutrale Faser bei ri + k·s/2, also K = k/2 (K = 0,5 bei ri/s ≥ 5)
+- Ausgleichswert v = φ · (ri + K·s) − 2 · (ri + s) · tan(φ/2) (für φ ≤ 90°; Biegezugabe BZ = v + 2·(ri + s)·tan(φ/2))
+
+Umsetzung: `src/kfaktor.js`. Werkstoffe (Dichte für die Masse): Stahl 7,85, Edelstahl 7,90, Aluminium 2,70, Kupfer 8,96 g/cm³.
+
+**Eigene Biegetabelle (CSV):** Spalten `s;ri;Winkel;v` oder `s;ri;Winkel;K` (Trennzeichen `;`, `,` oder Tab, Dezimalkomma erlaubt, Winkel optional). Passende Zeilen (s ±1 %, ri ±2 %, Winkel ±1°) haben Vorrang vor DIN 6935. Beispiel: `testdaten/biegetabelle-beispiel.csv` (Beispielwerte, keine Herstellerangaben).
+
+![Biegetabelle](docs/blech-biegetabelle.png)

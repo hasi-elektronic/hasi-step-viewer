@@ -48,6 +48,9 @@ console.log(`OK: ${n} Messungen innerhalb ${TOL} mm`);
  const legs=B2.bendInfo(0,fi).legs.map(l=>[l.aussen,l.innen]).sort((a,b)=>a[0]-b[0]);console.log('  Schenkel',JSON.stringify(legs));
  // Biegung 2: Steg gerade 22 (außen) bzw. 22 (innen), Flansch 2 gerade 40; + R·tan45°
  const soll=[[22+5,22+3],[40+5,40+3]];legs.forEach((l,i)=>l.forEach((v,j)=>{assert(Math.abs(v-soll[i][j])<TOL,`Schenkel ${v} ≠ ${soll[i][j]}`);n++}));
- c(fi,'Außenmaß über die Biegung',27+45);console.log('  ok  Schenkel außen/innen          27/25, 45/43');
+ c(fi,'Außenmaß über die Biegung',27+45);
+ const gl=B2.bendInfo(0,fi).legs.map(l=>[l.geradeAussen,l.geradeInnen]).sort((a,b)=>a[0]-b[0]);[[22,22],[40,40]].forEach((r,i)=>r.forEach((v,j)=>{assert(Math.abs(gl[i][j]-v)<TOL,'gerader Teil '+gl[i][j]+' ≠ '+v);n++}));
+ const sb=B2.sheet(0.5).bends;assert(sb.every(b=>b.schenkel.length===2),'Schenkel in Biegetabelle');n++;
+ for(const nm of ['Schenkel 1 (bis Biegepunkt) außen','Schenkel 1 gerader Teil innen'])assert(row(fi,nm)!=null);console.log('  ok  Schenkel außen/innen          27/25, 45/43');
 }
 console.log(`OK gesamt: ${n} Messungen`);

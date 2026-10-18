@@ -14,6 +14,7 @@ jobs:
       - run: npm ci
       - run: node tools/make-testblech.mjs public/testblech.step
       - run: node tools/test-brep.mjs public/testblech.step
+      - run: node tools/test-kfaktor.mjs public/testblech.step
       - run: node tools/test-einheit.mjs public/testblech.step
       - run: node tools/test-messen.mjs
       - run: node tools/test-baum.mjs
