@@ -13,8 +13,16 @@ die MSVC-Laufzeit, app-lokal), Systembibliotheken nicht. Dynamisch gelinkt (LGPL
 import glob, os, re, shutil, subprocess, sys
 
 def deps_macho(p):
-    out = subprocess.run(['otool', '-L', p], capture_output=True, text=True, check=True).stdout.splitlines()[1:]
-    return [l.strip().split(' (')[0] for l in out if l.strip()]
+    # otool -L schreibt bei Universal-Binaries je Architektur eine Kopfzeile
+    # („… (architecture arm64):“). Die ist keine Abhängigkeit.
+    out = subprocess.run(['otool', '-L', p], capture_output=True, text=True, check=True).stdout.splitlines()
+    deps = []
+    for zeile in out:
+        s = zeile.strip()
+        if not s or s.endswith(':') or '(architecture ' in s:
+            continue
+        deps.append(s.split(' (')[0])
+    return deps
 
 def deps_elf(p):
     out = subprocess.run(['readelf', '-d', p], capture_output=True, text=True, check=True).stdout
