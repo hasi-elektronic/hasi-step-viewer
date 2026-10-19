@@ -39,6 +39,34 @@ jobs:
           curl -sf -o /dev/null http://localhost:4173/
           node tools/smoke-bemassung.mjs
           node tools/smoke-kontextmenue.mjs
+      - name: Marke Sickinger (Frontend)
+        run: |
+          set -euo pipefail
+          MARKE=sickinger npm run build
+          grep -q 'Sickinger STEP-Betrachter' dist/index.html
+          grep -q 'Entwickelt von Hasi Elektronic' dist/index.html
+          grep -q 'data-marke="sickinger"' dist/index.html
+          test -f dist/marken/sickinger.png
+          grep -q 'HASI <span>STEP-Betrachter</span>' index.html
+          node --input-type=module -e "import fs from 'fs'; const j=JSON.parse(fs.readFileSync('src-tauri/tauri.sickinger.conf.json','utf8')); if(j.productName!=='Sickinger STEP-Betrachter'||j.identifier!=='de.sickinger.stepbetrachter'||j.bundle.publisher!=='Manfred Sickinger Apparatebau') process.exit(1)"
+          if [ -x /usr/bin/google-chrome ]; then export CHROME=/usr/bin/google-chrome
+          elif [ -x /usr/bin/google-chrome-stable ]; then export CHROME=/usr/bin/google-chrome-stable
+          else
+            sudo node node_modules/playwright-core/cli.js install-deps chromium
+            node node_modules/playwright-core/cli.js install chromium
+            CHROME="$(find "$HOME/.cache/ms-playwright" -type f -name chrome -path '*chrome-linux*' -print -quit)"
+            export CHROME
+          fi
+          test -x "$CHROME"
+          npm run preview -- --port 4174 --strictPort >/tmp/vite-preview-sickinger.log 2>&1 &
+          for i in $(seq 1 40); do curl -sf -o /dev/null http://localhost:4174/ && break; sleep 1; done
+          curl -sf -o /dev/null http://localhost:4174/
+          PORT=4174 node tools/smoke-marke.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sickinger-oberflaeche
+          path: docs/sickinger-oberflaeche.png
+          if-no-files-found: error
   kern:
     # Nativer Kern unter Linux: OCCT bauen (Cache), Kern bauen, Abgleich mit OCCT-Referenztransfer, alle Tests über den nativen Pfad
     runs-on: ubuntu-latest
@@ -84,9 +112,23 @@ jobs:
       matrix:
         include:
           - os: windows-latest
+            marke: hasi
+            plattform: windows
+            args: '--bundles nsis,msi'
+            out: 'src-tauri/target/release/bundle/**/*.*'
+          - os: windows-latest
+            marke: sickinger
+            plattform: windows
             args: '--bundles nsis,msi'
             out: 'src-tauri/target/release/bundle/**/*.*'
           - os: macos-latest
+            marke: hasi
+            plattform: macos
+            args: '--target universal-apple-darwin --bundles dmg,app'
+            out: 'src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg'
+          - os: macos-latest
+            marke: sickinger
+            plattform: macos
             args: '--target universal-apple-darwin --bundles dmg,app'
             out: 'src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg'
     runs-on: ${{ matrix.os }}
@@ -109,7 +151,7 @@ jobs:
       - if: steps.occt.outputs.cache-hit != 'true'
         shell: bash
         run: tools/occt-bauen.sh "$RUNNER_TEMP/occt"
-      - if: steps.occt.outputs.cache-hit != 'true'
+      - if: steps.occt.outputs.cache-hit != 'true' && matrix.marke == 'hasi'
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/occt
@@ -145,7 +187,18 @@ jobs:
             ZIEL='./'
           fi
           printf '%s\n' "{\"bundle\":{\"externalBin\":[\"../kern-paket/hasi-kern\"],\"resources\":{\"../kern-paket/kern/*\":\"$ZIEL\"}}}" > src-tauri/tauri.kern.json
-      - run: npx tauri build ${{ matrix.args }} --config src-tauri/tauri.kern.json
+      - name: App bauen
+        shell: bash
+        env:
+          MARKE: ${{ matrix.marke }}
+        run: |
+          set -euo pipefail
+          EXTRA=""
+          if [ "$MARKE" = "sickinger" ]; then EXTRA="--config src-tauri/tauri.sickinger.conf.json"; fi
+          npx tauri build ${{ matrix.args }} --config src-tauri/tauri.kern.json $EXTRA
+          if [ "$MARKE" = "sickinger" ]; then grep -q 'Sickinger STEP-Betrachter' dist/index.html
+          else grep -q 'Hasi STEP-Betrachter' dist/index.html && ! grep -q 'Sickinger' dist/index.html
+          fi
       - name: Kern im Installer prüfen
         shell: bash
         run: |
@@ -173,6 +226,6 @@ jobs:
           ls -la ${{ matrix.out }} 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         with:
-          name: hasi-step-viewer-${{ matrix.os }}
+          name: ${{ matrix.marke }}-step-viewer-${{ matrix.plattform }}
           path: ${{ matrix.out }}
           if-no-files-found: error

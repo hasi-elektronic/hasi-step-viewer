@@ -15,7 +15,15 @@ Funktionen: STEP öffnen (Button oder Drag & Drop), Drehen/Zoom/Pan (Maus: links
 Linux-Voraussetzungen: libwebkit2gtk-4.1-dev, libgtk-3-dev, librsvg2-dev, Rust >= 1.85 (Lockfile ist auf 1.85 aufgelöst).
 
 ## Installer über CI
-`.github/workflows/release.yml`: Jobs auf `windows-latest` (NSIS-.exe + .msi) und `macos-latest` (Universal-.dmg). Start über Tag `v*` oder manuell (workflow_dispatch); Ergebnisse als Actions-Artefakte.
+`.github/workflows/release.yml`: Jobs auf `windows-latest` (NSIS-.exe + .msi) und `macos-latest` (Universal-.dmg), je Marke `hasi` und `sickinger`. Start über Tag `v*` oder manuell (workflow_dispatch); Ergebnisse als Actions-Artefakte.
+
+## Marke Sickinger
+Dieselbe App, zweite Marke für Manfred Sickinger Apparatebau. Ohne Variable bleibt der Hasi-Build unverändert.
+
+    MARKE=sickinger npm run build
+    MARKE=sickinger npm run tauri build -- --config src-tauri/tauri.sickinger.conf.json
+
+Produktname „Sickinger STEP-Betrachter“, Kennung `de.sickinger.stepbetrachter`, Herausgeber „Manfred Sickinger Apparatebau“. Farben aus dem Logo: Dunkelblau `#004B85`, Hellblau `#009EDF`. Im Über-Dialog steht zusätzlich „Entwickelt von Hasi Elektronic“.
 Voraussetzung: Repository auf GitHub (noch nicht angelegt). Ohne Apple-Developer-ID ist die .dmg unsigniert/nicht notarisiert -> Gatekeeper-Warnung (Rechtsklick > Öffnen). Ohne Windows-Codesigning-Zertifikat -> SmartScreen-Hinweis.
 
 ## Testdatei

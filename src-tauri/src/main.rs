@@ -154,14 +154,29 @@ fn mac_menu(app: &mut tauri::App) -> tauri::Result<()> {
     use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
     use tauri::Manager;
     let h = app.handle();
-    let app_menu = Submenu::with_items(h, "Hasi STEP-Betrachter", true, &[
-        &PredefinedMenuItem::about(h, Some("Über Hasi STEP-Betrachter"), Some(AboutMetadata::default()))?,
+    let produkt = h.config().product_name.clone().unwrap_or_else(|| "Hasi STEP-Betrachter".into());
+    let sickinger = h.config().identifier.to_string().contains("sickinger");
+    let meta = if sickinger {
+        AboutMetadata {
+            name: Some(produkt.clone()),
+            copyright: Some("© 2026 Manfred Sickinger Apparatebau".into()),
+            credits: Some("Entwickelt von Hasi Elektronic".into()),
+            ..AboutMetadata::default()
+        }
+    } else {
+        AboutMetadata::default()
+    };
+    let ueber = format!("Über {produkt}");
+    let ausblenden = format!("{produkt} ausblenden");
+    let beenden = format!("{produkt} beenden");
+    let app_menu = Submenu::with_items(h, &produkt, true, &[
+        &PredefinedMenuItem::about(h, Some(&ueber), Some(meta))?,
         &PredefinedMenuItem::separator(h)?,
-        &PredefinedMenuItem::hide(h, Some("Hasi STEP-Betrachter ausblenden"))?,
+        &PredefinedMenuItem::hide(h, Some(&ausblenden))?,
         &PredefinedMenuItem::hide_others(h, Some("Andere ausblenden"))?,
         &PredefinedMenuItem::show_all(h, Some("Alle einblenden"))?,
         &PredefinedMenuItem::separator(h)?,
-        &PredefinedMenuItem::quit(h, Some("Hasi STEP-Betrachter beenden"))?,
+        &PredefinedMenuItem::quit(h, Some(&beenden))?,
     ])?;
     let ablage = Submenu::with_items(h, "Ablage", true, &[
         &MenuItem::with_id(h, "oeffnen", "Öffnen …", true, Some("CmdOrCtrl+O"))?,

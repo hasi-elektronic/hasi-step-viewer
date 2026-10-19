@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import * as BM from './bemassung.js';
+import { MARKE } from './marke.js';
 const $=id=>document.getElementById(id), view=$('view');
+if(MARKE.id==='sickinger'){document.documentElement.dataset.marke='sickinger';document.title=MARKE.produkt}
+let logoZusage=null;
+function logoDaten(){if(!MARKE.logo)return Promise.resolve(null);if(!logoZusage)logoZusage=fetch(MARKE.logo).then(r=>{if(!r.ok)throw new Error('Logo fehlt');return r.blob()}).then(b=>new Promise(res=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.readAsDataURL(b)}));return logoZusage}
+const ueberBtn=$('ueber');if(ueberBtn){ueberBtn.onclick=()=>{$('ueberDlg').hidden=false};$('ueberClose').onclick=()=>{$('ueberDlg').hidden=true}}
 let renderer;
 try{renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true})}catch(e){$('status').textContent='Fehler: 3D-Grafik (WebGL) wird auf diesem Rechner nicht unterstützt.';throw e}
 renderer.setPixelRatio(devicePixelRatio);renderer.setClearColor(0xf5f5f7);view.appendChild(renderer.domElement);
@@ -101,7 +106,7 @@ const ICON={eye:'<svg viewBox="0 0 16 16"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-
   iso:'<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg>',
   zoom:'<svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor"/><path d="M10.5 10.5 14 14" stroke="currentColor"/></svg>',
   info:'<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor"/><path d="M8 7v4M8 5v.5" stroke="currentColor"/></svg>',
-  asm:'<svg viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="6" height="6" fill="#33AFE2"/><rect x="8.5" y="8.5" width="6" height="6" fill="#33AFE2"/><rect x="8.5" y="1.5" width="6" height="6" fill="none" stroke="#33AFE2"/></svg>',
+  asm:`<svg viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="6" height="6" fill="${MARKE.akzent}"/><rect x="8.5" y="8.5" width="6" height="6" fill="${MARKE.akzent}"/><rect x="8.5" y="1.5" width="6" height="6" fill="none" stroke="${MARKE.akzent}"/></svg>`,
   part:'<svg viewBox="0 0 16 16"><path d="M8 1.5 14 5v6l-6 3.5L2 11V5z" fill="#c9ced6" stroke="#6e6e73"/></svg>'};
 function renderTree(){const q=$('treeSearch').value.trim().toLowerCase();const tree=$('tree');tree.innerHTML='';
   const match=n=>!q||n.name.toLowerCase().includes(q)||n.children.some(match);
@@ -332,8 +337,11 @@ function ansichtBild(){renderer.render(scene,camera);drawDims();const c=document
 const toBytes=url=>{const b=atob(url.split(',')[1]);const u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u};
 async function exportPng(){await saveBytes(baseName()+'_Bemaßung.png',toBytes(ansichtBild().toDataURL('image/png')),'PNG-Bild','png','image/png')}
 async function exportPdf(){const c=ansichtBild();const {jsPDF}=await import('jspdf');const pdf=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-  pdf.setFontSize(12);pdf.text(`${window.__lastLoad?.name||'Teil'} – Bemaßung (Maße in mm)`,12,12);let w=273,h=w*c.height/c.width;if(h>180){h=180;w=h*c.width/c.height}
-  pdf.addImage(c.toDataURL('image/png'),'PNG',12+(273-w)/2,18,w,h);pdf.setFontSize(8);pdf.text(new Date().toLocaleDateString('de-DE'),12,203);
+  pdf.setFontSize(12);let bildY=18,maxH=180;
+  if(MARKE.logo){const logo=await logoDaten();pdf.addImage(logo,'PNG',12,6,14,14);pdf.setTextColor(...MARKE.primaerRgb);pdf.setFontSize(12);pdf.text(MARKE.produkt,30,12);pdf.setTextColor(110);pdf.setFontSize(8);pdf.text(MARKE.vermerk,30,17);pdf.setTextColor(0);pdf.setFontSize(12);pdf.text(`${window.__lastLoad?.name||'Teil'} – Bemaßung (Maße in mm)`,12,26);bildY=30;maxH=166}
+  else pdf.text(`${window.__lastLoad?.name||'Teil'} – Bemaßung (Maße in mm)`,12,12);
+  let w=273,h=w*c.height/c.width;if(h>maxH){h=maxH;w=h*c.width/c.height}
+  pdf.addImage(c.toDataURL('image/png'),'PNG',12+(273-w)/2,bildY,w,h);pdf.setFontSize(8);pdf.setTextColor(0);pdf.text(new Date().toLocaleDateString('de-DE'),12,203);
   await saveBytes(baseName()+'_Bemaßung.pdf',new Uint8Array(pdf.output('arraybuffer')),'PDF-Dokument','pdf','application/pdf')}
 $('dimPng').onclick=exportPng;$('dimPdf').onclick=exportPdf;
 
@@ -382,8 +390,9 @@ async function saveBytes(name,bytes,filter,ext,mime){window.__lastExport={name,b
   else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([bytes],{type:mime}));a.download=name;a.click();$('status').textContent='Gespeichert: '+name}}
 const exportMeta=()=>{const rows=[...$('sheetinfo').children].map(d=>d.textContent);const get=k=>{const i=rows.indexOf(k);return i>=0?rows[i+1]:undefined};
   return {teil:(sheetSolid!=null&&nodeOfBody(sheetSolid)?.name)||window.__lastLoad?.name||'Teil',werkstoff:$('mat2').selectedOptions[0].textContent,kfaktor:get('K-Faktor'),masse:get('Masse')}};
+async function exportMetaMarke(){const m=exportMeta();if(!MARKE.logo)return m;return {...m,produkt:MARKE.produkt,kopfFarbe:MARKE.akzentRgb,primaer:MARKE.primaerRgb,logo:await logoDaten(),vermerk:MARKE.vermerk}}
 const baseName=()=>(window.__lastLoad?.name||'teil').replace(/\.(step|stp)$/i,'');
-$('expPdf').onclick=async()=>{if(!sheetCache?.flat||sheetCache.flat.incomplete)return;const E=await import('./biegetabelle-export.js');await saveBytes(baseName()+'_Biegetabelle.pdf',E.pdf(sheetCache,exportMeta()),'PDF-Dokument','pdf','application/pdf')};
+$('expPdf').onclick=async()=>{if(!sheetCache?.flat||sheetCache.flat.incomplete)return;const E=await import('./biegetabelle-export.js');await saveBytes(baseName()+'_Biegetabelle.pdf',E.pdf(sheetCache,await exportMetaMarke()),'PDF-Dokument','pdf','application/pdf')};
 $('expXlsx').onclick=async()=>{if(!sheetCache?.flat||sheetCache.flat.incomplete)return;const E=await import('./biegetabelle-export.js');await saveBytes(baseName()+'_Biegetabelle.xlsx',await E.xlsx(sheetCache,exportMeta()),'Excel-Arbeitsmappe','xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')};
 
 // ---------- Test-Schnittstelle ----------

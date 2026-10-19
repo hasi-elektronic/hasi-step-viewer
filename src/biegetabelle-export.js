@@ -39,13 +39,25 @@ export function tabelle(sheet, meta = {}) {
 /** PDF (A4 quer) mit Kopfdaten, Tabelle, Schenkeln und Vorschau der Abwicklung. */
 export function pdf(sheet, meta = {}) {
   const T = tabelle(sheet, meta);
+  const produkt = meta.produkt || 'Hasi STEP-Betrachter';
+  const kopfFarbe = meta.kopfFarbe || [51, 175, 226];
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  doc.setProperties({ title: 'Biegetabelle ' + (meta.teil || ''), creator: 'Hasi STEP-Betrachter' });
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.text('Biegetabelle', 14, 16);
+  doc.setProperties({ title: 'Biegetabelle ' + (meta.teil || ''), creator: produkt });
+  let kopfY = 24, tabellenY = 38;
+  if (meta.logo) {
+    const primaer = meta.primaer || [0, 75, 133];
+    doc.addImage(meta.logo, 'PNG', 14, 6, 18, 18);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(...primaer); doc.text('Biegetabelle', 36, 13);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(110); doc.text(produkt, 36, 18);
+    if (meta.vermerk) { doc.setFontSize(8); doc.text(meta.vermerk, 36, 22.5); }
+    kopfY = 34; tabellenY = 48;
+  } else {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.text('Biegetabelle', 14, 16);
+  }
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  T.kopf.forEach(([a, b], i) => { const x = 14 + (i % 4) * 68, y = 24 + Math.floor(i / 4) * 6; doc.setTextColor(110); doc.text(a + ':', x, y); doc.setTextColor(20); doc.text(b, x + 22, y); });
+  T.kopf.forEach(([a, b], i) => { const x = 14 + (i % 4) * 68, y = kopfY + Math.floor(i / 4) * 6; doc.setTextColor(110); doc.text(a + ':', x, y); doc.setTextColor(20); doc.text(b, x + 22, y); });
   autoTable(doc, {
-    startY: 38, head: [T.spalten], theme: 'grid', styles: { fontSize: 9, cellPadding: 1.6 }, headStyles: { fillColor: [51, 175, 226] },
+    startY: tabellenY, head: [T.spalten], theme: 'grid', styles: { fontSize: 9, cellPadding: 1.6 }, headStyles: { fillColor: kopfFarbe },
     body: T.zeilen.map(z => [z.nr, de(z.winkel, 1), de(z.ri), z.richtung, z.lage, de(z.laenge), de(z.bz), de(z.v), de(z.k, 3), z.quelle]),
     columnStyles: { 0: { halign: 'right' }, 1: { halign: 'right' }, 2: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' } },
   });
@@ -70,7 +82,7 @@ export function pdf(sheet, meta = {}) {
   }
   doc.setFontSize(8); doc.setTextColor(110);
   const n = doc.getNumberOfPages();
-  for (let i = 1; i <= n; i++) { doc.setPage(i); doc.text(doc.splitTextToSize(T.hinweis, 200), 14, 200); doc.text(`Seite ${i} von ${n} · Hasi STEP-Betrachter`, 283, 200, { align: 'right' }) }
+  for (let i = 1; i <= n; i++) { doc.setPage(i); doc.text(doc.splitTextToSize(T.hinweis, 200), 14, 200); doc.text(`Seite ${i} von ${n} · ${produkt}`, 283, 200, { align: 'right' }) }
   return new Uint8Array(doc.output('arraybuffer'));
 }
 
