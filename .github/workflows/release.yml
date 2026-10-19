@@ -188,6 +188,24 @@ jobs:
           fi
           printf '%s\n' "{\"bundle\":{\"externalBin\":[\"../kern-paket/hasi-kern\"],\"resources\":{\"../kern-paket/kern/*\":\"$ZIEL\"}}}" > src-tauri/tauri.kern.json
       - name: App bauen
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          MARKE: ${{ matrix.marke }}
+        run: |
+          $tauriArgs = "${{ matrix.args }}".Split(' ')
+          $cfg = @('--config','src-tauri/tauri.kern.json')
+          if ($env:MARKE -eq 'sickinger') { $cfg += @('--config','src-tauri/tauri.sickinger.conf.json') }
+          npx tauri build @tauriArgs @cfg
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $html = Get-Content -Raw dist/index.html
+          if ($env:MARKE -eq 'sickinger') {
+            if ($html -notmatch 'Sickinger STEP-Betrachter') { throw 'Frontend ohne Sickinger-Marke' }
+          } else {
+            if ($html -notmatch 'Hasi STEP-Betrachter' -or $html -match 'Sickinger') { throw 'Hasi-Frontend verändert' }
+          }
+      - name: App bauen
+        if: runner.os != 'Windows'
         shell: bash
         env:
           MARKE: ${{ matrix.marke }}
