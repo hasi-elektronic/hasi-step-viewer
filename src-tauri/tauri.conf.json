@@ -15,7 +15,8 @@
         "label": "main",
         "title": "Hasi STEP-Betrachter",
         "width": 1400,
-        "height": 880
+        "height": 880,
+        "dragDropEnabled": true
       }
     ],
     "security": {
@@ -37,15 +38,31 @@
     "longDescription": "Betrachter für STEP-/STP-Dateien: Modellbaum, Messen, Schnittansicht. Nur Ansicht, keine Bearbeitung.",
     "category": "Utility",
     "copyright": "© 2026 Hasi Elektronic",
+    "fileAssociations": [
+      {
+        "ext": ["step", "stp"],
+        "name": "HasiStep",
+        "description": "STEP-Datei (.step, .stp)",
+        "role": "Viewer",
+        "mimeType": "model/step",
+        "rank": "Default",
+        "exportedType": {
+          "identifier": "de.hasi-elektronic.step",
+          "conformsTo": ["public.data"]
+        }
+      }
+    ],
     "windows": {
       "nsis": {
         "languages": [
           "German"
         ],
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "installerHooks": "windows/hooks.nsh"
       },
       "wix": {
-        "language": "de-DE"
+        "language": "de-DE",
+        "template": "windows/main.wxs"
       }
     }
   },

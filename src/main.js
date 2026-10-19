@@ -52,14 +52,15 @@ document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>fit(views[b.da
 $('showEdges').onchange=()=>{edgeObjs.forEach(e=>e.visible=$('showEdges').checked);needs=true};
 
 // ---------- Laden ----------
-async function load(buf,name){
-  const t0=performance.now();$('status').textContent='Lade '+name+' …';$('drop').style.display='none';$('busy').style.display='block';$('busy').textContent='Kern wird gestartet …';
+async function load(buf,name,opt){
+  const t0=performance.now();$('status').textContent='Lade '+name+' …';$('drop').style.display='none';const hinweis=$('dropHint');if(hinweis)hinweis.hidden=true;$('busy').style.display='block';$('busy').textContent='Kern wird gestartet …';
   const size=buf.byteLength;
   // Desktop-App: zuerst der native Kern (schnell, mehrere Threads); bei Fehlern oder im Browser der WASM-Kern
   const inv=window.__TAURI_INTERNALS__?.invoke;let nativ=false;
   try{
     if(inv&&localStorage.getItem('kern')!=='wasm'&&await inv('kern_verfuegbar').catch(()=>false)){
-      try{$('busy').textContent='Nativer Kern liest die Datei …';const bin=await inv('kern_laden',new Uint8Array(buf),{headers:{'x-name':encodeURIComponent(name)}});
+      try{$('busy').textContent='Nativer Kern liest die Datei …';
+        const bin=opt&&opt.pfad?await inv('kern_laden_pfad',{pfad:opt.pfad}):await inv('kern_laden',new Uint8Array(buf),{headers:{'x-name':encodeURIComponent(name)}});
         data=await call('loadNative',{bin,step:buf,name},[bin]);nativ=true}
       catch(e){console.warn('Nativer Kern fehlgeschlagen, WASM-Kern übernimmt:',e);$('busy').textContent='Nativer Kern nicht verfügbar – WASM-Kern lädt …'}}
     if(!nativ)data=await call('load',{buf,name},[buf]);
@@ -92,6 +93,18 @@ async function load(buf,name){
   if(nativ){const st=$('status').textContent;window.__messBereit=inv('kern_brep').then(text=>call('attach',{text})).then(a=>{info.attachMs=a.ms;if($('status').textContent===st)$('status').textContent=st.replace(' · Messdaten werden vorbereitet …',' · nativer Kern')})
     .catch(e=>{$('status').textContent=st.replace(' · Messdaten werden vorbereitet …',' · Messen nicht verfügbar: '+(e.message||e))})}
   return info}
+function puffer(roh){if(roh instanceof ArrayBuffer)return roh;if(ArrayBuffer.isView(roh))return roh.buffer.slice(roh.byteOffset,roh.byteOffset+roh.byteLength);if(Array.isArray(roh))return new Uint8Array(roh).buffer;throw new Error('Datei konnte nicht gelesen werden')}
+async function loadPath(pfad){
+  const name=String(pfad).split(/[/\\]/).pop()||String(pfad);
+  if(!/\.(step|stp)$/i.test(name)){$('status').textContent='Nur STEP-Dateien (.step, .stp)';return}
+  const inv=window.__TAURI_INTERNALS__?.invoke;
+  if(!inv)throw new Error('Öffnen per Pfad nur in der Desktop-App');
+  return load(puffer(await inv('datei_lesen',{pfad})),name,{pfad})}
+let laufPfad=null;
+async function oeffnePfad(pfad){if(!pfad||laufPfad===pfad)return;laufPfad=pfad;try{await loadPath(pfad)}catch(e){$('status').textContent=e.message||String(e)}finally{setTimeout(()=>{if(laufPfad===pfad)laufPfad=null},1500)}}
+window.__oeffnePfad=oeffnePfad;
+window.__dateiZiehen=an=>{const h=$('dropHint');if(h)h.hidden=!an};
+{const inv=window.__TAURI_INTERNALS__?.invoke;if(inv)inv('start_pfad').then(p=>{if(p)oeffnePfad(p)}).catch(()=>{})}
 const key=p=>p.map(x=>x.toFixed(5)).join(',');let vIdx=new Map();
 const vIndexOf=u=>{if(!vIdx.has(u)){const m=new Map();data.uniq[u].verts.forEach((p,i)=>m.set(key(p),i));vIdx.set(u,m)}return vIdx.get(u)};
 const toModel=(i,p)=>V3(p).applyMatrix4(bodies[i].matrix).toArray();
@@ -187,7 +200,11 @@ const V3=a=>new THREE.Vector3(...a);
 function showMass(){if(!data)return;const d=parseFloat($('dens').value)||0;kv($('massinfo'),[['Volumen',data.model.volume,'V'],['Dichte',nf(d,2)+' g/cm³'],['Masse',data.model.volume/1000*d,'M']])}
 $('mat').onchange=()=>{if($('mat').value!=='custom')$('dens').value=$('mat').value;showMass()};$('dens').oninput=()=>{$('mat').value='custom';showMass()};
 $('file').onchange=async e=>{const f=e.target.files[0];if(f)load(await f.arrayBuffer(),f.name).catch(err=>$('status').textContent=err.message)};
-view.ondragover=e=>e.preventDefault();view.ondrop=async e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)load(await f.arrayBuffer(),f.name).catch(err=>$('status').textContent=err.message)};
+// In der Desktop-App fängt Tauri das Ziehen ab (on_webview_event). Im Browser bleibt HTML5.
+if(!window.__TAURI_INTERNALS__){
+  view.ondragover=e=>e.preventDefault();
+  view.ondrop=async e=>{e.preventDefault();const f=e.dataTransfer?.files?.[0];if(f)load(await f.arrayBuffer(),f.name).catch(err=>$('status').textContent=err.message)};
+}
 
 // ---------- Schnitt ----------
 function setCut(){const ax=$('axis').value;$('cut').disabled=!ax;renderer.localClippingEnabled=!!ax;

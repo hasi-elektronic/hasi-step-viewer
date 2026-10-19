@@ -2,7 +2,7 @@
 
 Reiner STEP/STP-Viewer (keine Bearbeitung). Tauri 2 + three.js + occt-import-js (OpenCascade als WASM, Parsing im Web Worker).
 
-Funktionen: STEP öffnen (Button oder Drag & Drop), Drehen/Zoom/Pan (Maus: links/Rad/rechts), Modellbaum mit Ein-/Ausblenden je Baugruppe/Teil, Punkt-zu-Punkt-Messung (mm), Schnitt X/Y/Z mit Schieberegler.
+Funktionen: STEP öffnen (Button, Doppelklick auf `.step`/`.stp`, Drag & Drop ins Fenster), Drehen/Zoom/Pan (Maus: links/Rad/rechts), Modellbaum mit Ein-/Ausblenden je Baugruppe/Teil, Punkt-zu-Punkt-Messung (mm), Schnitt X/Y/Z mit Schieberegler.
 
 ## Starten
     npm ci
@@ -130,7 +130,7 @@ Tests: `tools/test-export.mjs` (CI, prüft PDF-Text, XLSX-Inhalt und die Lage de
 
 ## Nativer Kern (Desktop-App, ab feat/nativer-kern)
 
-Die Desktop-App lädt STEP-Dateien mit einem nativen OCCT-Kern (`kern/hasi_kern.cpp`, Programm `hasi-kern`), der als Sidecar neben der App liegt. Der WASM-Kern bleibt als Rückfall (Browser, fehlender Sidecar, Fehler im nativen Lauf) und für das Messen.
+Die Desktop-App lädt STEP-Dateien mit einem nativen OCCT-Kern (`kern/hasi_kern.cpp`, Programm `hasi-kern`), der als Sidecar neben der App liegt. Der WASM-Kern bleibt als Rückfall (Browser, fehlender Sidecar, Fehler im nativen Lauf) und für das Messen. Doppelklick und Ziehen ins Fenster übergeben den Dateipfad an `hasi-kern`; die Originaldatei wird dabei nicht gelöscht. Ein zweiter Doppelklick öffnet die Datei im bereits laufenden Fenster.
 
 - **Ablauf:** STEP parsen → Produktstruktur und Baugruppen-Lagen direkt aus der STEP-Datei (CONTEXT_DEPENDENT_SHAPE_REPRESENTATION) → Blatt-Teile parallel übersetzen, Mehrkörper-Teile je Körper → Unikate parallel tessellieren und indizieren (gleiche Reihenfolge der Flächen/Kanten wie im WASM-Kern).
 - **Ausgabe:** `modell.bin` (Netze, Flächen-/Kanteninfo, Baum, Lagen) für die sofortige Anzeige und `modell.brep` (Unikate als BREP). Das BREP wird danach im Hintergrund in den WASM-Kern geladen; Flächen und Kanten eines Teils werden beim ersten Messen indiziert und gegen die nativen Zahlen geprüft. Gemessen wird also weiter mit demselben JS/WASM-Code.
@@ -139,3 +139,4 @@ Die Desktop-App lädt STEP-Dateien mit einem nativen OCCT-Kern (`kern/hasi_kern.
 - **Tests:** `KERN=native node tools/test-*.mjs` lädt über den nativen Kern (`kern/build/hasi-kern`); `node tools/smoke-kern.mjs` prüft den nativen Ladepfad im Browser mit simulierten Tauri-Aufrufen.
 - **Bauen:** `tools/occt-bauen.sh <ordner>` baut OCCT 7.8.1 ohne Fremdbibliotheken, dann `cmake -S kern -B kern/build -DCMAKE_PREFIX_PATH=<ordner> && cmake --build kern/build`. In CI mit Cache (Schlüssel: OCCT-Version und Betriebssystem); `tools/kern-paket.py` legt Programm und Bibliotheken für Tauri bereit. Windows: DLLs neben `hasi-kern.exe`. macOS universal: Bibliotheken unter `Contents/Resources/kern`, gefunden über `@rpath`/`@loader_path`.
 - **Abschalten:** `localStorage.kern = 'wasm'` in der App oder Umgebungsvariable `HASI_KERN=aus`.
+- **Dateizuordnung:** `.step` und `.stp` über `bundle.fileAssociations` (NSIS, MSI, Info.plist). Die MSI-Vorlage `src-tauri/windows/main.wxs` entspricht Tauri-CLI 2.12.3; die Programmkennung ist `HasiStep` bzw. `SickingerStep`, weil der Produktname Leerzeichen enthält und sonst keine gültige WiX-Id wäre.

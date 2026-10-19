@@ -13,6 +13,7 @@
 | playwright-core (nur Test) | 1.64 | Apache-2.0 | https://github.com/microsoft/playwright/blob/main/LICENSE |
 | CadQuery (nur Entwicklerwerkzeug für Testdaten, nicht ausgeliefert) | 2.8 | Apache-2.0 | https://github.com/CadQuery/cadquery/blob/master/LICENSE |
 | tauri-plugin-dialog | 2.x | MIT OR Apache-2.0 | https://github.com/tauri-apps/plugins-workspace/blob/v2/LICENSE_MIT |
+| tauri-plugin-single-instance | 2.4.5 | MIT OR Apache-2.0 | https://github.com/tauri-apps/plugins-workspace/blob/v2/LICENSE_MIT |
 | jsPDF (PDF-Export der Biegetabelle) | 4.2.1 | MIT | https://github.com/parallax/jsPDF/blob/master/LICENSE |
 | jspdf-autotable (Tabellen im PDF) | 5.0.9 | MIT | https://github.com/simonbengtsson/jsPDF-AutoTable/blob/master/LICENSE.txt |
 | write-excel-file (XLSX-Export der Biegetabelle) | 4.1.1 | MIT | https://gitlab.com/catamphetamine/write-excel-file/-/blob/master/LICENSE |
