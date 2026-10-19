@@ -17,13 +17,22 @@
 <div class="ahead">Fangen</div>
 <div class="snaps"><label><input type="checkbox" id="snapV" checked> <span class="sym sym-v"></span>Ecke</label><label><input type="checkbox" id="snapM" checked> <span class="sym sym-m"></span>Kantenmitte</label><label><input type="checkbox" id="snapC" checked> <span class="sym sym-c"></span>Kreismittelpunkt</label><label><input type="checkbox" id="snapE" checked> <span class="sym sym-e"></span>Kante</label><label><input type="checkbox" id="snapF" checked> <span class="sym sym-f"></span>Fläche</label><label><input type="checkbox" id="snapA"> <span class="sym sym-a"></span>Achse</label></div>
 <div class="row"><label for="prec">Genauigkeit</label> <select id="prec" title="Nachkommastellen"><option value="0">0 (1)</option><option value="1">1 (0,1)</option><option value="2">2 (0,01)</option><option value="3" selected>3 (0,001)</option><option value="4">4 (0,0001)</option></select> <span class="m">Nachkommastellen, alle Maße in mm</span></div>
-<p class="hint">Element anklicken (Rundung/Bogen: Radius und Bogenlänge sofort). Zweites Element anklicken: Abstand, Winkel, Lochabstand – wird als Bemaßung im 3D behalten. Strg/Umschalt + Klick: weitere Kanten für die Gesamtlänge. Leertaste setzt die Auswahl zurück.</p>
+<p class="hint">Element anklicken (Rundung/Bogen: Radius und Bogenlänge sofort). Zweites Element anklicken: Abstand, Winkel, Lochabstand – wird als Bemaßung im 3D behalten. Weitere Arten (Winkel, R, Ø, Bogenlänge, Koordinate) über „Bemaßen“. Maus: Mitte ziehen = drehen, Rechts oder Umschalt+Mitte ziehen = schwenken, Rad = Zoom zum Cursor. Strg/Umschalt + Klick: weitere Kanten für die Gesamtlänge. Leertaste setzt die Auswahl zurück.</p>
 <div id="selinfo" class="sel"></div>
 <div id="mresult" class="kv"></div>
 <div class="row"><button class="btn" id="keepDim">Als Bemaßung behalten</button> <button class="btn" id="copySel">Kopieren</button> <button class="btn" id="clearSel">Auswahl löschen</button></div>
 <div class="ahead">Bemaßungen <span id="dimcount" class="m"></span></div>
 <div id="dimlist"></div>
-<div class="row"><button class="btn" id="dimCopyAll">Alle kopieren</button> <button class="btn" id="dimClear">Alle löschen</button></div>
+<div class="row"><select id="dimtyp" title="Bemaßungsart für die aktuelle Auswahl"></select> <button class="btn" id="dimSet" title="Aktuelle Auswahl mit der gewählten Art bemaßen">Bemaßen</button></div>
+<div id="dimedit" hidden><div class="ahead">Bemaßung <span id="deNo"></span> bearbeiten <button class="btn" id="deClose">Fertig</button></div>
+<div class="row"><label>Art <select id="deTyp"></select></label></div>
+<div class="row"><label>Präfix <input id="dePre" size="6"></label> <label>Suffix <input id="deSuf" size="6"></label></div>
+<div class="row"><label>Text <input id="deText" size="14" placeholder="leer = Messwert"></label></div>
+<div class="row"><label>Toleranz <select id="deTol"><option value="keine">Keine</option><option value="symm">± symmetrisch</option><option value="abmass">Abmaße (+/−)</option><option value="grenz">Grenzmaß</option></select></label> <label>oben <input id="deO" size="5" value="0"></label> <label>unten <input id="deU" size="5" value="0"></label></div>
+<p class="hint">Maßtext in der Ansicht mit der linken Maustaste ziehen, um die Maßlinie zu versetzen.</p></div>
+<div class="row"><button class="btn" id="dimCopyAll">Alle kopieren</button> <button class="btn" id="dimClear">Alle löschen</button> <button class="btn" id="dimPng">Als PNG</button> <button class="btn" id="dimPdf">Als PDF</button></div>
+<div class="ahead">Maßstil</div>
+<div class="row"><label>Textgröße <input id="stGroesse" type="number" min="8" max="40" style="width:4em"> px</label> <label>Pfeil <select id="stPfeil"></select></label> <label>Stellen <input id="stStellen" type="number" min="0" max="4" style="width:3em"></label></div>
 <div class="ahead">Masse</div>
 <div class="row"><select id="mat" title="Werkstoff wählen"><option value="7.85">Stahl (7,85 g/cm³)</option><option value="7.90">Edelstahl (7,90 g/cm³)</option><option value="2.70">Aluminium (2,70 g/cm³)</option><option value="8.96">Kupfer (8,96 g/cm³)</option><option value="8.50">Messing (8,50 g/cm³)</option><option value="custom">Eigene Dichte</option></select>
 <input id="dens" type="number" step="0.01" min="0" value="7.85" title="Dichte in g/cm³"> <span class="m">g/cm³</span></div>
