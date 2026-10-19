@@ -8,7 +8,7 @@ await p.goto(process.env.URL||'http://localhost:4173/');await p.evaluate(()=>win
 const A=(f,a)=>p.evaluate(f,a);
 const cam=()=>A(()=>window.__app.cam?window.__app.cam():null);
 // Maus: Mitte ziehen = drehen, Rad = Zoom, Links ziehen = keine Drehung
-const cv=await (await p.$('#view canvas')).boundingBox();const cx=cv.x+cv.width/2,cy=cv.y+cv.height/2;
+const cv=await (await p.$('#buehne')).boundingBox();const cx=cv.x+cv.width/2,cy=cv.y+cv.height/2;
 const pos=()=>A(()=>window.__app.camPos());
 let c0=await pos();await p.mouse.move(cx,cy);await p.mouse.down({button:'left'});await p.mouse.move(cx+150,cy+60,{steps:8});await p.mouse.up({button:'left'});await p.waitForTimeout(400);
 let c1=await pos();if(Math.hypot(...c0.map((x,i)=>x-c1[i]))>1e-3)fail('Links-Ziehen dreht die Ansicht');

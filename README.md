@@ -2,7 +2,9 @@
 
 Reiner STEP/STP-Viewer (keine Bearbeitung). Tauri 2 + three.js + occt-import-js (OpenCascade als WASM, Parsing im Web Worker).
 
-Funktionen: STEP öffnen (Button, Doppelklick auf `.step`/`.stp`, Drag & Drop ins Fenster), Drehen/Zoom/Pan (Maus: links/Rad/rechts), Modellbaum mit Ein-/Ausblenden je Baugruppe/Teil, Punkt-zu-Punkt-Messung (mm), Schnitt X/Y/Z mit Schieberegler.
+Funktionen: STEP öffnen (Menü, Doppelklick auf `.step`/`.stp`, Drag & Drop ins Fenster), dunkle Kopfleiste mit Datei/Ansicht/Werkzeuge/Hilfe, Dateireiter, schwebende Werkzeugleiste (Auswählen, Schwenken, Drehen, Zoom, Zoom-Fenster, Einpassen, Anzeigestil, Standardansichten), Ansichtswürfel mit Kompass N/O/S/W, Modellbaum, Messen in mm, Bemaßung, Schnitt, Blech.
+
+Tastenkürzel (auch im Menü Ansicht und unter Hilfe): **F** Einpassen, **F9** nächste Standardansicht ohne Rollwinkel, **F10** senkrecht auf die gewählte Fläche (ohne Fläche Isometrie), **1…6** bzw. **Strg+1…6** Vorne, Hinten, Links, Rechts, Oben, Unten, **7** und **0** bzw. **Strg+7** Isometrie. Ansichtswechsel sind animiert. In „Auswählen“ gilt weiter: Mitte ziehen = drehen, Rechts oder Umschalt+Mitte = schwenken, Rad = Zoom.
 
 ## Starten
     npm ci

@@ -28,6 +28,8 @@ LGPL-Hinweis: opencascade.wasm.js/.wasm werden unverändert als separate, austau
 
 LGPL-Hinweis nativer Kern: `hasi-kern` (eigener Code) linkt OCCT **dynamisch**. Die OCCT-Bibliotheken liegen unverändert als eigene Dateien im App-Paket und können vom Nutzer gegen eine kompatible, selbst gebaute OCCT-Version 7.8.x ausgetauscht werden. Unter Windows liegen `TK*.dll` und die MSVC-Laufzeit im selben Ordner wie `hasi-kern.exe`. Unter macOS liegen `libTK*.dylib` in `Contents/Resources/kern/`; der Sidecar bindet sie über `@rpath` und `@executable_path/../Resources/kern`, die Bibliotheken untereinander über `@rpath` und `@loader_path`. OCCT wird ohne Fremdbibliotheken gebaut (kein FreeType, FreeImage, OpenGL, Tcl/Tk, TBB, VTK, RapidJSON, Draco, FFmpeg) – damit kommen keine weiteren Lizenzen hinzu. Bauanleitung und genaue Optionen: `tools/occt-bauen.sh`; Quelle: Tag `V7_8_1` von https://github.com/Open-Cascade-SAS/OCCT. Bei Weitergabe: LGPL-Text, OCCT-Ausnahme und Quellverweis mitliefern (vor Release noch als Datei ins Paket legen). Die Kopplung zur App läuft über einen eigenen Prozess (Sidecar) und Dateien, nicht über Linken mit dem Rust-Programm.
 
+Oberflächensymbole (Öffnen, Export, Drucken, Werkzeugleiste, untere Leiste) sind eigene SVG-Pfade in `index.html`, dieselbe Lizenz wie der Anwendungscode. Lucide ist ISC und wurde nicht verwendet. Tabler Icons (MIT) wurden nicht als Paket eingebunden. Keine Zeichen aus eDrawings oder AutoCAD.
+
 Keine kommerziellen Komponenten (kein CAD Exchanger, HOOPS, Parasolid).
 
 Testdatei: `tools/make-testblech.mjs` erzeugt ein eigenes Testblech (Z-Profil, s = 2 mm, Ri = 3 mm, Bohrung Ø 10) – keine Fremddaten.

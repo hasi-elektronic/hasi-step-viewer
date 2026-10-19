@@ -4,7 +4,7 @@ for(const d of ['public','dist'])if(fs.existsSync(d))fs.copyFileSync('testdaten/
 const b=await chromium.launch({executablePath:process.env.CHROME||'/usr/bin/google-chrome',args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const p=await b.newPage({viewport:{width:1500,height:900}});const errs=[];p.on('pageerror',e=>errs.push(e.message));
 await p.goto('http://localhost:'+(process.env.PORT||4173)+'/');await p.waitForFunction(()=>window.__loadUrl);await p.evaluate(()=>window.__loadUrl('./testbaugruppe.step'));
-const cv=await (await p.$('#view canvas')).boundingBox();const cx=cv.x+cv.width/2,cy=cv.y+cv.height/2;
+const cv=await (await p.$('#buehne')).boundingBox();const cx=cv.x+cv.width/2,cy=cv.y+cv.height/2;
 const items=async()=>p.$$eval('#ctx button',bs=>bs.map(b=>b.textContent));
 // Teil treffen: Bildschirmmitte, sonst Raster absuchen
 let hit=null;for(let dy=0;dy<200&&!hit;dy+=20)for(let dx=0;dx<300&&!hit;dx+=20){await p.mouse.move(cx+dx,cy+dy);await p.mouse.down({button:'right'});await p.mouse.up({button:'right'});const it=await items();if(it.includes('Im Baum zeigen'))hit=it;else await p.keyboard.press('Escape')}
