@@ -22,6 +22,23 @@ jobs:
       - run: node tools/test-export.mjs
       - run: node tools/test-baum.mjs
       - run: npm run build
+      - name: Bemaßung und Kontextmenü
+        run: |
+          set -euo pipefail
+          if [ -x /usr/bin/google-chrome ]; then export CHROME=/usr/bin/google-chrome
+          elif [ -x /usr/bin/google-chrome-stable ]; then export CHROME=/usr/bin/google-chrome-stable
+          else
+            sudo node node_modules/playwright-core/cli.js install-deps chromium
+            node node_modules/playwright-core/cli.js install chromium
+            CHROME="$(find "$HOME/.cache/ms-playwright" -type f -name chrome -path '*chrome-linux*' -print -quit)"
+            export CHROME
+          fi
+          test -x "$CHROME"
+          npm run preview >/tmp/vite-preview.log 2>&1 &
+          for i in $(seq 1 40); do curl -sf -o /dev/null http://localhost:4173/ && break; sleep 1; done
+          curl -sf -o /dev/null http://localhost:4173/
+          node tools/smoke-bemassung.mjs
+          node tools/smoke-kontextmenue.mjs
   kern:
     # Nativer Kern unter Linux: OCCT bauen (Cache), Kern bauen, Abgleich mit OCCT-Referenztransfer, alle Tests über den nativen Pfad
     runs-on: ubuntu-latest
