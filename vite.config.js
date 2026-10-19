@@ -9,19 +9,19 @@ function markeHtml() {
       if (marke !== 'sickinger') return html;
       return html
         .replace('<html lang="de">', '<html lang="de" data-marke="sickinger">')
-        .replace('<title>Hasi STEP-Betrachter</title>', '<title>Sickinger STEP-Betrachter</title>')
+        .replace('<title>Hasi STEP-Betrachter</title>', '<title>Sickinger STEP-Viewer</title>')
         .replace('<link rel="icon" href="data:,">', '<link rel="icon" href="./marken/sickinger.png">')
         .replace(
           '<div class="brand">HASI <span>STEP-Betrachter</span></div>',
-          '<div class="brand"><img class="logo" src="./marken/sickinger.png" alt="">SICKINGER <span>STEP-Betrachter</span></div><button class="btn" id="ueber" type="button" title="Über diese Anwendung">Über</button>',
+          '<div class="brand"><img class="logo" src="./marken/sickinger.png" alt="">SICKINGER <span>STEP-Viewer</span></div><button class="btn" id="ueber" type="button" title="Über diese Anwendung">Über</button>',
         )
         .replace(
           '<div id="drop">STEP-Datei hierher ziehen</div>',
-          '<div id="drop"><img class="logo" src="./marken/sickinger.png" alt=""><span>STEP-Datei hierher ziehen</span></div>',
+          '<div id="drop"><img class="logo" src="./marken/sickinger.png" alt=""><b>Sickinger STEP-Viewer</b><span>STEP-Datei hierher ziehen</span></div>',
         )
         .replace(
           '</body>',
-          '<div id="ueberDlg" hidden><div class="dhead"><span>Über Sickinger STEP-Betrachter</span><button id="ueberClose" type="button" title="Schließen">×</button></div><p><b>Sickinger STEP-Betrachter</b><br>Manfred Sickinger Apparatebau</p><p class="hint">Entwickelt von Hasi Elektronic</p></div></body>',
+          '<div id="ueberDlg" hidden><div class="dhead"><span>Über Sickinger STEP-Viewer</span><button id="ueberClose" type="button" title="Schließen">×</button></div><p><b>Sickinger STEP-Viewer</b><br>Manfred Sickinger Apparatebau</p><p class="hint">Entwickelt von Hasi Elektronic</p></div></body>',
         );
     },
   };

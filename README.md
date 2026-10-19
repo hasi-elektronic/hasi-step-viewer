@@ -23,7 +23,7 @@ Dieselbe App, zweite Marke für Manfred Sickinger Apparatebau. Ohne Variable ble
     MARKE=sickinger npm run build
     MARKE=sickinger npm run tauri build -- --config src-tauri/tauri.sickinger.conf.json
 
-Produktname „Sickinger STEP-Betrachter“, Kennung `de.sickinger.stepbetrachter`, Herausgeber „Manfred Sickinger Apparatebau“. Farben aus dem Logo: Dunkelblau `#004B85`, Hellblau `#009EDF`. Im Über-Dialog steht zusätzlich „Entwickelt von Hasi Elektronic“.
+Produktname „Sickinger STEP-Viewer“, Kennung `de.sickinger.stepviewer`, Herausgeber „Manfred Sickinger Apparatebau“. Farben aus dem Logo: Dunkelblau `#004B85`, Hellblau `#009EDF`. Im Über-Dialog steht zusätzlich „Entwickelt von Hasi Elektronic“.
 Voraussetzung: Repository auf GitHub (noch nicht angelegt). Ohne Apple-Developer-ID ist die .dmg unsigniert/nicht notarisiert -> Gatekeeper-Warnung (Rechtsklick > Öffnen). Ohne Windows-Codesigning-Zertifikat -> SmartScreen-Hinweis.
 
 ## Testdatei

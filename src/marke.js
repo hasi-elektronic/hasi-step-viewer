@@ -13,7 +13,7 @@ const ALLE = {
   },
   sickinger: {
     id: 'sickinger',
-    produkt: 'Sickinger STEP-Betrachter',
+    produkt: 'Sickinger STEP-Viewer',
     publisher: 'Manfred Sickinger Apparatebau',
     akzent: '#009EDF',
     akzentRgb: [0, 158, 223],
