@@ -84,7 +84,7 @@ export function createBrep(oc){
     if(sroot&&sroot.children.length)tree=match(sroot,oroot);
     else{tree={name:(sroot&&sroot.name)||name.replace(/\.(step|stp)$/i,''),children:[],bodies:[]};const ss=allSolids(oroot);
       if(ss.length===1)tree.bodies.push(addInst(ss[0]));else ss.forEach((x,i)=>tree.children.push({name:`Körper ${i+1}`,children:[],bodies:[addInst(x)]}))}
-    numberNames(tree);lap('zuordnen');
+    numberNames(tree);bereinigeWurzel(tree,name);lap('zuordnen');
     // Unikate tessellieren und indizieren
     progress(`${uniq.list.length} Einzelteile werden aufbereitet …`);
     const U=uniq.list;const bbAll=M.bbox(shape);const diag=V.len(V.sub(bbAll.max,bbAll.min))||1;
@@ -106,6 +106,7 @@ export function createBrep(oc){
       Object.assign(u,{faces:faces.list,edges:edges.list,verts:verts.list,p:new Float32Array(pos),i:new Uint32Array(idx),f:new Uint32Array(fid),bb});
       if(ui%20===0)progress(`Einzelteile werden aufbereitet … ${ui+1}/${U.length}`)});
     lap('tessellieren');
+    inst.forEach(I=>bindLoc(I,I.loc));
     M.shape=shape;M.uniq=U;M.inst=inst;M.unit=unit;M.vcache=new Map();
     const nameOf=new Array(inst.length).fill('Körper');const w=n=>{n.bodies.forEach(b=>nameOf[b]=n.name);n.children.forEach(w)};w(tree);
     M.faces=U[0]?.faces||[];M.edges=U[0]?.edges||[];
@@ -157,8 +158,8 @@ export function createBrep(oc){
       if(sroot&&sroot.children.length)tree=match(sroot,meta.tree);
       else{tree={name:(sroot&&sroot.name)||base,children:[],bodies:[]};const ss=allS(meta.tree);if(ss.length===1)tree.bodies.push(ss[0]);else ss.forEach((x,i)=>tree.children.push({name:`Körper ${i+1}`,children:[],bodies:[x]}))}
     }
-    numberNames(tree);
-    inst.forEach(I=>{let _l;Object.defineProperty(I,'loc',{get:()=>_l??=(()=>{const t=new oc.gp_Trsf_1();const m=I.m;t.SetValues(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8],m[9],m[10],m[11]);return new oc.TopLoc_Location_2(t)})(),enumerable:false})});
+    numberNames(tree);bereinigeWurzel(tree,name);
+    inst.forEach(I=>bindLoc(I,null));
     M.shape=null;M.uniq=U;M.inst=inst;M.unit=unit;M.vcache=new Map();M.nativeBrep=null;M.faces=[];M.edges=[];
     const nameOf=new Array(inst.length).fill('Körper');const w=n=>{n.bodies.forEach(b=>nameOf[b]=n.name);n.children.forEach(w)};w(tree);
     const times={...meta.times,js:Date.now()-t0};
@@ -178,6 +179,23 @@ export function createBrep(oc){
     explore(shape,TA.TopAbs_VERTEX,vs=>verts.find(vs,x=>({shape:oc.TopoDS.Vertex_1(x),p:P(oc.BRep_Tool.Pnt(oc.TopoDS.Vertex_1(x)))})));
     if(faces.list.length!==u.nf||edges.list.length!==u.ne||verts.list.length!==u.nv)throw new Error(`Messdaten weichen ab (Teil ${ui+1}: Flächen ${faces.list.length}/${u.nf}, Kanten ${edges.list.length}/${u.ne})`);
     u._shape=shape;u._faces=faces.list;u._edges=edges.list;u._verts=verts.list};
+  // OCCT-Exporte ohne Produktnamen heißen „Open CASCADE STEP translator …“. Dann den Dateinamen zeigen.
+  function bereinigeWurzel(tree,dateiname){
+    const basis=String(dateiname||'Modell').replace(/\.(step|stp)$/i,'')||'Modell';
+    if(!tree.name||/open cascade step translator/i.test(tree.name))tree.name=basis;
+  }
+  // Lage aus der 3×4-Matrix neu aufbauen, sobald die Matrix ersetzt wird (Verschieben ohne Neuladen).
+  function bindLoc(I,fertig){
+    I._loc=fertig||null;I._locM=fertig?I.m:null;
+    Object.defineProperty(I,'loc',{configurable:true,enumerable:false,get(){
+      if(this._locM!==this.m){const t=new oc.gp_Trsf_1();const m=this.m;
+        t.SetValues(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8],m[9],m[10],m[11]);
+        this._loc=new oc.TopLoc_Location_2(t);this._locM=this.m}
+      return this._loc}})}
+  M.lagen=ms=>{
+    if(!Array.isArray(ms)||ms.length!==M.inst.length)throw new Error('Lagen passen nicht zum Modell');
+    ms.forEach((m,i)=>{if(m&&m.length===12)M.inst[i].m=m.slice()});
+    return true};
   function numberNames(root){
     const names=new Map(),cnt=new Map();const walk=(n,f)=>{f(n);n.children.forEach(c=>walk(c,f))};
     walk(root,n=>{if(n!==root)names.set(n.name,(names.get(n.name)||0)+1)});

@@ -21,6 +21,7 @@ jobs:
       - run: sudo apt-get install -y poppler-utils unzip
       - run: node tools/test-export.mjs
       - run: node tools/test-baum.mjs
+      - run: node tools/test-baugruppe-messen.mjs
       - run: npm run build
       - name: Bemaßung und Kontextmenü
         run: |
@@ -43,6 +44,8 @@ jobs:
           grep -q 'id="dropHint"' dist/index.html
           node tools/smoke-drop.mjs
           SHOT=docs/hasi-oberflaeche.png node tools/smoke-ui.mjs
+          node tools/smoke-baugruppe.mjs
+          SHOT=docs/hasi-baugruppe.png node tools/smoke-baugruppe-ui.mjs
       - name: Marke Sickinger (Frontend)
         run: |
           set -euo pipefail
@@ -68,6 +71,7 @@ jobs:
           grep -q 'STEP-Datei hier ablegen' dist/index.html
           PORT=4174 node tools/smoke-marke.mjs
           PORT=4174 node tools/smoke-drop.mjs
+          PORT=4174 SHOT=docs/sickinger-baugruppe.png node tools/smoke-baugruppe-ui.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: hasi-oberflaeche
@@ -77,6 +81,16 @@ jobs:
         with:
           name: sickinger-oberflaeche
           path: docs/sickinger-oberflaeche.png
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hasi-baugruppe
+          path: docs/hasi-baugruppe.png
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sickinger-baugruppe
+          path: docs/sickinger-baugruppe.png
           if-no-files-found: error
   kern:
     # Nativer Kern unter Linux: OCCT bauen (Cache), Kern bauen, Abgleich mit OCCT-Referenztransfer, alle Tests über den nativen Pfad
@@ -115,6 +129,7 @@ jobs:
           node tools/test-abwicklung.mjs
           node tools/test-export.mjs
           node tools/test-baum.mjs
+          node tools/test-baugruppe-messen.mjs
       - name: Paket (Probe)
         run: python3 tools/kern-paket.py kern/build/hasi-kern "${{ runner.temp }}/occt" kern-paket --triple x86_64-unknown-linux-gnu
   build:

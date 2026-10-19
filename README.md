@@ -46,7 +46,8 @@ Tests: `npm run testblech && node tools/test-brep.mjs` (Node), `npm run build &&
 
 Eigener schneller STEP-Strukturparser (`src/stephier.js`) liefert Namen und Hierarchie; diese wird strukturgleich auf den Baum aus opencascade.js gelegt. Gleiche Teile werden nur einmal aufbereitet (Instanzen teilen Geometrie).
 Baum mit Unterbaugruppen, Sichtbarkeit (vererbt), Suche, Kontextmenü und Zeilen-Icons, Auswahl Baum ↔ 3D.
-Tests: `node tools/test-baum.mjs`, Headless: `node tools/smoke-baugruppe.mjs` (Screenshots `docs/baum-*.png`).
+Komponenten lassen sich an der Triade verschieben und drehen (auch ganze Unterbaugruppen), mit numerischer Eingabe in mm und Grad, Fang an den Achsen, Rückgängig/Wiederholen und „Position zurücksetzen“. Ein- und Ausblenden ändert nur die Sichtbarkeit. Messungen laufen über Bauteile hinweg und folgen der neuen Lage.
+Tests: `node tools/test-baum.mjs`, `node tools/test-baugruppe-messen.mjs` (Sollmaße der selbst erzeugten `testdaten/messbaugruppe.step`), Headless: `node tools/smoke-baugruppe.mjs`.
 
 ## Einheiten
 

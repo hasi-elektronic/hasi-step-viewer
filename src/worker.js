@@ -19,6 +19,7 @@ self.onmessage=async e=>{const {id,cmd,args}=e.data;
       try{hier=parseStepHierarchy(bytes)}catch(e){hier=null}const thier=Date.now()-th;
       r=B.fromNative(args.bin,bytes,args.name,hier);r.times.namen=thier;const tm=Date.now();r.model=B.modelFast();r.times.modell=Date.now()-tm;r.hierOk=!!hier}
     else if(cmd==='attach')r=B.attachBrep(args.text);
+    else if(cmd==='lagen')r=B.lagen(args.m);
     else if(cmd==='props')r=B.solidProps(args.ids);
     else if(cmd==='measure')r=B.measure(args.sels);
     else if(cmd==='sheet'){r=B.sheet(args.opts??args.K,args.inst);if(r.flat&&!r.flat.incomplete)r.dxf=B.dxf(r.flat)}
