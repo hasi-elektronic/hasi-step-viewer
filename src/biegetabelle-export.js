@@ -39,7 +39,7 @@ export function tabelle(sheet, meta = {}) {
 /** PDF (A4 quer) mit Kopfdaten, Tabelle, Schenkeln und Vorschau der Abwicklung. */
 export function pdf(sheet, meta = {}) {
   const T = tabelle(sheet, meta);
-  const produkt = meta.produkt || 'Hasi STEP-Betrachter';
+  const produkt = meta.produkt || 'Hasi 3D';
   const kopfFarbe = meta.kopfFarbe || [51, 175, 226];
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   doc.setProperties({ title: 'Biegetabelle ' + (meta.teil || ''), creator: produkt });

@@ -50,12 +50,12 @@ jobs:
         run: |
           set -euo pipefail
           MARKE=sickinger npm run build
-          grep -q 'Sickinger STEP-Viewer' dist/index.html
+          grep -q '<title>MS3D</title>' dist/index.html
           grep -q 'Entwickelt von Hasi Elektronic' dist/index.html
           grep -q 'data-marke="sickinger"' dist/index.html
           test -f dist/marken/sickinger.png
-          grep -q 'HASI <span>STEP-Betrachter</span>' index.html
-          node --input-type=module -e "import fs from 'fs'; const j=JSON.parse(fs.readFileSync('src-tauri/tauri.sickinger.conf.json','utf8')); if(j.productName!=='Sickinger STEP-Viewer'||j.identifier!=='de.sickinger.stepviewer'||j.bundle.publisher!=='Manfred Sickinger Apparatebau') process.exit(1); const ext=a=>a&&a.ext&&a.ext.join(','); const b=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8')); if(b.app.windows[0].dragDropEnabled!==true||ext(b.bundle.fileAssociations[0])!=='step,stp'||b.bundle.fileAssociations[0].name!=='HasiStep') process.exit(1); if(j.app.windows[0].dragDropEnabled!==true||ext(j.bundle.fileAssociations[0])!=='step,stp'||j.bundle.fileAssociations[0].name!=='SickingerStep') process.exit(1)"
+          grep -q 'HASI <span>3D</span>' index.html
+          node --input-type=module -e "import fs from 'fs'; const j=JSON.parse(fs.readFileSync('src-tauri/tauri.sickinger.conf.json','utf8')); if(j.productName!=='MS3D'||j.identifier!=='de.sickinger.stepviewer'||j.bundle.publisher!=='Manfred Sickinger Apparatebau') process.exit(1); const ext=a=>a&&a.ext&&a.ext.join(','); const b=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8')); if(b.app.windows[0].dragDropEnabled!==true||ext(b.bundle.fileAssociations[0])!=='step,stp'||b.bundle.fileAssociations[0].name!=='HasiStep') process.exit(1); if(j.app.windows[0].dragDropEnabled!==true||ext(j.bundle.fileAssociations[0])!=='step,stp'||j.bundle.fileAssociations[0].name!=='SickingerStep') process.exit(1)"
           if [ -x /usr/bin/google-chrome ]; then export CHROME=/usr/bin/google-chrome
           elif [ -x /usr/bin/google-chrome-stable ]; then export CHROME=/usr/bin/google-chrome-stable
           else
@@ -226,9 +226,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $html = Get-Content -Raw dist/index.html
           if ($env:MARKE -eq 'sickinger') {
-            if ($html -notmatch 'Sickinger STEP-Viewer') { throw 'Frontend ohne Sickinger-Marke' }
+            if ($html -notmatch '<title>MS3D</title>') { throw 'Frontend ohne Sickinger-Marke' }
           } else {
-            if ($html -notmatch 'Hasi STEP-Betrachter' -or $html -match 'Sickinger') { throw 'Hasi-Frontend verändert' }
+            if ($html -notmatch '<title>Hasi 3D</title>' -or $html -match 'Sickinger') { throw 'Hasi-Frontend verändert' }
           }
       - name: App bauen
         if: runner.os != 'Windows'
@@ -240,8 +240,8 @@ jobs:
           EXTRA=""
           if [ "$MARKE" = "sickinger" ]; then EXTRA="--config src-tauri/tauri.sickinger.conf.json"; fi
           npx tauri build ${{ matrix.args }} --config src-tauri/tauri.kern.json $EXTRA
-          if [ "$MARKE" = "sickinger" ]; then grep -q 'Sickinger STEP-Viewer' dist/index.html
-          else grep -q 'Hasi STEP-Betrachter' dist/index.html && ! grep -q 'Sickinger' dist/index.html
+          if [ "$MARKE" = "sickinger" ]; then grep -q '<title>MS3D</title>' dist/index.html
+          else grep -q '<title>Hasi 3D</title>' dist/index.html && ! grep -q 'Sickinger' dist/index.html
           fi
       - name: Kern im Installer prüfen
         shell: bash

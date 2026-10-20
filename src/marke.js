@@ -2,7 +2,7 @@
 const ALLE = {
   hasi: {
     id: 'hasi',
-    produkt: 'Hasi STEP-Betrachter',
+    produkt: 'Hasi 3D',
     publisher: 'Hasi Elektronic',
     akzent: '#33AFE2',
     akzentRgb: [51, 175, 226],
@@ -13,7 +13,7 @@ const ALLE = {
   },
   sickinger: {
     id: 'sickinger',
-    produkt: 'Sickinger STEP-Viewer',
+    produkt: 'MS3D',
     publisher: 'Manfred Sickinger Apparatebau',
     akzent: '#009EDF',
     akzentRgb: [0, 158, 223],

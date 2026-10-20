@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Sickinger STEP-Viewer",
+  "productName": "MS3D",
   "identifier": "de.sickinger.stepviewer",
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "Sickinger STEP-Viewer",
+        "title": "MS3D",
         "width": 1400,
         "height": 880,
         "dragDropEnabled": true
@@ -15,9 +15,14 @@
   },
   "bundle": {
     "publisher": "Manfred Sickinger Apparatebau",
-    "shortDescription": "STEP-Viewer für 3D-Modelle",
-    "longDescription": "STEP-Viewer für STEP-/STP-Dateien: Modellbaum, Messen, Schnittansicht. Nur Ansicht, keine Bearbeitung. Entwickelt von Hasi Elektronic.",
+    "shortDescription": "MS3D – Betrachter für STEP-Modelle",
+    "longDescription": "MS3D: Betrachter für STEP-/STP-Dateien: Modellbaum, Messen, Schnittansicht. Nur Ansicht, keine Bearbeitung. Entwickelt von Hasi Elektronic.",
     "copyright": "© 2026 Manfred Sickinger Apparatebau",
+    "windows": {
+      "wix": {
+        "upgradeCode": "18385c58-920f-58fc-b46f-21577a24369d"
+      }
+    },
     "fileAssociations": [
       {
         "ext": ["step", "stp"],
