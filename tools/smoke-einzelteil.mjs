@@ -2,7 +2,7 @@
 // und „Als Einzelteil öffnen“ im Browser (WASM-Kern). Nur Testdaten aus dem Repo.
 import { chromium } from 'playwright-core';
 import fs from 'fs';
-for (const d of ['public', 'dist']) if (fs.existsSync(d)) fs.copyFileSync('testdaten/testbaugruppe.step', d + '/testbaugruppe.step');
+for (const d of ['public', 'dist']) if (fs.existsSync(d)) for (const t of ['testbaugruppe.step', 'farbbaugruppe.step']) fs.copyFileSync('testdaten/' + t, d + '/' + t);
 const port = process.env.PORT || '4173';
 const b = await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/google-chrome', args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const fail = m => { throw new Error(m); };
@@ -69,6 +69,28 @@ await neu.waitForFunction(() => window.__lastLoad && window.__lastLoad.bodies > 
 const info = await neu.evaluate(() => ({ n: window.__lastLoad.bodies, name: window.__lastLoad.name }));
 if (info.n !== 1 || info.name !== 'Winkel rechts.step') fail('Einzelteil ' + JSON.stringify(info));
 console.log('  ok  Als Einzelteil öffnen:', info.name);
+// Ziehen & Ablegen im Einzelteil-Fenster: Hinweis „STEP-Datei hier ablegen“, Datei öffnet in diesem Fenster (wie im Hauptfenster)
+await neu.evaluate(() => window.__dateiZiehen(true));
+if (await neu.locator('#dropHint').evaluate(el => el.hidden)) fail('Einzelteil-Fenster: Ablegen-Hinweis fehlt');
+await neu.evaluate(() => window.__dateiZiehen(false));
+await neu.evaluate(async () => {
+  const buf = await (await fetch('./farbbaugruppe.step')).arrayBuffer(); window.__lastLoad = null;
+  const dt = new DataTransfer(); dt.items.add(new File([buf], 'farbbaugruppe.step', { type: 'model/step' }));
+  const v = document.getElementById('view'); v.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  v.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+});
+await neu.waitForFunction(() => window.__lastLoad && window.__lastLoad.name === 'farbbaugruppe.step', null, { timeout: 90000 });
+const abgelegt = await neu.evaluate(() => window.__lastLoad.bodies);
+if (abgelegt !== 3) fail('Abgelegte Datei im Einzelteil-Fenster: ' + abgelegt + ' Körper');
+if (ctx.pages().length !== 2) fail('Ablegen hat ein weiteres Fenster geöffnet');
+console.log('  ok  Ziehen & Ablegen im Einzelteil-Fenster öffnet die Datei dort (3 Körper)');
+// WASM-Kern: Export ohne Farben, Hinweis im Dialog
+await neu.locator('#tree .trow', { hasText: 'Platte' }).first().click({ button: 'right' });
+await neu.locator('#ctx button[data-a=einzelStep]').click();
+const hw = await neu.locator('#einzelDlg .einzelHinweis').evaluate(el => ({ t: el.textContent, title: el.title }));
+if (!/ohne Farben/.test(hw.t) || !/WASM-Kern.*keine STEP-Farben/.test(hw.title)) fail('Hinweis ohne Farben: ' + JSON.stringify(hw));
+await neu.locator('#einzelAbbr').click();
+console.log('  ok  WASM: Hinweis „ohne Farben“ mit Tooltip');
 // Nie „Betrachter“ in der Oberfläche
 for (const s of [p, neu]) if (/betrachter/i.test(await s.evaluate(() => document.body.innerText + [...document.querySelectorAll('[title]')].map(e => e.title).join(' ')))) fail('„Betrachter“ in der Oberfläche');
 if (errs.length) fail('Seitenfehler: ' + errs.join(' | '));

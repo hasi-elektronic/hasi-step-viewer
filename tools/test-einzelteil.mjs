@@ -19,7 +19,7 @@ if(nativ){brepDir=fs.mkdtempSync(path.join(os.tmpdir(),'et-'));execFileSync(proc
 function exportiere(dateien,schema){ // dateien: [{name, teile:[{u,m}]}] → [Text]
   if(!nativ)return dateien.map(d=>stepNachbearbeiten(new TextDecoder().decode(B.stepSchreiben({name:d.name,schema,teile:d.teile})),{name:d.name,schema}));
   const aus=fs.mkdtempSync(path.join(os.tmpdir(),'eo-'));const auf=path.join(aus,'auftrag.txt');
-  fs.writeFileSync(auf,dateien.map((d,k)=>[`t${k}.step`,schema,d.teile.length,...d.teile.flatMap(t=>[t.u,t.m?t.m.join(','):'-'])].join('\t')).join('\n')+'\n');
+  fs.writeFileSync(auf,dateien.map((d,k)=>[`t${k}.step`,schema,d.teile.length,...d.teile.flatMap(t=>[t.u,t.m?t.m.join(','):'-',t.f||'-'])].join('\t')).join('\n')+'\n');
   const out=execFileSync(process.env.HASI_KERN||'kern/build/hasi-kern',['--step-export',path.join(brepDir,'modell.brep'),auf,aus],{encoding:'utf8'});
   assert.equal((out.match(/^STUFE schreiben/mg)||[]).length,dateien.length,'Fortschritt je Datei');
   const t=dateien.map((d,k)=>stepNachbearbeiten(fs.readFileSync(path.join(aus,`t${k}.step`),'latin1'),{name:d.name,schema}));fs.rmSync(aus,{recursive:true,force:true});return t}
@@ -71,4 +71,32 @@ const [ver]=exportiere([{name,teile:alle}],'AP242');const LV=vergleiche(ver,soll
 assert.equal(LV.r.tree.name,name,'Unicode-Name nach dem Einlesen');
 console.log('  ok  Verbund aller Teile in Baugruppenlage, Unicode-Name');
 if(brepDir)fs.rmSync(brepDir,{recursive:true,force:true});
+// 4) Farben (testdaten/farbbaugruppe.step: Platte rot mit grüner Oberseite, Bolzen gelb, zweiter Bolzen per Instanzfarbe blau)
+//    native: Kern liest Teil-/Flächen-/Instanzfarben, Export → erneut einlesen → gleiche Farben. WASM: Export ohne Farben (Hinweis in der App).
+{const fDatei='testdaten/farbbaugruppe.step';const fb=new Uint8Array(fs.readFileSync(fDatei));
+  const hex=c=>c==null?null:(c&0xffffff).toString(16).padStart(6,'0');
+  // wie farbAuftrag() in main.js
+  const auftragF=(R,i)=>{const I=R.inst[i],u=R.uniq[I.u];const k=I.farbe??u.farbe;const fl=new Map();if(u.ff)u.ff.forEach((c,fi)=>{if(c)fl.set(fi,c&0xffffff)});if(I.ff)for(const [fi,c] of Object.entries(I.ff))fl.set(+fi,c);
+    if(k==null&&!fl.size)return null;return (k!=null?hex(k):'-')+(fl.size?';'+[...fl].map(([fi,c])=>fi+':'+hex(c)).join(','):'')};
+  // Flächenfarben mit Lage der Fläche (Mittel-z der Dreiecke) – unabhängig von der Flächennummer
+  const flaechenFarben=(R,i)=>{const I=R.inst[i],u=R.uniq[I.u];const aus=[];if(!u.ff)return aus;u.ff.forEach((c,fi)=>{if(!c)return;let z=0,n=0;
+      for(let t=0;t<u.f.length;t++)if(u.f[t]===fi)for(let k=0;k<3;k++){const v=u.i[t*3+k];z+=I.m[8]*u.p[v*3]+I.m[9]*u.p[v*3+1]+I.m[10]*u.p[v*3+2]+I.m[11];n++}
+      aus.push(hex(c)+'@z'+Math.round(z/n))});return aus};
+  const farbBild=R=>R.inst.map((I,i)=>({koerper:hex(I.farbe??R.uniq[I.u].farbe),flaechen:flaechenFarben(R,i)})).map(x=>x.koerper+(x.flaechen.length?'+'+x.flaechen.join(','):'')).sort();
+  if(nativ){const F=createBrep(oc);const R=F.load(fb,'farbbaugruppe.step',parseStepHierarchy(fb));
+    const bild=farbBild(R);assert.deepEqual(bild,['1933cc','cc1919+19b333@z10','e5cc19'],'Farben gelesen: '+bild);
+    const d2=fs.mkdtempSync(path.join(os.tmpdir(),'ef-'));execFileSync(process.env.HASI_KERN||'kern/build/hasi-kern',[fDatei,d2],{stdio:'ignore'});const altBrep=brepDir;brepDir=d2;
+    const fNamen=R.inst.map(I=>teilName(I.name));
+    // je Instanz einzeln (eigenes Koordinatensystem) und alles als Verbund in Baugruppenlage
+    const einzeln=exportiere(R.inst.map((I,i)=>({name:fNamen[i],teile:[{u:I.u,m:null,f:auftragF(R,i)}]})),'AP214');
+    const [verbund]=exportiere([{name:'Farbverbund',teile:R.inst.map((I,i)=>({u:I.u,m:I.m,f:auftragF(R,i)}))}],'AP242');
+    fs.rmSync(d2,{recursive:true,force:true});brepDir=altBrep;
+    einzeln.forEach((t,i)=>{assert.ok(/COLOUR_RGB/.test(t),'Farbe im Export '+fNamen[i]);const b=new TextEncoder().encode(t);const Q=createBrep(oc).load(b,'x.step',parseStepHierarchy(b));
+      const soll=farbBild({uniq:R.uniq,inst:[{...R.inst[i],m:[1,0,0,0,0,1,0,0,0,0,1,0]}]});assert.deepEqual(farbBild(Q),soll,'Farben nach Export → Einlesen '+fNamen[i])});
+    {const b=new TextEncoder().encode(verbund);const Q=createBrep(oc).load(b,'v.step',parseStepHierarchy(b));assert.deepEqual(farbBild(Q),bild,'Farben im Verbund nach Export → Einlesen')}
+    console.log('  ok  Farben: Teil-, Flächen- und Instanzfarbe gelesen; nach Export → Einlesen gleich (einzeln AP214, Verbund AP242)')}
+  else{const L=createBrep(oc);L.load(fb,'farbbaugruppe.step',parseStepHierarchy(fb));
+    const t=new TextDecoder().decode(L.stepSchreiben({name:'Platte',schema:'AP214',teile:[{u:0,m:null,f:'cc1919'}]}));
+    assert.ok(/MANIFOLD_SOLID_BREP|BREP_WITH_VOIDS/.test(t)&&!/COLOUR_RGB/.test(t),'WASM: Export ohne Farben');
+    console.log('  ok  WASM: farbige Datei wird ohne Farben exportiert (Hinweis „ohne Farben“ im Dialog)')}}
 console.log('OK: Einzelteile als STEP ('+(nativ?'nativer Kern':'WASM')+')');
