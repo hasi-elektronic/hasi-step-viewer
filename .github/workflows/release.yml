@@ -25,6 +25,8 @@ jobs:
       - run: node tools/test-export.mjs
       - run: node tools/test-baum.mjs
       - run: node tools/test-baugruppe-messen.mjs
+      - run: node tools/test-werkzeugleiste.mjs
+      - run: node tools/test-sprache.mjs
       - run: npm run build
       - name: Bemaßung und Kontextmenü
         run: |
@@ -51,6 +53,7 @@ jobs:
           node tools/smoke-messen.mjs
           node tools/smoke-baugruppe.mjs
           SHOT=docs/hasi-baugruppe.png node tools/smoke-baugruppe-ui.mjs
+          SHOTDIR=docs/werkzeugleiste node tools/smoke-werkzeugleiste.mjs
       - name: Marke Sickinger (Frontend)
         run: |
           set -euo pipefail
@@ -77,6 +80,11 @@ jobs:
           PORT=4174 node tools/smoke-marke.mjs
           PORT=4174 node tools/smoke-drop.mjs
           PORT=4174 SHOT=docs/sickinger-baugruppe.png node tools/smoke-baugruppe-ui.mjs
+          PORT=4174 SHOTDIR=docs/werkzeugleiste node tools/smoke-werkzeugleiste.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: werkzeugleiste
+          path: docs/werkzeugleiste/
       - uses: actions/upload-artifact@v4
         with:
           name: hasi-oberflaeche

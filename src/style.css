@@ -1,4 +1,4 @@
-:root{--a:#33AFE2;--bg:#e7edf3;--line:#e2e2e6;--t:#1d1d1f;--m:#6e6e73;--kopf:#3c4248;--kopf2:#2c3238}
+:root{--a:#33AFE2;--a-dunkel:#1A7FAE;--bg:#e7edf3;--line:#e2e2e6;--t:#1d1d1f;--m:#6e6e73;--kopf:#3c4248;--kopf2:#2c3238}
 *{box-sizing:border-box}html,body{margin:0;height:100%;font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:var(--t);background:var(--bg)}
 body{display:flex;flex-direction:column}
 header{display:flex;align-items:center;gap:10px;padding:6px 12px;background:var(--kopf);color:#fff;border-bottom:3px solid var(--a);min-height:46px}
@@ -31,6 +31,13 @@ main{flex:1;display:flex;min-height:0}aside{width:270px;background:#fff;border-r
 #boden{display:flex;justify-content:center;gap:8px;padding:8px 12px;background:#f7f8fa;border-top:1px solid var(--line)}
 #boden button{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:84px;border:1px solid transparent;background:transparent;border-radius:10px;padding:6px 8px;font:inherit;color:var(--t);cursor:pointer}
 #boden button .ik{width:26px;height:26px}
+/* Werkzeugleiste unten: Zweiton-Symbole (Set A). Farben nur über Variablen, damit jede Marke ihre eigenen bekommt. */
+#boden{--ik-strich:var(--t);--ik-akzent:var(--a);--ik-flaeche:.22}
+#boden button.on{--ik-strich:var(--a);--ik-akzent:var(--a-dunkel);--ik-flaeche:.3}
+#boden .duo{stroke:var(--ik-strich)}
+#boden .duo .thin{stroke-width:1.15}#boden .duo .dash{stroke-dasharray:1.4 1.9}#boden .duo .dash2{stroke-dasharray:2.2 1.8}
+#boden .duo .fl{fill:var(--a);fill-opacity:var(--ik-flaeche);stroke:none}#boden .duo .fl.strong{fill-opacity:calc(var(--ik-flaeche) + .28)}
+#boden .duo .ac{stroke:var(--ik-akzent)}#boden .duo .acf{fill:var(--ik-akzent);stroke:none}
 #boden button:hover{background:#fff;border-color:var(--line)}
 #boden button.on{color:var(--a);background:#fff;border-color:var(--a);box-shadow:0 0 0 2px rgba(51,175,226,.18)}
 .ahead{padding:10px 12px;font-weight:600;color:var(--m);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
@@ -137,7 +144,7 @@ aside.left{width:300px}.search{padding:0 10px 6px}.search input{width:100%;font:
 
 .brand .logo{height:28px;width:28px;object-fit:contain;margin-right:8px;vertical-align:-8px}
 #drop .logo{width:88px;height:88px;margin:0 0 8px}
-html[data-marke="sickinger"]{--a:#009EDF}
+html[data-marke="sickinger"]{--a:#009EDF;--a-dunkel:#004B85}
 html[data-marke="sickinger"] header{border-bottom:3px solid #004B85}
 html[data-marke="sickinger"] .menuliste button:hover,html[data-marke="sickinger"] #boden button.on{box-shadow:0 0 0 2px rgba(0,158,223,.2)}
 html[data-marke="sickinger"] .brand{color:#004B85}
