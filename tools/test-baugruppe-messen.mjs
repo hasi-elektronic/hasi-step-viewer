@@ -47,6 +47,14 @@ const orig=B.inst.map(I=>I.m.slice());orig[b]=orig[b].slice();orig[b][3]-=10;B.l
 const wieder=B.measure([{k:'face',id:zyl(a),inst:a},{k:'face',id:zyl(b),inst:b}]).rows;
 nahe(wert(wieder,'Lochabstand Mitte–Mitte'),50,'Lochabstand nach Zurücksetzen');
 // Einteiliger OCCT-Export: Wurzel ist der Dateiname, nicht der Translator-Name.
+// Faz 1: Masseeigenschaften nur der sichtbaren Bauteile (ausgeblendeter Klotz 20³ = 8000 mm³ zählt nicht)
+{B.load(bytes,'messbaugruppe.step',parseStepHierarchy(bytes));const alle=B.model(),ids=B.inst.map((_,i)=>i).filter(i=>i!==klotz);const ohne=B.model(ids);
+  nahe(alle.volume-ohne.volume,8000,'Volumen ohne Klotz');nahe(alle.area-ohne.area,6*400,'Oberfläche ohne Klotz');
+  assert.equal(ohne.solids,alle.solids-1);assert.equal(ohne.ausgeblendet,1);assert.equal(alle.ausgeblendet,0);
+  const f=B.modelFast(ids),fa=B.modelFast();nahe(fa.volume-f.volume,8000,'Volumen (schnell) ohne Klotz');assert.equal(f.ausgeblendet,1);
+  assert.ok(ohne.bbox.max[0]<alle.bbox.max[0]-1e-6,'Hüllquader ohne Klotz muss kleiner sein');
+  const leer=B.model([]);assert.equal(leer.volume,0);assert.equal(leer.solids,0);assert.ok(leer.bbox.min.every(Number.isFinite));
+  console.log('  ok  Ausgeblendeter Klotz zählt nicht: ΔV = 8000 mm³, ΔA = 2400 mm²')}
 const einzel=new Uint8Array(fs.readFileSync('testdaten/messteil.step'));
 const e=B.load(einzel,'messteil.step',parseStepHierarchy(einzel));
 assert.equal(e.tree.name,'messteil');

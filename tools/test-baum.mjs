@@ -11,3 +11,4 @@ const bu=r.inst[3].u;const cf=r.uniq[bu].faces.findIndex(f=>f.type==='zylindrisc
 const rows=B.measure([{k:'face',id:cf,inst:3},{k:'face',id:cf,inst:4}]).rows;const ax=rows.find(x=>x[0]==='Lochabstand Mitte–Mitte')[1];
 assert(Math.abs(ax-130)<1e-6,'Achsabstand '+ax);
 console.log('OK: Baugruppenbaum');
+await import('./test-sprache.mjs');

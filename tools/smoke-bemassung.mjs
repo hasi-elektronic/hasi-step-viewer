@@ -54,3 +54,4 @@ fs.writeFileSync('/tmp/bemassung.png',Buffer.from(await A(()=>Array.from(window.
 await A(()=>window.__app.exportPdf());ex=await A(()=>({n:window.__lastExport.name,l:window.__lastExport.bytes.length,h:String.fromCharCode(...window.__lastExport.bytes.slice(0,5))}));console.log('pdf',JSON.stringify(ex));if(ex.h!=='%PDF-')fail('PDF');
 fs.writeFileSync('/tmp/bemassung.pdf',Buffer.from(await A(()=>Array.from(window.__lastExport.bytes))));
 console.log('fehler',JSON.stringify(errs));await b.close();if(errs.length)process.exit(1);console.log('OK: Bemaßung und Maus');
+await import('./smoke-faz1.mjs');

@@ -54,3 +54,4 @@ console.log(`OK: ${n} Messungen innerhalb ${TOL} mm`);
  for(const nm of ['Schenkel 1 (bis Biegepunkt) außen','Schenkel 1 gerader Teil innen'])assert(row(fi,nm)!=null);console.log('  ok  Schenkel außen/innen          27/25, 45/43');
 }
 console.log(`OK gesamt: ${n} Messungen`);
+await import('./test-messen-faz1.mjs');
