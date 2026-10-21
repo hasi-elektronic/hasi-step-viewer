@@ -25,3 +25,4 @@ const mir=Lx?pos.map(v=>Lx-v).sort((a,b)=>a-b):[];assert(fits(pos)||(Lx&&fits(mi
 console.log('  ok  Lage der Biegelinien am Testblech',pos.map(v=>v.toFixed(4)).join(' / '));
 console.log('OK: Export Biegetabelle');
 await import('./test-bemassung-faz1.mjs');
+await import('./test-messprotokoll.mjs');
