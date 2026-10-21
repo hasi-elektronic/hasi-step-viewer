@@ -188,3 +188,9 @@ html[data-marke="sickinger"] #drop{flex-direction:column;gap:4px}
 .einzelKnoepfe{display:flex;justify-content:flex-end;gap:8px}
 .einzelKnoepfe button{font:inherit;border:1px solid var(--line);background:#fff;border-radius:6px;padding:5px 14px;cursor:pointer}
 #einzelOk{background:var(--a,#33afe2);border-color:transparent;color:#fff}
+
+/* Fläche zu Fläche: Werte kopieren per Klick, Hinweis offener Körper */
+.kv div.wert{cursor:copy;border-radius:3px}.kv div.wert:hover{background:rgba(255,45,149,.18)}
+.kv.warnung div.big{color:#e0a100!important}
+.hint.klein{font-size:11px;margin:2px 0 6px}
+#abmKnopf.on{background:var(--a,#0a8f5a);color:#fff}
