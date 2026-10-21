@@ -1,0 +1,5 @@
+# Beispiel: Biegeverkürzung BD je Werkstoff (Zuschnitt = Summe der Außenmaße − BD). Werte nur für Tests, keine Herstellerangaben.
+Werkstoff;s;ri;Winkel;BD
+Stahl;2,0;2,0;90;3,50
+Aluminium;2,0;2,0;90;4,00
+Edelstahl;2,0;2,0;90;3,70

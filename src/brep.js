@@ -1,4 +1,5 @@
 import {biegung} from './kfaktor.js';
+import {faltePunkt} from './falten.js';
 import {methodenZeile,projiziere,normalAbstand,PROJ_NORMALE,RICHTUNGEN,richtungsVektor} from './messen-hilfen.js';
 // B-Rep-Kern: Einlesen, Topologie, Messen, Blech. Läuft im Worker (Browser) und in Node (Tests).
 // Alle Längen intern in mm (OCCT rechnet STEP-Dateien beim Import in mm um).
@@ -429,6 +430,57 @@ export function createBrep(oc){
     II.forEach(I=>{const v=uProps(I.u);const c=T.p(I.m,v.c);for(let k=0;k<3;k++)cx[k]+=c[k]*v.v});if(q.volume)cx=cx.map(x=>x/q.volume);
     const bbox=isFinite(q.bbox.min[0])?q.bbox:(L.length===M.inst.length&&M.shape?M.bbox(M.shape):{min:[0,0,0],max:[0,0,0]});
     return {volume:q.volume,area:q.area,centroid:cx,bbox,solids:II.length,unique:new Set(II.map(I=>I.u)).size,faces:II.reduce((s,I)=>s+M.uniq[I.u].faces.length,0),edges:II.reduce((s,I)=>s+M.uniq[I.u].edges.length,0),ausgeblendet:M.inst.length-II.length}};
+  // ---------- Hüllquader und Rohmaß ----------
+  // Punkte: Knoten der Tessellierung (liegen exakt auf den Flächen; Ecken ebener Teile exakt, gekrümmte Flächen bis auf die Netzfeinheit).
+  // Hüllquader „achsparallel“ (Modellachsen), „bezug“ (eine Achse = Normale der gewählten Fläche bzw. Richtung der gewählten Kante,
+  // die beiden anderen als kleinstes Rechteck darum) und „minimal“ (kleinstes Volumen über alle Flächennormalen, Kanten- und Zylinderachsen).
+  const huellPunkte=ids=>{const seen=new Set(),out=[];for(const i of instListe(ids)){const I=M.inst[i],p=M.uniq[I.u].p;
+      for(let k=0;k<p.length;k+=3){const q=T.p(I.m,[p[k],p[k+1],p[k+2]]);const key=q.map(v=>Math.round(v*1e5)).join(',');if(!seen.has(key)){seen.add(key);out.push(q)}}}return out};
+  const huelle2=P=>{const p=[...P].sort((a,b)=>a[0]-b[0]||a[1]-b[1]);if(p.length<3)return p;const cr=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);
+    const lo=[],hi=[];for(const q of p){while(lo.length>1&&cr(lo.at(-2),lo.at(-1),q)<=1e-12)lo.pop();lo.push(q)}
+    for(let i=p.length-1;i>=0;i--){const q=p[i];while(hi.length>1&&cr(hi.at(-2),hi.at(-1),q)<=1e-12)hi.pop();hi.push(q)}lo.pop();hi.pop();return lo.concat(hi)};
+  const basisZu=a=>{const u=V.norm(Math.abs(a[0])<0.9?V.cross(a,[1,0,0]):V.cross(a,[0,1,0]));return [u,V.cross(a,u)]};
+  // kleinstes Rechteck um die Projektion auf die Ebene senkrecht zu a (Drehschieblehre über die Kanten der konvexen Hülle)
+  const minRechteck=(pts,a)=>{const [u,v]=basisZu(a);const H=huelle2(pts.map(p=>[V.dot(p,u),V.dot(p,v)]));let best=null;
+    const n=H.length;for(let i=0;i<Math.max(1,n);i++){const A=H[i],B=H[(i+1)%n]||A;let dx=B[0]-A[0],dy=B[1]-A[1];const l=Math.hypot(dx,dy);if(l<1e-12){dx=1;dy=0}else{dx/=l;dy/=l}
+      let a0=Infinity,a1=-Infinity,b0=Infinity,b1=-Infinity;for(const q of H){const x=q[0]*dx+q[1]*dy,y=-q[0]*dy+q[1]*dx;if(x<a0)a0=x;if(x>a1)a1=x;if(y<b0)b0=y;if(y>b1)b1=y}
+      const F=(a1-a0)*(b1-b0);if(!best||F<best.F-1e-9)best={F,dx,dy,a0,a1,b0,b1}}
+    const e1=V.norm(V.add(V.mul(u,best.dx),V.mul(v,best.dy))),e2=V.cross(a,e1);return {e1,e2,r1:[best.a0,best.a1],r2:[best.b0,best.b1]}};
+  const quader=(pts,a)=>{a=V.norm(a);const R=minRechteck(pts,a);let c0=Infinity,c1=-Infinity;for(const p of pts){const z=V.dot(p,a);if(z<c0)c0=z;if(z>c1)c1=z}
+    const ach=[R.e1,R.e2,a],rr=[R.r1,R.r2,[c0,c1]];return mkQuader(ach,rr)};
+  const mkQuader=(ach,rr)=>{const masse=rr.map(r=>r[1]-r[0]);const ecken=[];for(let k=0;k<8;k++){let p=[0,0,0];for(let j=0;j<3;j++)p=V.add(p,V.mul(ach[j],rr[j][(k>>j)&1]));ecken.push(p)}
+    const mitte=[0,1,2].reduce((p,j)=>V.add(p,V.mul(ach[j],(rr[j][0]+rr[j][1])/2)),[0,0,0]);return {achsen:ach,masse,sortiert:[...masse].sort((x,y)=>y-x),volumen:masse[0]*masse[1]*masse[2],ecken,mitte}};
+  const kandidaten=ids=>{const out=[];const add=d=>{if(!d)return;d=V.norm(d);if(!out.some(x=>Math.abs(V.dot(x,d))>1-1e-9))out.push(d)};
+    [[1,0,0],[0,1,0],[0,0,1]].forEach(add);
+    for(const i of instListe(ids)){const I=M.inst[i],U=M.uniq[I.u];const fl=[...U.faces].sort((a,b)=>b.area-a.area).slice(0,80);
+      fl.forEach(f=>{if(f.plane)add(T.d(I.m,f.plane.n));else if(f.cyl)add(T.d(I.m,f.cyl.d));else if(f.cone)add(T.d(I.m,f.cone.d))});
+      U.edges.filter(e=>e.line).slice(0,80).forEach(e=>add(T.d(I.m,e.line.d)));if(out.length>150)break}
+    return out};
+  // kleinster Hüllkreis (Welzl, iterativ) für Rohmaß Zylinder
+  const kreis2=P=>{const pts=[...P];for(let i=pts.length-1;i>0;i--){const j=(i*7919+13)%(i+1);[pts[i],pts[j]]=[pts[j],pts[i]]}
+    const k2=(a,b)=>({c:[(a[0]+b[0])/2,(a[1]+b[1])/2],r:Math.hypot(a[0]-b[0],a[1]-b[1])/2});
+    const k3=(a,b,c)=>{const d=2*(a[0]*(b[1]-c[1])+b[0]*(c[1]-a[1])+c[0]*(a[1]-b[1]));if(Math.abs(d)<1e-14)return null;const A=a[0]**2+a[1]**2,B=b[0]**2+b[1]**2,C=c[0]**2+c[1]**2;
+      const x=(A*(b[1]-c[1])+B*(c[1]-a[1])+C*(a[1]-b[1]))/d,y=(A*(c[0]-b[0])+B*(a[0]-c[0])+C*(b[0]-a[0]))/d;return {c:[x,y],r:Math.hypot(a[0]-x,a[1]-y)}};
+    const drin=(k,p)=>Math.hypot(p[0]-k.c[0],p[1]-k.c[1])<=k.r*(1+1e-12)+1e-9;
+    let k={c:pts[0]||[0,0],r:0};for(let i=1;i<pts.length;i++)if(!drin(k,pts[i])){k={c:pts[i],r:0};for(let j=0;j<i;j++)if(!drin(k,pts[j])){k=k2(pts[i],pts[j]);
+      for(let l=0;l<j;l++)if(!drin(k,pts[l])){const n=k3(pts[i],pts[j],pts[l]);if(n)k=n}}}return k};
+  M.huelle=(opts={})=>{const ids=opts.ids;const pts=huellPunkte(ids);if(!pts.length)return {ok:false,msg:'Keine Geometrie (alles ausgeblendet?).'};
+    const res={ok:true,punkte:pts.length};
+    const mn=[0,1,2].map(j=>Math.min(...pts.map(p=>p[j]))),mx=[0,1,2].map(j=>Math.max(...pts.map(p=>p[j])));
+    res.achsparallel=mkQuader([[1,0,0],[0,1,0],[0,0,1]],[0,1,2].map(j=>[mn[j],mx[j]]));
+    if(opts.bezug){const s=opts.bezug,I=M.inst[s.inst??0],U=M.uniq[I.u];let a=null,name='';
+      if(s.k==='face'||s.k==='axis'){const f=U.faces[s.id];if(f?.plane){a=T.d(I.m,f.plane.n);name='Normale der gewählten Fläche'}else if(f?.cyl){a=T.d(I.m,f.cyl.d);name='Achse der gewählten Zylinderfläche'}else if(f?.cone){a=T.d(I.m,f.cone.d);name='Achse der gewählten Kegelfläche'}}
+      else if(s.k==='edge'){const e=U.edges[s.id];if(e?.line){a=T.d(I.m,e.line.d);name='Richtung der gewählten Kante'}else if(e?.circle){a=T.d(I.m,e.circle.n);name='Achse der gewählten Kreiskante'}}
+      if(a){res.bezug={...quader(pts,a),name}}else res.bezugFehler='Bezug muss eine ebene Fläche, eine Zylinderfläche oder eine gerade bzw. kreisförmige Kante sein.'}
+    const K=kandidaten(ids);let best=null;for(const a of K){const q=quader(pts,a);if(!best||q.volumen<best.volumen-1e-9)best=q}res.minimal=best;res.kandidaten=K.length;
+    // Rohmaß Zylinder: Achse aus Zylinderflächen (nach Fläche gewichtet) oder den Achsen des minimalen Quaders
+    const zk=[];const addZ=d=>{d=V.norm(d);if(!zk.some(x=>Math.abs(V.dot(x,d))>1-1e-9))zk.push(d)};
+    for(const i of instListe(ids)){const I=M.inst[i];M.uniq[I.u].faces.filter(f=>f.cyl).sort((a,b)=>b.area-a.area).slice(0,20).forEach(f=>addZ(T.d(I.m,f.cyl.d)))}
+    best.achsen.forEach(addZ);
+    let z=null;for(const a of zk){const [u,v]=basisZu(a);const H=huelle2(pts.map(p=>[V.dot(p,u),V.dot(p,v)]));const k=kreis2(H);let c0=Infinity,c1=-Infinity;for(const p of pts){const t=V.dot(p,a);if(t<c0)c0=t;if(t>c1)c1=t}
+      const vol=Math.PI*k.r*k.r*(c1-c0);if(!z||vol<z.volumen-1e-9)z={d:2*k.r,l:c1-c0,achse:a,mitte:V.add(V.add(V.mul(u,k.c[0]),V.mul(v,k.c[1])),V.mul(a,(c0+c1)/2)),volumen:vol}}
+    res.rohmass={block:{masse:best.sortiert,volumen:best.volumen},zylinder:z,empfehlung:z&&z.volumen<best.volumen?'Zylinder':'Block'};
+    return res};
   // ---------- Blech ----------
   // Abwicklung als Baum über den Flächengraphen einer Blechseite („Haut“): Start an der größten ebenen Hautfläche,
   // Übergänge nur über tangentiale gerade Kanten (Ebene↔Zylinder, Zylinder↔Zylinder bei direkt aufeinanderfolgenden Biegungen,
@@ -483,14 +535,22 @@ export function createBrep(oc){
       const na=Fa.plane?Fa.plane.n:radial(Fa.cyl,q),nb=Gb.plane?Gb.plane.n:radial(Gb.cyl,q);return Math.abs(Math.abs(V.dot(na,nb))-1)<1e-6};
     maps.set(base[1],planeMap(base[1],base[0].plane.o,e1,e2,[0,0],[1,0],[0,1]));
     const isSkinPlane=G=>pl.some(([g])=>V.dot(G.plane.n,g.plane.n)<-1+1e-6&&Math.abs(Math.abs(V.dot(V.sub(g.plane.o,G.plane.o),G.plane.n))-t)<1e-3);
+    // Falt-Daten für die Animation (src/falten.js): Kette der Biegungen je Hautfläche, Richtung sigma numerisch bestimmt
+    const FB={o:base[0].plane.o,e1,e2,n0},fbends=[],kette=new Map([[base[1],{k:[],wrap:false}]]);let faltFehler=0;
+    const neueFaltung=(fi,gi,b,wrap,probe,mG)=>{const kp=kette.get(fi).k;fbends.push({...b,sigma:1});const bi=fbends.length-1;const k={k:[...kp,bi],wrap};
+      const P2=mG.f(probe);let best=Infinity,sg=1;for(const s of [1,-1]){fbends[bi].sigma=s;const p=faltePunkt(P2,k.k,wrap,fbends,FB,0);const d=V.len(V.sub(p,probe));if(d<best){best=d;sg=s}}
+      fbends[bi].sigma=sg;kette.set(gi,k);faltFehler=Math.max(faltFehler,best);return sg};
+    // Abschnitte (Klippen) je Fläche: angenommene Biegungen kürzen die angrenzenden Flächen um den Rückversatz
+    const clips=new Map(),addClip=(fi,c)=>{if(!clips.has(fi))clips.set(fi,[]);clips.get(fi).push(c)};
+    const extraKanten=[];let korr=0,annahmen=0;const pending=[];
     const queue=[base[1]];
-    while(queue.length){const fi=queue.shift();const Fa=F[fi],mF=maps.get(fi);
+    const bfs=()=>{while(queue.length){const fi=queue.shift();const Fa=F[fi],mF=maps.get(fi);
       for(const [e,ei] of lineEdgesOf(fi)){const gi=e.faces.find(x=>x!==fi);if(skin.has(gi))continue;const G=F[gi];if(!G.plane&&!G.cyl)continue;
         const q=e.line.p;
         if(!isTangent(Fa,G,e,q)){const c=Fa.plane&&G.plane?Math.abs(V.dot(Fa.plane.n,G.plane.n)):1;
-          if(c<1-1e-6&&Fa.plane&&G.plane&&isSkinPlane(G)&&G.area>t*t*4)sharp.add(gi);continue}
+          if(c<1-1e-6&&Fa.plane&&G.plane&&isSkinPlane(G)&&G.area>t*t*4)pending.push([fi,e,ei,gi]);continue}
         const {Q,D2,W2}=mF.frame(e,q),tq=tanInto(G,e,q),eD=e.line.d;
-        if(G.plane)maps.set(gi,planeMap(gi,q,eD,tq,Q,D2,W2));
+        if(G.plane){maps.set(gi,planeMap(gi,q,eD,tq,Q,D2,W2));const kp=kette.get(fi);kette.set(gi,{k:kp.k,wrap:false})}
         else{const C=G.cyl,r0=radial(C,q),t0=tq;
           const phiOf=p=>{const w=radial(C,p);let f=Math.atan2(V.dot(w,t0),V.dot(w,r0));if(f<-1e-7)f+=2*Math.PI;return f};
           const pc=partner(gi),rin=pc&&pc.r<C.r?pc.r:C.r,th=C.ang;
@@ -502,37 +562,85 @@ export function createBrep(oc){
           maps.set(gi,m);
           const ends=e.pts.map(mF.f);bendLines.push(ends.map(P2=>[P2[0]+th*rn/2*W2[0],P2[1]+th*rn/2*W2[1]]));
           const inner=!pc||pc.r>C.r;
-          res.bends.push({nr:res.bends.length+1,face:gi,ri:rin,ang:th*DEG,dir:inner?'nach oben':'nach unten',len:V.len(V.sub(e.pts.at(-1),e.pts[0])),ba:bz.ba,v:bz.v,K:bz.K,quelle:bz.quelle,schenkel:(M.bendInfo(M.inst[inst].u,gi)?.legs)||[]})}
+          const sg=neueFaltung(fi,gi,{S2:Q,D2,W2,BZ:bz.ba,th,dS:rn-C.r},true,G.mid,m);
+          res.bends.push({nr:res.bends.length+1,face:gi,ri:rin,ang:th*DEG,dir:inner?'nach oben':'nach unten',sigma:sg,seite:W2,len:V.len(V.sub(e.pts.at(-1),e.pts[0])),ba:bz.ba,v:bz.v,bd:bz.bd,K:bz.K,quelle:bz.quelle,tabelle:bz.tabelle||null,schenkel:(M.bendInfo(M.inst[inst].u,gi)?.legs)||[]})}
         skin.add(gi);queue.push(gi);tree.add(ei)}
-    }
+    }};
+    bfs();
+    // Scharfe Kanten ohne Radius: mit opts.riAnnahme als Biegung mit angenommenem Innenradius abwickeln (ZW3D „Biegung an scharfer Kante“)
+    const Ri=Number(opts.riAnnahme);
+    while(Ri>0){const p=pending.find(([,,,gi])=>!skin.has(gi));if(!p)break;const [fi,e,ei,gi]=p;const Fa=F[fi],G=F[gi],mF=maps.get(fi),q=e.line.p,eD=e.line.d;
+      const tA=tanInto(Fa,e,q),tB=tanInto(G,e,q),th=Math.PI-Math.acos(Math.max(-1,Math.min(1,V.dot(tA,tB))));
+      const inner=V.dot(tB,Fa.plane.n)>0,rs=inner?Ri:Ri+t,s=rs*Math.tan(th/2);
+      const bz=biegung(Ri,t,th,opts);if(bz.hinweis&&!res.warn.includes(bz.hinweis))res.warn.push(bz.hinweis);
+      const {Q,D2,W2}=mF.frame(e,q),gap=bz.ba-2*s;
+      const mG=planeMap(gi,q,eD,tB,[Q[0]+gap*W2[0],Q[1]+gap*W2[1]],D2,W2);maps.set(gi,mG);
+      const sh=(P,a)=>[P[0]+a*W2[0],P[1]+a*W2[1]];
+      addClip(fi,{Q,W2,max:-s});addClip(gi,{Q,W2,min:bz.ba-s});
+      const ends=e.pts.map(mF.f);bendLines.push(ends.map(P=>sh(P,bz.ba/2-s)));
+      for(const P of [ends[0],ends.at(-1)])extraKanten.push([sh(P,-s),sh(P,bz.ba-s)]);
+      const len=V.len(V.sub(e.pts.at(-1),e.pts[0]));korr+=(inner?1:-1)*t*Math.tan(th/2)*len;
+      const probe=V.add(q,V.mul(tB,Math.max(s*2,1)));
+      const sg=neueFaltung(fi,gi,{S2:sh(Q,-s),D2,W2,BZ:bz.ba,th,dS:bz.ba/th-rs},false,probe,mG);
+      res.bends.push({nr:res.bends.length+1,face:gi,ri:Ri,ang:th*DEG,dir:inner?'nach oben':'nach unten',sigma:sg,seite:W2,len,ba:bz.ba,v:bz.v,bd:bz.bd,K:bz.K,quelle:bz.quelle,tabelle:bz.tabelle||null,angenommen:true,schenkel:[]});
+      annahmen++;skin.add(gi);tree.add(ei);queue.push(gi);bfs()}
+    pending.forEach(([,,,gi])=>{if(!skin.has(gi))sharp.add(gi)});
+    if(annahmen){const fz=v=>(+v.toFixed(2)).toLocaleString('de-DE');res.annahme={ri:Ri,kanten:annahmen};res.warn.push(`Innenradius Ri ${fz(Ri)} mm an ${annahmen} scharfen Kante(n) angenommen, nicht aus der Datei.`)}
+    // ---- Virtueller Riss (ZW3D „Rip“): gewählte Kanten zwischen zwei Hautflächen werden aufgetrennt ----
+    const rissKanten=new Set();res.riss=[];
+    const offen=ei=>{const e=E[ei];if(tree.has(ei)||e.faces.length!==2||!e.faces.every(f=>skin.has(f)))return false;const [a,b]=e.faces.map(f=>maps.get(f));
+      return Math.max(...e.pts.map(p=>{const u=a.f(p),v=b.f(p);return Math.hypot(u[0]-v[0],u[1]-v[1])}))>1e-3};
+    if(Array.isArray(opts.riss)&&opts.riss.length){
+      const cand=E.map((_,i)=>i).filter(offen);const mid=e=>e.mid||V.mul(V.add(e.pts[0],e.pts.at(-1)),0.5);
+      for(const id of opts.riss){const e=E[id];if(!e){res.warn.push(`Riss: Kante ${id} gibt es nicht.`);continue}
+        let w=offen(id)?id:-1;
+        if(w<0){let best=Infinity;for(const c of cand){const k=E[c];if(e.line&&k.line&&Math.abs(V.dot(e.line.d,k.line.d))<1-1e-6)continue;const d=V.len(V.sub(mid(k),mid(e)));if(d<best&&d<=3*t){best=d;w=c}}}
+        if(w<0){res.warn.push(`Riss: Kante ${id} ist keine geschlossene Ecke – nicht aufgetrennt.`);continue}
+        // Zusammenhängende geschlossene Kanten mitnehmen (z. B. die Gehrungskurve zweier Biegungen an derselben Ecke)
+        const st=[w];while(st.length){const c=st.pop();if(rissKanten.has(c))continue;rissKanten.add(c);const ec=E[c];
+          for(const k of cand)if(!rissKanten.has(k)&&[E[k].pts[0],E[k].pts.at(-1)].some(p=>[ec.pts[0],ec.pts.at(-1)].some(r=>V.len(V.sub(p,r))<1e-4)))st.push(k)}
+        res.riss.push({gewaehlt:id,kante:w})}
+      for(const c of rissKanten){const e=E[c];const [A,Bf]=e.faces.map(f=>F[f]);
+        if(e.line&&A.plane&&Bf.plane){const q=e.line.p,tA=tanInto(A,e,q),tB=tanInto(Bf,e,q),th=Math.PI-Math.acos(Math.max(-1,Math.min(1,V.dot(tA,tB))));
+          korr+=(V.dot(tB,A.plane.n)>0?1:-1)*t*Math.tan(th/2)*V.len(V.sub(e.pts.at(-1),e.pts[0]))}}
+      res.rissKanten=[...rissKanten]}
     // ---- Kontur ----
     // Kreiskanten auf ebenen Hautflächen sind in der Abwicklung exakte Kreise/Bögen (Ebenen-Abbildung ist eine Bewegung) → DXF CIRCLE/ARC/Bulge.
-    const lines=[],kanten=[],TW=2*Math.PI,ccwW=(a,b)=>((b-a)%TW+TW)%TW;
-    E.forEach(e=>{const inSkin=e.faces.filter(f=>skin.has(f));if(!inSkin.length||inSkin.length===2)return;const m=maps.get(inSkin[0]);const pts=e.pts.map(m.f);lines.push(pts);
+    const lines=[],kanten=[],rissLinien=[],TW=2*Math.PI,ccwW=(a,b)=>((b-a)%TW+TW)%TW;
+    const clipPts=(fi,pts)=>{let teile=[pts];for(const c of clips.get(fi)||[]){const g=P=>{const d=(P[0]-c.Q[0])*c.W2[0]+(P[1]-c.Q[1])*c.W2[1];return c.max!=null?d-c.max:c.min-d};
+      const neu=[];for(const T of teile){let cur=[];for(let i=0;i<T.length;i++){const P=T[i],gp=g(P);
+        if(i>0){const A=T[i-1],ga=g(A);if((ga<=1e-9)!==(gp<=1e-9)){const u=ga/(ga-gp);const X=[A[0]+u*(P[0]-A[0]),A[1]+u*(P[1]-A[1])];cur.push(X);if(gp>1e-9){if(cur.length>1)neu.push(cur);cur=[]}}}
+        if(gp<=1e-9)cur.push(P)}if(cur.length>1)neu.push(cur)}teile=neu}return teile};
+    const kante=(e,fi)=>{const m=maps.get(fi);const pts=e.pts.map(m.f);
       let bogen=null;
       if(e.circle&&m.kind==='p'){const c=m.f(e.circle.c),r=e.circle.r;const rr=Math.hypot(pts[0][0]-c[0],pts[0][1]-c[1]);
         if(Math.abs(rr-r)<1e-6*Math.max(1,r)){if(e.circle.ang>TW-1e-6)bogen={c,r,voll:true};
           else{const w=p=>Math.atan2(p[1]-c[1],p[0]-c[0]);const as=w(pts[0]),ae=w(pts.at(-1)),am=w(m.f(e.mid));const ccw=ccwW(as,am)<ccwW(as,ae);
             bogen={c,r,voll:false,ccw,a0:ccw?as:ae,a1:ccw?ae:as};bogen.sweep=ccwW(bogen.a0,bogen.a1)}}}
-      kanten.push({pts,bogen})});
+      const teile=clips.has(fi)?clipPts(fi,pts):[pts];
+      if(teile.length===1&&teile[0]===pts){lines.push(pts);kanten.push({pts,bogen});return [pts]}
+      teile.forEach(T=>{lines.push(T);kanten.push({pts:T,bogen:null})});return teile};
+    E.forEach((e,ei)=>{if(rissKanten.has(ei)){e.faces.forEach(f=>rissLinien.push(...kante(e,f)));return}
+      const inSkin=e.faces.filter(f=>skin.has(f));if(!inSkin.length||inSkin.length===2)return;kante(e,inSkin[0])});
+    extraKanten.forEach(pts=>{lines.push(pts);kanten.push({pts,bogen:null})});
     const all=lines.flat();
     if(!all.length){res.fehler.push('Keine Kontur erzeugt.');return res}
     // Zuschnitt exakt: Bögen über ihre Extrempunkte (0°, 90°, 180°, 270°), nicht nur über die Stützpunkte
     const ext=[];kanten.forEach(k=>{ext.push(...k.pts);const b=k.bogen;if(!b)return;
       for(let q=0;q<4;q++){const a=q*Math.PI/2;if(b.voll||ccwW(b.a0,a)<=b.sweep+1e-12)ext.push([b.c[0]+b.r*Math.cos(a),b.c[1]+b.r*Math.sin(a)])}});
     const mn=[Math.min(...ext.map(p=>p[0])),Math.min(...ext.map(p=>p[1]))],mx=[Math.max(...ext.map(p=>p[0])),Math.max(...ext.map(p=>p[1]))];
-    res.flat={contour:lines,kanten,bendLines,bendInfo:res.bends.map(b=>({nr:b.nr,dir:b.dir,ang:b.ang,ri:b.ri})),min:mn,max:mx,size:[mx[0]-mn[0],mx[1]-mn[1]]};
+    res.flat={contour:lines,kanten,bendLines,rissLinien,bendInfo:res.bends.map(b=>({nr:b.nr,dir:b.dir,ang:b.ang,ri:b.ri,seite:b.seite,angenommen:!!b.angenommen})),min:mn,max:mx,size:[mx[0]-mn[0],mx[1]-mn[1]]};
+    res.faltung={basis:FB,bends:fbends,kette:Object.fromEntries(kette),fehler:faltFehler};
     // ---- Prüfungen ----
     const free=F.filter(f=>!f.plane&&!f.cyl);if(free.length)res.fehler.push(`Das Teil enthält ${free.length} nicht abwickelbare Fläche(n) (${[...new Set(free.map(f=>f.type))].join(', ')}).`);
     // Zyklen im Flächengraphen: Kanten zwischen zwei Hautflächen, die nicht im Abwicklungsbaum liegen, müssen in 2D
-    // aus beiden Flächen auf dieselbe Stelle fallen – sonst ist die Ecke geschlossen (Eckfreischnitt fehlt)
-    let closed=0;E.forEach((e,ei)=>{if(tree.has(ei)||e.faces.length!==2||!e.faces.every(f=>skin.has(f)))return;const [a,b]=e.faces.map(f=>maps.get(f));
-      const dev=Math.max(...e.pts.map(p=>{const u=a.f(p),v=b.f(p);return Math.hypot(u[0]-v[0],u[1]-v[1])}));if(dev>1e-3)closed++});
-    if(closed)res.fehler.push(`Geschlossene Ecken (${closed} Kanten): Laschen hängen in 3D zusammen und lassen sich nicht ohne Eckfreischnitt abwickeln.`);
-    if(sharp.size)res.fehler.push(`${sharp.size} scharfkantige Biegung(en) ohne Radius gefunden – nicht abgewickelt.`);
-    // Flächenbilanz: neutrale Fläche der Haut vs. Volumen / t
+    // aus beiden Flächen auf dieselbe Stelle fallen – sonst ist die Ecke geschlossen (Eckfreischnitt fehlt). Gerissene Kanten zählen nicht.
+    let closed=0;E.forEach((e,ei)=>{if(!rissKanten.has(ei)&&offen(ei))closed++});
+    if(closed)res.fehler.push(`Geschlossene Ecken (${closed} Kanten): Laschen hängen in 3D zusammen und lassen sich nicht ohne Eckfreischnitt abwickeln. Abhilfe: Kante wählen → „Virtueller Riss“.`);
+    if(sharp.size)res.fehler.push(`${sharp.size} scharfkantige Biegung(en) ohne Radius gefunden – nicht abgewickelt. Abhilfe: „Innenradius annehmen“.`);
+    // Flächenbilanz: neutrale Fläche der Haut vs. Volumen / t (Risse und angenommene Biegungen: Eckenkorrektur ± t · tan(θ/2) · Länge)
     const vol=Math.abs(props('V',UU.shape).mass);
-    const mid=[...skin].reduce((s,i)=>{const f=F[i];if(f.cyl){const pc=partner(i);const rin=pc&&pc.r<f.cyl.r?pc.r:f.cyl.r;return s+f.area*(rin+t/2)/f.cyl.r}return s+f.area},0);
+    const mid=[...skin].reduce((s,i)=>{const f=F[i];if(f.cyl){const pc=partner(i);const rin=pc&&pc.r<f.cyl.r?pc.r:f.cyl.r;return s+f.area*(rin+t/2)/f.cyl.r}return s+f.area},0)+korr;
     res.flaeche={erreicht:mid,soll:vol/t,anteil:mid/(vol/t)};
     if(res.flaeche.anteil<0.97)res.fehler.push(`Nur ${(res.flaeche.anteil*100).toFixed(1).replace('.',',')} % der Blechfläche wurden abgewickelt – Kontur unvollständig.`);
     // Selbstüberschneidung der Kontur (überlappende Laschen)
@@ -544,7 +652,13 @@ export function createBrep(oc){
     res.flat.incomplete=res.fehler.length>0;
     if(res.flat.incomplete)res.warn.unshift('ACHTUNG: Abwicklung unvollständig oder fehlerhaft – DXF-Export gesperrt.');
     res.skinArea=[...skin].reduce((s,i)=>s+F[i].area,0);
+    M._blech={inst,maps,skin:[...skin],faltung:res.faltung};
     return res};
+  // Netz der Blechhaut für die Falt-Animation: je Dreiecksecke die 2D-Lage in der Abwicklung (letzte M.sheet-Rechnung)
+  M.faltNetz=()=>{const S=M._blech;if(!S)return null;const I=M.inst[S.inst],U=M.uniq[I.u];const p=U.p,ix=U.i,f=U.f;const sk=new Set(S.skin);
+    const p2=[],p3=[],fk=[];for(let t=0;t<f.length;t++){if(!sk.has(f[t]))continue;const m=S.maps.get(f[t]);fk.push(f[t]);
+      for(let j=0;j<3;j++){const a=ix[3*t+j]*3;const q=[p[a],p[a+1],p[a+2]];const u=m.f(q);p2.push(u[0],u[1]);p3.push(...q)}}
+    return {p2:new Float64Array(p2),p3:new Float32Array(p3),fk:new Int32Array(fk),m:I.m,faltung:S.faltung}};
 
   // ---- DXF für den Laser ----
   // Kreise = CIRCLE, Konturen = geschlossene LWPOLYLINE (Bögen als Bulge), Biegelinien je Richtung auf eigenem Layer, 1:1 in mm ($INSUNITS = 4).
@@ -574,7 +688,7 @@ export function createBrep(oc){
   M.dxf=(flat,opts={})=>{if(typeof opts!=='object'||!opts)opts={};const L=[];const g=(c,v)=>L.push(String(c),String(v));
     let h=0x100;const H=()=>(h++).toString(16).toUpperCase();const f4=v=>(Math.abs(v)<5e-5?0:v).toFixed(4);
     const X=p=>f4(p[0]-flat.min[0]),Y=p=>f4(p[1]-flat.min[1]);
-    const layer=[['KONTUR',7,'CONTINUOUS'],['BIEGELINIEN_AUF',1,'DASHED'],['BIEGELINIEN_AB',5,'DASHED']];if(opts.beschriftung)layer.push(['BESCHRIFTUNG',3,'CONTINUOUS']);
+    const layer=[['KONTUR',7,'CONTINUOUS'],['BIEGELINIEN_AUF',1,'DASHED'],['BIEGELINIEN_AB',5,'DASHED']];if(opts.beschriftung)layer.push(['BESCHRIFTUNG',3,'CONTINUOUS']);const riss=flat.rissLinien||[];if(riss.length)layer.push(['RISS',6,'DASHED',true]);
     g(0,'SECTION');g(2,'HEADER');g(9,'$ACADVER');g(1,'AC1015');g(9,'$INSUNITS');g(70,4);g(9,'$MEASUREMENT');g(70,1);g(9,'$HANDSEED');g(5,'FFFFF');g(0,'ENDSEC');
     g(0,'SECTION');g(2,'TABLES');
     g(0,'TABLE');g(2,'LTYPE');g(5,H());g(100,'AcDbSymbolTable');g(70,2);
@@ -582,7 +696,7 @@ export function createBrep(oc){
     g(0,'LTYPE');g(5,H());g(100,'AcDbSymbolTableRecord');g(100,'AcDbLinetypeTableRecord');g(2,'DASHED');g(70,0);g(3,'Gestrichelt __ __ __');g(72,65);g(73,2);g(40,9);g(49,6);g(74,0);g(49,-3);g(74,0);
     g(0,'ENDTAB');
     g(0,'TABLE');g(2,'LAYER');g(5,H());g(100,'AcDbSymbolTable');g(70,layer.length);
-    for(const [n,c,lt] of layer){g(0,'LAYER');g(5,H());g(100,'AcDbSymbolTableRecord');g(100,'AcDbLayerTableRecord');g(2,n);g(70,0);g(62,c);g(6,lt)}
+    for(const [n,c,lt,np] of layer){g(0,'LAYER');g(5,H());g(100,'AcDbSymbolTableRecord');g(100,'AcDbLayerTableRecord');g(2,n);g(70,0);g(62,c);g(6,lt);if(np)g(290,0)}
     g(0,'ENDTAB');g(0,'ENDSEC');
     g(0,'SECTION');g(2,'ENTITIES');
     const kopf=(typ,lay,sub)=>{g(0,typ);g(5,H());g(100,'AcDbEntity');g(8,lay);g(100,sub)};
@@ -595,6 +709,9 @@ export function createBrep(oc){
       kopf('LWPOLYLINE','KONTUR','AcDbPolyline');g(90,v.length);g(70,s.zu?1:0);g(43,0);
       for(const q of v){g(10,X(q.p));g(20,Y(q.p));if(Math.abs(q.bulge)>1e-12)g(42,q.bulge.toFixed(10))}
       stat.konturen++;if(!s.zu)stat.offen++}
+    // Virtueller Riss: aufgetrennte Kanten zusätzlich auf Layer RISS (nicht plotten, 290 = 0); geschnitten wird nur KONTUR
+    for(const pts of riss){if(pts.length===2){linie(pts[0],pts[1],'RISS');continue}kopf('LWPOLYLINE','RISS','AcDbPolyline');g(90,pts.length);g(70,0);g(43,0);for(const q of pts){g(10,X(q));g(20,Y(q))}}
+    stat.riss=riss.length;
     const bi=flat.bendInfo||[];
     flat.bendLines.forEach((b,i)=>{const auf=(bi[i]?.dir||'nach oben')==='nach oben';linie(b[0],b[1],auf?'BIEGELINIEN_AUF':'BIEGELINIEN_AB')});
     if(opts.beschriftung){const de=(v,n)=>(+v.toFixed(n)).toLocaleString('de-DE',{maximumFractionDigits:n});
