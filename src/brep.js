@@ -1,6 +1,6 @@
 import {biegung} from './kfaktor.js';
 import {faltePunkt} from './falten.js';
-import {methodenZeile,projiziere,normalAbstand,PROJ_NORMALE,RICHTUNGEN,richtungsVektor} from './messen-hilfen.js';
+import {methodenZeile,projiziere,normalAbstand,PROJ_NORMALE,RICHTUNGEN,richtungsVektor,COS_PARALLEL,ebeneEbene,lotPaar,aufEbene,aufAchse,ebeneAchse,achseAchse,innenWinkel} from './messen-hilfen.js';
 // B-Rep-Kern: Einlesen, Topologie, Messen, Blech. Läuft im Worker (Browser) und in Node (Tests).
 // Alle Längen intern in mm (OCCT rechnet STEP-Dateien beim Import in mm um).
 const V = {
@@ -395,6 +395,65 @@ export function createBrep(ocIn){
     if(art==='vertikal'||art==='horizontal')return {art,name:(art==='vertikal'?'Höhe (vertikal)':'Horizontal (waagerecht)')+zus,dir:art==='vertikal'?hv:hz};
     const d=richtungsVektor(art,paar[0],paar[1],sicht,bs);const name=(RICHTUNGEN.find(x=>x[0]===art)||[])[2];if(!name)return null;
     rows.push([name,d?Math.abs(V.dot(v,d)):0,'L']);return {art,name,dir:d}};
+  // ---------- Fläche zu Fläche (wie ZW3D „Instant Measure“) ----------
+  // Hauptwert je Fall: A Ebene ∥ Ebene → Abstand senkrecht; B Ebene ∦ Ebene → Winkel (angrenzend) bzw. Abstand min.;
+  // C Ebene – Zylinder → Abstand Fläche–Achse; D Zylinder – Zylinder → Achsabstand. Messlinie (und ΔX/ΔY/ΔZ) = Lotpaar am Klickpunkt.
+  const inFlaeche=(s,p)=>{try{const st=new oc.BRepClass_FaceClassifier_4(oc.TopoDS.Face_1(RES(s).shape),new oc.gp_Pnt_3(p[0],p[1],p[2]),1e-4).State();
+    return st===oc.TopAbs_State.TopAbs_IN||st===oc.TopAbs_State.TopAbs_ON}catch{return false}};
+  const mitte=s=>{const r=RES(s);return r._mitte??=centerOf(s)};
+  // Abstand der Randkurven von Fläche s zur Ebene e (vorzeichenbehaftet lo/hi, Beträge min/max; schneidet die Fläche die Ebene → min 0)
+  const hoeheBereich=(s,e)=>{const n=V.norm(e.n);let lo=Infinity,hi=-Infinity;const h=p=>{const v=V.dot(V.sub(p,e.o),n);if(v<lo)lo=v;if(v>hi)hi=v};
+    for(const c of curvesOf(s)||[]){if(c.pt){h(c.pt);continue}h(val(c,c.u0));h(val(c,c.u1));if(c.t===CT.GeomAbs_Line)continue;
+      if(c.t===CT.GeomAbs_Circle){const ci=c.a.Circle(),X=D(ci.XAxis().Direction()),Y=D(ci.YAxis().Direction());const t0=Math.atan2(V.dot(n,Y),V.dot(n,X));
+        for(let t of [t0,t0+Math.PI]){while(t<c.u0)t+=2*Math.PI;while(t>c.u0+2*Math.PI)t-=2*Math.PI;if(t<=c.u1+1e-12)h(val(c,t))}continue}
+      for(let i=1;i<64;i++)h(val(c,c.u0+(c.u1-c.u0)*i/64))}
+    return {lo,hi,min:lo<=1e-9&&hi>=-1e-9?0:Math.min(Math.abs(lo),Math.abs(hi)),max:Math.max(Math.abs(lo),Math.abs(hi))}};
+  const gemeinsameKante=(a,b)=>{if((a.inst??0)!==(b.inst??0))return null;const I=M.inst[a.inst??0],U=M.uniq[I.u];const e=U.edges.find(e=>e.line&&e.faces.includes(a.id)&&e.faces.includes(b.id));
+    return e?{p:T.p(I.m,e.mid),d:T.d(I.m,e.line.d)}:null};
+  const zylOf=s=>{const c=RES(s).f?.cyl;return c&&{c:c.c,d:V.norm(c.d),r:c.r}};
+  const quer=(d,bevor)=>{const h=Math.abs(d[0])<0.9?[1,0,0]:[0,1,0];let q=bevor&&V.len(V.sub(bevor,V.mul(d,V.dot(bevor,d))))>1e-9?V.sub(bevor,V.mul(d,V.dot(bevor,d))):V.sub(h,V.mul(d,V.dot(h,d)));return V.norm(q)};
+  const ffAnalyse=(a,b)=>{if(a.k!=='face'||b.k!=='face'||(a.id===b.id&&(a.inst??0)===(b.inst??0)))return null;
+    const FA=RES(a).f,FB=RES(b).f,pa=FA.plane,pb=FB.plane,za=zylOf(a),zb=zylOf(b),rows=[];
+    if(pa&&pb){const ee=ebeneEbene(pa,pb);
+      if(ee.parallel){const kand=[a.p&&aufEbene(a.p,pa),b.p&&aufEbene(b.p,pa),aufEbene(mitte(a),pa),aufEbene(mitte(b),pa)].filter(Boolean);
+        let paar=null;for(const q of kand){const pr=lotPaar(q,pa,pb);if(inFlaeche(a,pr[0])&&inFlaeche(b,pr[1])){paar=pr;break}}
+        const versetzt=!paar;if(!paar)paar=lotPaar(kand[0],pa,pb);
+        rows.push(['Abstand senkrecht',ee.abstand,'L','!'],['Lage',ee.lage+(versetzt?', versetzt (keine Überdeckung)':''),'t']);
+        return {fall:'A',rows,name:'Abstand senkrecht',paar,versetzt,wert:ee.abstand}}
+      const k=gemeinsameKante(a,b);
+      if(k){const ma=mitte(a),mb=mitte(b);const konvex=V.dot(V.sub(mb,k.p),V.norm(pa.n))<0;
+        const inF=(n,m)=>{let u=V.norm(V.cross(k.d,n));if(V.dot(V.sub(m,k.p),u)<0)u=V.mul(u,-1);return u};
+        const u1=inF(pa.n,ma),u2=inF(pb.n,mb);
+        const hb=hoeheBereich(b,pa);rows.push(['Innenwinkel (im Material)',innenWinkel(pa.n,pb.n,konvex),'W'],['Kante',konvex?'konvex':'konkav','t'],['Abstand senkrecht zu Fläche 1 min.',hb.min,'L'],['Abstand senkrecht zu Fläche 1 max.',hb.max,'L']);
+        return {fall:'B',rows,name:'Winkel Fläche–Fläche',winkelMass:{v:k.p,u1:V.mul(u1,-1),u2},wert:ee.winkel}}
+      const hb=hoeheBereich(b,pa);rows.push(['Abstand senkrecht zu Fläche 1 min.',hb.min,'L'],['Abstand senkrecht zu Fläche 1 max.',hb.max,'L']);
+      return {fall:'B',rows,name:'Abstand min.',wert:ee.winkel}}
+    if((pa&&zb)||(za&&pb)){const eIstA=!!pa,e=pa||pb,z=za||zb,zs=eIstA?b:a,es=eIstA?a:b;const ea=ebeneAchse(e,z);
+      if(ea.lage==='parallel'){const q=aufAchse(zs.p||mitte(zs),z),pE=aufEbene(q,e);const d=ea.abstand;const dir=d>1e-9?V.norm(V.sub(q,pE)):V.norm(e.n);
+        const ord=(x,y)=>eIstA?[x,y]:[y,x];
+        rows.push(['Abstand Fläche–Achse',d,'L','!'],['Mantelabstand min.',d-z.r,'L'],['Mantelabstand max.',d+z.r,'L']);if(d<z.r-1e-9)rows.push(['Hinweis','Zylinder schneidet die Fläche','t']);
+        return {fall:'C',rows,name:'Abstand Fläche–Achse',paar:ord(pE,q),max:{d:d+z.r,paar:ord(pE,V.add(q,V.mul(dir,z.r)))},wert:d}}
+      if(ea.lage==='senkrecht'){rows.push(['Winkel Achse–Fläche',90,'W','!'],['Hinweis','Achse steht senkrecht zur Fläche','t']);return {fall:'C',rows,name:'Winkel Achse–Fläche',wert:90}}
+      rows.push(['Winkel Achse–Fläche',ea.winkel,'W']);return {fall:'C',rows,name:'Abstand min.',wert:ea.winkel}}
+    if(za&&zb){const aa=achseAchse(za,zb);
+      if(aa.parallel){const q1=aufAchse(a.p||mitte(a),za);
+        if(aa.koaxial){const rd=quer(za.d,a.p&&V.sub(a.p,q1));rows.push(['Lage','koaxial','t'],['Achsabstand',aa.abstand,'L'],['Radiusdifferenz',Math.abs(za.r-zb.r),'L','!']);
+          return {fall:'D',rows,name:'Radiusdifferenz',paar:[V.add(q1,V.mul(rd,za.r)),V.add(q1,V.mul(rd,zb.r))],wert:Math.abs(za.r-zb.r)}}
+        const q2=V.add(q1,V.mul(aa.quer,aa.abstand));const d=aa.abstand,mn=d-za.r-zb.r;
+        rows.push(['Achsabstand',d,'L','!'],['Mantelabstand min.',mn,'L'],['Mantelabstand max.',d+za.r+zb.r,'L']);if(mn<-1e-9)rows.push(['Hinweis','Zylinder überschneiden sich','t']);
+        return {fall:'D',rows,name:'Achsabstand',paar:[q1,q2],max:{d:d+za.r+zb.r,paar:[V.sub(q1,V.mul(aa.quer,za.r)),V.add(q2,V.mul(aa.quer,zb.r))]},wert:d}}
+      rows.push(['Achswinkel',aa.winkel,'W'],['Achsabstand',aa.abstand,'L','!']);return {fall:'D',rows,name:'Achsabstand',paar:[aa.p1,aa.p2],wert:aa.abstand}}
+    return null};
+  M.ffAnalyse=ffAnalyse;
+  // Schnelle Vorschau beim Überfahren (nur analytisch, ohne Klassifizierung): Art, Wert und eine Vorschaulinie
+  M.vorschau=(a,b)=>{if(a.k!=='face'||b.k!=='face')return null;const FA=RES(a).f,FB=RES(b).f,pa=FA.plane,pb=FB.plane,za=zylOf(a),zb=zylOf(b);
+    if(pa&&pb){const ee=ebeneEbene(pa,pb);if(ee.parallel){const q=b.p?aufEbene(b.p,pb):aufEbene(mitte(b),pb);return {art:'parallel',name:'Abstand senkrecht',wert:ee.abstand,einheit:'L',linie:[aufEbene(q,pa),q]}}
+      return {art:'winkel',name:'Winkel Fläche–Fläche',wert:ee.winkel,einheit:'W'}}
+    if((pa&&zb)||(za&&pb)){const e=pa||pb,z=za||zb;const ea=ebeneAchse(e,z);if(ea.lage==='parallel'){const q=aufAchse((pa?b:a).p||z.c,z);return {art:'achse',name:'Abstand Fläche–Achse',wert:ea.abstand,einheit:'L',linie:[aufEbene(q,e),q]}}
+      return {art:'winkel',name:'Winkel Achse–Fläche',wert:ea.winkel,einheit:'W'}}
+    if(za&&zb){const aa=achseAchse(za,zb);if(aa.parallel){const q1=aufAchse(b.p||zb.c,za);return aa.koaxial?{art:'koaxial',name:'Radiusdifferenz',wert:Math.abs(za.r-zb.r),einheit:'L'}:{art:'achse',name:'Achsabstand',wert:aa.abstand,einheit:'L',linie:[q1,V.add(q1,V.mul(aa.quer,aa.abstand))]}}
+      return {art:'winkel',name:'Achswinkel',wert:aa.winkel,einheit:'W'}}
+    return null};
   M.measure=(sels,opts={})=>{
     const rows=[],gfx=[];
     if(sels.length===1){const s0=sels[0],out={rows:M.describe(s0),gfx};
@@ -410,9 +469,14 @@ export function createBrep(ocIn){
     const [a,b]=sels;
     if(isP(a)&&isP(b)){const pa=selPoint(a),pb=selPoint(b);rows.push(['Abstand',V.len(V.sub(pb,pa)),'L']);delta(rows,pa,pb);gfx.push([pa,pb]);const ri=richtungZeilen(rows,[pa,pb],opts);projZeilen(rows,[pa,pb],sels,opts);
       const wahl=ri?ri.name:'Abstand';return {rows,gfx,label:rows.find(r=>r[0]===wahl)||rows[0],delta:[pa,pb],wahl,richtung:ri}}
-    const md=M.minDist(sel2shape(a),sel2shape(b));const paare={min:[md.p1,md.p2]};
-    rows.push(['Abstand min.',md.d,'L']);delta(rows,md.p1,md.p2);
-    const mx=M.maxDist(a,b);if(mx){rows.push(['Abstand max.',mx.d,'L']);paare.max=[mx.p1,mx.p2]}
+    const auto=!opts.methode||opts.methode==='auto';const ff=ffAnalyse(a,b);if(ff)rows.push(...ff.rows);
+    const md=M.minDist(sel2shape(a),sel2shape(b));const paare={min:[md.p1,md.p2]};if(ff&&ff.paar)paare.auto=ff.paar;
+    // ΔX/ΔY/ΔZ folgen der Messlinie: bei Fläche zu Fläche dem Lotpaar (wie ZW3D), sonst dem kürzesten Abstand
+    rows.push(['Abstand min.',md.d,'L']);if(auto&&paare.auto)delta(rows,...paare.auto);else delta(rows,md.p1,md.p2);
+    const mx=M.maxDist(a,b);
+    // Zylinder: Max. = Mantel gegenüber (Achsabstand + Radien), nicht die räumliche Ecke-zu-Ecke-Strecke
+    if(ff&&ff.max){rows.push(['Abstand max.',ff.max.d,'L']);paare.max=ff.max.paar;if(mx)rows.push(['Abstand max. (räumlich)',mx.d,'L'])}
+    else if(mx){rows.push(['Abstand max.',mx.d,'L']);paare.max=[mx.p1,mx.p2]}
     if(a.k!=='axis'&&b.k!=='axis'){const ca=centerOf(a),cb=centerOf(b);
       // Rand–Mitte: kürzester Abstand vom Element A zur Mitte von B; Mitte–Rand umgekehrt (ZW3D „Bound to Center“ / „Center to Bound“)
       if(!isP(a)&&!isP(b)){const rm=M.minDist(sel2shape(a),mkVertex(cb)),mr=M.minDist(mkVertex(ca),sel2shape(b));
@@ -428,14 +492,24 @@ export function createBrep(ocIn){
       const kind=x=>x.k==='face'?'Fläche':'Kante';
       rows.push(['Winkel '+kind(a)+'–'+kind(b),ang,'W']);
       if(da.kind==='n'&&db.kind==='n'){const s=V.dot(da.d,db.d);rows.push(['Winkel der Normalen',Math.acos(Math.max(-1,Math.min(1,s)))*DEG,'W'])}
-      if(a.k==='face'&&b.k==='face'&&RES(a).f.plane&&RES(b).f.plane&&c>1-1e-9){const pa=RES(a).f.plane,pb=RES(b).f.plane;rows.push(['Paralleler Abstand',Math.abs(V.dot(V.sub(pb.o,pa.o),pa.n)),'L'])}
-      if(da.kind==='a'&&db.kind==='a'&&c>1-1e-9&&a.k==='edge'&&b.k==='edge'&&RES(a).e.line&&RES(b).e.line){const pa=RES(a).e.line.p,pb=RES(b).e.line.p,w=V.sub(pb,pa);rows.push(['Paralleler Abstand',V.len(V.sub(w,V.mul(da.d,V.dot(w,da.d)))),'L'])}}
+      if(a.k==='face'&&b.k==='face'&&RES(a).f.plane&&RES(b).f.plane&&c>=COS_PARALLEL){const pa=RES(a).f.plane,pb=RES(b).f.plane;rows.push(['Paralleler Abstand',Math.abs(V.dot(V.sub(pb.o,pa.o),pa.n)),'L'])}
+      if(da.kind==='a'&&db.kind==='a'&&c>=COS_PARALLEL&&a.k==='edge'&&b.k==='edge'&&RES(a).e.line&&RES(b).e.line){const pa=RES(a).e.line.p,pb=RES(b).e.line.p,w=V.sub(pb,pa);rows.push(['Paralleler Abstand',V.len(V.sub(w,V.mul(da.d,V.dot(w,da.d)))),'L'])}}
     const ha=holeAxis(a),hb=holeAxis(b);
-    if(ha&&hb&&Math.abs(V.dot(ha.d,hb.d))>1-1e-9){const w=V.sub(hb.c,ha.c);const d=V.len(V.sub(w,V.mul(ha.d,V.dot(w,ha.d))));rows.push(['Lochabstand Mitte–Mitte',d,'L'])}
+    if(ha&&hb&&Math.abs(V.dot(ha.d,hb.d))>=COS_PARALLEL){const w=V.sub(hb.c,ha.c);const d=V.len(V.sub(w,V.mul(ha.d,V.dot(w,ha.d))));rows.push(['Lochabstand Mitte–Mitte',d,'L'])}
     // Gewählte Abstandsmethode bestimmt Messlinie, ΔX/ΔY/ΔZ-Linien und Bemaßung. Fehlt sie (z. B. Rand–Mitte bei einem Punkt), gilt die nächstliegende.
-    let w=opts.methode||'min';if(!paare[w])w=w==='rand-mitte'?(isP(a)?'mitte':'min'):w==='mitte-rand'?(isP(b)?'mitte':'min'):'min';if(!paare[w])w='min';
-    const ri=richtungZeilen(rows,paare[w],opts);const name=ri?ri.name:methodenZeile(w);gfx.push(paare[w]);projZeilen(rows,paare[w],sels,opts);
-    return {rows,gfx,label:rows.find(r=>r[0]===name)||rows[0],delta:paare[w],wahl:name,richtung:ri}};
+    // „Automatisch“: Fläche zu Fläche → Hauptwert des Falls (Lotpaar), sonst kürzester Abstand.
+    let w=auto?(paare.auto?'auto':'min'):opts.methode;if(!paare[w])w=w==='rand-mitte'?(isP(a)?'mitte':'min'):w==='mitte-rand'?(isP(b)?'mitte':'min'):'min';if(!paare[w])w='min';
+    const ri=richtungZeilen(rows,paare[w],opts);const name=ri?ri.name:(auto&&ff?ff.name:methodenZeile(w));gfx.push(paare[w]);projZeilen(rows,paare[w],sels,opts);
+    // Genau eine Zeile ist der Hauptwert (fett, Bemaßungstext): bei Fläche zu Fläche der Fall-Hauptwert
+    if(ff){rows.forEach(r=>{if(r[3])r.length=3});const h=rows.find(r=>r[0]===(auto&&!ri?ff.name:name));if(h)h[3]='!'}
+    const out={rows,gfx,label:rows.find(r=>r[0]===name)||rows[0],delta:paare[w],wahl:name,richtung:ri};
+    if(ff)out.ff={fall:ff.fall,name:ff.name,versetzt:!!ff.versetzt,winkelMass:auto&&!ri?ff.winkelMass:undefined,paar:ff.paar,wert:ff.wert};
+    // Für das Hervorheben im 3D beim Überfahren einer Ergebniszeile: Strecke je Zeile
+    out.linien={'Abstand min.':paare.min};if(paare.max)out.linien['Abstand max.']=paare.max;if(paare.mitte)out.linien['Abstand Mitte–Mitte']=paare.mitte;
+    if(paare['rand-mitte'])out.linien['Abstand Rand–Mitte']=paare['rand-mitte'];if(paare['mitte-rand'])out.linien['Abstand Mitte–Rand']=paare['mitte-rand'];if(paare.unendlich)out.linien['Abstand unendlich verlängert']=paare.unendlich;
+    if(ff&&ff.paar)out.linien[ff.name]=ff.paar;if(ff&&ff.fall==='A')out.linien['Paralleler Abstand']=ff.paar;if(ff&&ff.max)out.linien['Mantelabstand max.']=ff.max.paar;
+    if(name&&!out.linien[name])out.linien[name]=paare[w];
+    return out};
   const meshVA=u=>{const U=M.uniq[u];if(U.mva)return U.mva;const p=U.p,ix=U.i;let v=0,A=0,cx=0,cy=0,cz=0;
     for(let t=0;t<ix.length;t+=3){const a=ix[t]*3,b=ix[t+1]*3,c=ix[t+2]*3;const ax=p[a],ay=p[a+1],az=p[a+2],bx=p[b],by=p[b+1],bz=p[b+2],qx=p[c],qy=p[c+1],qz=p[c+2];
       const dv=(ax*(by*qz-bz*qy)-ay*(bx*qz-bz*qx)+az*(bx*qy-by*qx))/6;v+=dv;cx+=dv*(ax+bx+qx)/4;cy+=dv*(ay+by+qy)/4;cz+=dv*(az+bz+qz)/4;
