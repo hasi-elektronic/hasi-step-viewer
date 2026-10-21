@@ -1,11 +1,18 @@
 // Hasi 3D / MS3D – nativer Kern (Sidecar). OCCT (LGPL-2.1 mit Ausnahme), dynamisch gelinkt.
 // Aufruf: hasi-kern <eingabe.step> <ausgabe-ordner> [--threads N] [--pruefen] [--seriell]
+//         hasi-kern --step-export <modell.brep> <auftrag.txt> <ausgabe-ordner>   (Einzelteile als STEP, siehe stepExport)
 // Ausgabe: modell.bin (JSON-Kopf + Binärdaten für die Anzeige) und modell.brep (Unikate als BREP für das Messen im WASM-Kern).
 // Ablauf: STEP einmal parsen; Blatt-Teile (bei Mehrkörper-Teilen jeder Körper einzeln) parallel übersetzen;
 // Baugruppen-Lagen aus CONTEXT_DEPENDENT_SHAPE_REPRESENTATION; Unikate parallel tessellieren und indizieren.
 // Bei unbekannten Strukturen: serieller OCCT-Transfer (TransferRoots) als Rückfall.
 #define _USE_MATH_DEFINES
 #include <STEPControl_Reader.hxx>
+#include <STEPControl_Writer.hxx>
+#include <Message.hxx>
+#include <Message_Messenger.hxx>
+#include <Message_PrinterOStream.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <TopoDS_Iterator.hxx>
 #include <STEPControl_Controller.hxx>
 #include <STEPControl_ActorRead.hxx>
 #include <StepData_StepModel.hxx>
@@ -270,7 +277,50 @@ static void allSolids(const TopoDS_Shape& sh, std::vector<TopoDS_Shape>& out) {
   if (out.size() == n0 && sh.ShapeType() == TopAbs_SHELL) out.push_back(sh);
 }
 
+// Einzelteile als STEP schreiben. modell.brep = Verbund der Unikate (gleiche Reihenfolge wie modell.bin).
+// Auftrag: eine Zeile je Datei, Tabulator-getrennt: <datei im Ausgabe-Ordner> <AP214|AP242> <anzahl> dann je Teil <unikat> <12 Matrixwerte mit Komma oder ->.
+// Der Produktname ist der Platzhalter HASI_PRODUKTNAME; die App setzt den Teilnamen (Unicode, STEP-kodiert) danach ein.
+// Fortschritt: „STUFE schreiben k/n“ je fertiger Datei.
+static int stepExport(const char* brepPfad, const char* auftragPfad, const std::string& outDir) {
+  BRep_Builder bb; TopoDS_Shape alle;
+  if (!BRepTools::Read(alle, brepPfad, bb) || alle.IsNull()) { fprintf(stderr, "FEHLER: Messdaten (modell.brep) konnten nicht gelesen werden\n"); return 2; }
+  std::vector<TopoDS_Shape> U; for (TopoDS_Iterator it(alle, true, true); it.More(); it.Next()) U.push_back(it.Value());
+  std::ifstream af(auftragPfad); if (!af) { fprintf(stderr, "FEHLER: Auftrag fehlt\n"); return 2; }
+  std::vector<std::string> zeilen; for (std::string z; std::getline(af, z);) if (!z.empty() && z != "\r") zeilen.push_back(z);
+  STEPControl_Controller::Init();
+  Message::DefaultMessenger()->RemovePrinters(STANDARD_TYPE(Message_PrinterOStream)); // keine OCCT-Statistik auf stdout
+  int n = (int)zeilen.size(), k = 0;
+  for (auto& z : zeilen) {
+    std::vector<std::string> f; { std::stringstream ss(z); std::string t; while (std::getline(ss, t, '\t')) f.push_back(t); }
+    if (f.size() < 3) { fprintf(stderr, "FEHLER: Auftragszeile %d ungültig\n", k + 1); return 2; }
+    int anz = atoi(f[2].c_str()); if (anz < 1 || (int)f.size() < 3 + 2 * anz) { fprintf(stderr, "FEHLER: Auftragszeile %d ungültig\n", k + 1); return 2; }
+    std::vector<TopoDS_Shape> teile;
+    for (int j = 0; j < anz; j++) {
+      int u = atoi(f[3 + 2 * j].c_str()); if (u < 0 || u >= (int)U.size()) { fprintf(stderr, "FEHLER: Teil %d nicht vorhanden\n", u); return 2; }
+      TopoDS_Shape s = U[u]; const std::string& ms = f[4 + 2 * j];
+      if (ms != "-") {
+        double m[12]; int c = 0; std::stringstream mm(ms); std::string t; while (c < 12 && std::getline(mm, t, ',')) m[c++] = strtod(t.c_str(), nullptr);
+        if (c != 12) { fprintf(stderr, "FEHLER: Lage ungültig\n"); return 2; }
+        gp_Trsf tr; tr.SetValues(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11]);
+        s = BRepBuilderAPI_Transform(s, tr, true).Shape();
+      }
+      teile.push_back(s);
+    }
+    TopoDS_Shape form; if (teile.size() == 1) form = teile[0]; else { TopoDS_Compound c; bb.MakeCompound(c); for (auto& t : teile) bb.Add(c, t); form = c; }
+    Interface_Static::SetCVal("write.step.schema", f[1] == "AP242" ? "AP242DIS" : "AP214IS");
+    Interface_Static::SetCVal("write.step.unit", "MM");
+    Interface_Static::SetCVal("write.step.product.name", "HASI_PRODUKTNAME");
+    STEPControl_Writer w;
+    if (w.Transfer(form, STEPControl_AsIs) != IFSelect_RetDone) { fprintf(stderr, "FEHLER: STEP konnte nicht erzeugt werden (Datei %d)\n", k + 1); return 3; }
+    std::string ziel = outDir + "/" + f[0];
+    if (w.Write(ziel.c_str()) != IFSelect_RetDone) { fprintf(stderr, "FEHLER: %s konnte nicht geschrieben werden\n", ziel.c_str()); return 3; }
+    stufe("schreiben", ++k, n);
+  }
+  return 0;
+}
+
 int main(int argc, char** argv) {
+  if (argc >= 5 && !strcmp(argv[1], "--step-export")) return stepExport(argv[2], argv[3], argv[4]);
   if (argc < 3) { fprintf(stderr, "Aufruf: hasi-kern <eingabe.step> <ausgabe-ordner> [--threads N] [--pruefen] [--seriell]\n"); return 1; }
   std::string in = argv[1], outDir = argv[2]; int T = std::max(1u, std::thread::hardware_concurrency()); bool pruefen = false, seriell = false; int splitMin = 2;
   for (int k = 3; k < argc; k++) { if (!strcmp(argv[k], "--threads") && k + 1 < argc) T = std::max(1, atoi(argv[++k])); else if (!strcmp(argv[k], "--pruefen")) pruefen = true; else if (!strcmp(argv[k], "--seriell")) seriell = true; else if (!strcmp(argv[k], "--split-min") && k + 1 < argc) splitMin = atoi(argv[++k]); }

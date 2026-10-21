@@ -22,13 +22,14 @@ self.onmessage=async e=>{const {id,cmd,args}=e.data;
       r=B.fromNative(args.bin,bytes,args.name,hier);r.times.namen=thier;const tm=Date.now();r.model=B.modelFast();r.times.modell=Date.now()-tm;r.hierOk=!!hier}
     else if(cmd==='attach')r=B.attachBrep(args.text);
     else if(cmd==='lagen')r=B.lagen(args.m);
+    else if(cmd==='stepSchreiben')r=B.stepSchreiben(args);
     else if(cmd==='props')r=B.solidProps(args.ids);
     else if(cmd==='modell')r=args.schnell?B.modelFast(args.ids):B.model(args.ids);
     else if(cmd==='huelle')r=B.huelle(args.opts||{});
     else if(cmd==='faltNetz')r=B.faltNetz(args.netz);
     else if(cmd==='measure')r=B.measure(args.sels,args.opts||{});
     else if(cmd==='sheet'){r=B.sheet(args.opts??args.K,args.inst);if(r.flat&&!r.flat.incomplete)r.dxf=B.dxf(r.flat,{beschriftung:!!(args.opts&&args.opts.beschriftung)})}
-    const tr=[];if(cmd==='load')r.uniq.forEach(m=>tr.push(m.p.buffer,m.i.buffer,m.f.buffer));
+    const tr=[];if(cmd==='load')r.uniq.forEach(m=>tr.push(m.p.buffer,m.i.buffer,m.f.buffer));if(cmd==='stepSchreiben')tr.push(r.buffer);
     self.postMessage({id,ok:true,r},tr);
   }catch(err){
     const m=String(err&&err.message||err);

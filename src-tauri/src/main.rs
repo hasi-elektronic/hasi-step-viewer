@@ -10,8 +10,9 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .manage(KernZustand(std::sync::Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![save_text, save_bytes, kern_verfuegbar, kern_laden, kern_laden_pfad, datei_lesen, kern_brep, start_pfad])
+        .manage(KernZustand::default())
+        .manage(ExportZustand::default())
+        .invoke_handler(tauri::generate_handler![save_text, save_bytes, kern_verfuegbar, kern_laden, kern_laden_pfad, datei_lesen, kern_brep, start_pfad, step_export, step_export_abbrechen, ordner_waehlen, datei_ablegen, einzelteil_fenster])
         .setup(|app| {
             ziehereignis(app.handle());
             #[cfg(target_os = "macos")]
@@ -35,6 +36,24 @@ fn main() {
                 datei_an_fenster(app, &pfad.to_string_lossy());
             }
         }
+        // Geschlossenes Fenster: seinen Lauf und den behaltenen modell.brep-Ordner aufräumen
+        tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::Destroyed, .. } => {
+            use tauri::Manager;
+            let zustand = app.state::<KernZustand>();
+            if let Some(alt) = zustand.laeufe.lock().unwrap().remove(&label) {
+                lauf_aufraeumen(alt);
+            }
+            brep_vergessen(&zustand, &label);
+        }
+        tauri::RunEvent::Exit => {
+            use tauri::Manager;
+            let zustand = app.state::<KernZustand>();
+            let labels: Vec<String> = zustand.brep.lock().unwrap().keys().cloned().collect();
+            for l in labels {
+                brep_vergessen(&zustand, &l);
+            }
+            let _ = std::fs::remove_dir_all(std::env::temp_dir().join(format!("hasi-einzelteile-{}", std::process::id())));
+        }
         _ => {}
     });
 }
@@ -48,7 +67,24 @@ struct Lauf {
     aus_speicher: bool,
     speicher_ziel: Option<std::path::PathBuf>,
 }
-struct KernZustand(std::sync::Mutex<Option<Lauf>>);
+/// Je Fenster (Hauptfenster und Einzelteil-Fenster) ein eigener Lauf und ein eigener Ort von modell.brep (für den STEP-Export).
+#[derive(Default)]
+struct KernZustand {
+    laeufe: std::sync::Mutex<std::collections::HashMap<String, Lauf>>,
+    brep: std::sync::Mutex<std::collections::HashMap<String, BrepOrt>>,
+}
+/// modell.brep des angezeigten Modells; `eigen` = eigener Ordner (nicht im Zwischenspeicher), wird beim nächsten Laden gelöscht.
+struct BrepOrt {
+    pfad: std::path::PathBuf,
+    eigen: Option<std::path::PathBuf>,
+}
+fn brep_vergessen(zustand: &KernZustand, label: &str) {
+    if let Some(alt) = zustand.brep.lock().unwrap().remove(label) {
+        if let Some(o) = alt.eigen {
+            let _ = std::fs::remove_dir_all(o);
+        }
+    }
+}
 
 fn kern_programm() -> Option<std::path::PathBuf> {
     if std::env::var("HASI_KERN").map(|v| v == "aus").unwrap_or(false) {
@@ -81,18 +117,23 @@ fn lauf_aufraeumen(lauf: Lauf) {
     }
 }
 
-fn kern_ordner(zustand: &tauri::State<'_, KernZustand>) -> Result<std::path::PathBuf, String> {
+fn kern_ordner(zustand: &tauri::State<'_, KernZustand>, label: &str) -> Result<std::path::PathBuf, String> {
     let ordner = std::env::temp_dir().join(format!("hasi-kern-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
     std::fs::create_dir_all(&ordner).map_err(|e| format!("Temporärer Ordner: {e}"))?;
-    if let Some(alt) = zustand.0.lock().unwrap().take() {
+    if let Some(alt) = zustand.laeufe.lock().unwrap().remove(label) {
         lauf_aufraeumen(alt);
     }
+    brep_vergessen(zustand, label);
     Ok(ordner)
 }
 
 fn kern_befehl(app: &tauri::AppHandle, prog: &std::path::Path, ein: &std::path::Path, ordner: &std::path::Path) -> std::process::Command {
+    kern_befehl_mit(app, prog, &[ein.as_os_str(), ordner.as_os_str()])
+}
+
+fn kern_befehl_mit(app: &tauri::AppHandle, prog: &std::path::Path, args: &[&std::ffi::OsStr]) -> std::process::Command {
     let mut cmd = std::process::Command::new(prog);
-    cmd.arg(ein).arg(ordner);
+    cmd.args(args);
     // Windows: OCCT-DLLs liegen neben hasi-kern.exe und werden vom Lader dort gefunden.
     // macOS: @rpath/@loader_path zeigen auf Contents/Resources/kern.
     // Linux: LD_LIBRARY_PATH auf die Ressourcen unter kern/.
@@ -141,10 +182,10 @@ fn stufe_lesen(zeile: &str) -> Option<(String, i64, i64)> {
     Some((name, k, n))
 }
 
-fn stufe_melden(app: &tauri::AppHandle, zeile: &str) {
+fn stufe_melden(app: &tauri::AppHandle, label: &str, zeile: &str) {
     use tauri::Manager;
     let Some((name, k, n)) = stufe_lesen(zeile) else { return };
-    if let Some(fenster) = app.get_webview_window("main") {
+    if let Some(fenster) = app.get_webview_window(label) {
         let _ = fenster.eval(&format!("window.__kernStufe&&window.__kernStufe({},{k},{n})", js_string(&name)));
     }
 }
@@ -154,13 +195,14 @@ enum Meldung {
     Ende(Result<(), String>),
 }
 
-async fn kern_auswerten(app: tauri::AppHandle, mut cmd: std::process::Command, ein: std::path::PathBuf, ordner: std::path::PathBuf, loesche_eingabe: bool, speicher_ziel: Option<std::path::PathBuf>, zustand: tauri::State<'_, KernZustand>) -> Result<tauri::ipc::Response, String> {
+async fn kern_auswerten(app: tauri::AppHandle, label: String, mut cmd: std::process::Command, ein: std::path::PathBuf, ordner: std::path::PathBuf, loesche_eingabe: bool, speicher_ziel: Option<std::path::PathBuf>, zustand: tauri::State<'_, KernZustand>) -> Result<tauri::ipc::Response, String> {
     let mut kind = cmd.spawn().map_err(|e| format!("Nativer Kern konnte nicht gestartet werden: {e}"))?;
     let stdout = kind.stdout.take();
     let stderr = kind.stderr.take();
     let (tx, rx) = std::sync::mpsc::channel::<Meldung>();
     let (tx_ende, rx_ende) = std::sync::mpsc::channel::<Result<(), String>>();
     let app2 = app.clone();
+    let label2 = label.clone();
     std::thread::spawn(move || {
         use std::io::{BufRead, Read};
         let fehlertext = std::thread::spawn(move || {
@@ -173,7 +215,7 @@ async fn kern_auswerten(app: tauri::AppHandle, mut cmd: std::process::Command, e
         if let Some(out) = stdout {
             for zeile in std::io::BufReader::new(out).lines().map_while(Result::ok) {
                 if zeile.starts_with("STUFE ") {
-                    stufe_melden(&app2, &zeile);
+                    stufe_melden(&app2, &label2, &zeile);
                 } else if zeile.starts_with("BIN") {
                     let _ = tx.send(Meldung::Bin);
                 }
@@ -203,8 +245,317 @@ async fn kern_auswerten(app: tauri::AppHandle, mut cmd: std::process::Command, e
         ende = None; // Prozess ist schon fertig
     }
     let bin = std::fs::read(ordner.join("modell.bin")).map_err(|e| format!("Ergebnis fehlt: {e}"))?;
-    *zustand.0.lock().unwrap() = Some(Lauf { ordner, ende, aus_speicher: false, speicher_ziel });
+    zustand.laeufe.lock().unwrap().insert(label, Lauf { ordner, ende, aus_speicher: false, speicher_ziel });
     Ok(tauri::ipc::Response::new(bin))
+}
+
+// ---------- Einzelteile als STEP (nativer Kern, OCCT STEPControl_Writer) ----------
+/// Laufender Export (zum Abbrechen) je Fenster.
+#[derive(Default)]
+struct ExportZustand {
+    kinder: std::sync::Mutex<std::collections::HashMap<String, std::process::Child>>,
+    abgebrochen: std::sync::Mutex<std::collections::HashSet<String>>,
+}
+
+#[derive(serde::Deserialize)]
+struct ExportTeil {
+    u: usize,
+    /// 3×4-Matrix zeilenweise (Baugruppenlage); fehlt = eigenes Koordinatensystem
+    m: Option<Vec<f64>>,
+}
+#[derive(serde::Deserialize)]
+struct ExportDatei {
+    /// Dateiname ohne Endung (bereits Windows-tauglich und eindeutig)
+    name: String,
+    /// Produktname, schon STEP-kodiert (\X2\…\X0\)
+    produkt: String,
+    teile: Vec<ExportTeil>,
+}
+
+/// Setzt den Produktnamen anstelle des Platzhalters ein: 'HASI_PRODUKTNAME' / 'HASI_PRODUKTNAME 3' → Name,
+/// 'HASI_PRODUKTNAME 3.2' (Teil eines Verbunds) → 'Name (2)'. Auch FILE_NAME bekommt den Namen.
+fn produktname_einsetzen(text: &str, produkt: &str) -> String {
+    const PLATZ: &str = "'HASI_PRODUKTNAME";
+    let mut aus = String::with_capacity(text.len() + 256);
+    let mut rest = text;
+    while let Some(i) = rest.find(PLATZ) {
+        aus.push_str(&rest[..i]);
+        let nach = &rest[i + PLATZ.len()..];
+        let Some(ende) = nach.find('\'') else {
+            aus.push_str(&rest[i..]);
+            rest = "";
+            break;
+        };
+        let zusatz = nach[..ende].trim();
+        if !zusatz.is_empty() && !zusatz.chars().all(|c| c.is_ascii_digit() || c == '.') {
+            // kein Platzhalter von uns
+            aus.push_str(&rest[i..i + PLATZ.len() + ende + 1]);
+        } else if let Some((_, k)) = zusatz.split_once('.') {
+            aus.push_str(&format!("'{produkt} ({k})'"));
+        } else {
+            aus.push_str(&format!("'{produkt}'"));
+        }
+        rest = &nach[ende + 1..];
+    }
+    aus.push_str(rest);
+    aus.replacen("FILE_NAME('Open CASCADE Shape Model'", &format!("FILE_NAME('{produkt}'"), 1)
+}
+
+/// Nur druckbares ASCII ohne einzelnes Hochkomma (die JS-Seite kodiert schon); sonst ein neutraler Name.
+fn produkt_pruefen(p: &str) -> String {
+    let ok = !p.is_empty() && p.chars().all(|c| (' '..='~').contains(&c)) && p.replace("''", "").find('\'').is_none();
+    if ok { p.to_string() } else { "Einzelteil".into() }
+}
+
+/// Windows-tauglicher Dateiname (ohne Endung); Umlaute und türkische Zeichen bleiben.
+fn sicherer_dateiname(name: &str) -> String {
+    let mut s: String = name.chars().map(|c| if c.is_control() || "<>:\"/\\|?*".contains(c) { '_' } else { c }).collect();
+    s = s.trim().trim_end_matches(['.', ' ']).to_string();
+    if s.chars().count() > 120 {
+        s = s.chars().take(120).collect::<String>().trim_end_matches(['.', ' ']).to_string();
+    }
+    if s.is_empty() {
+        s = "Einzelteil".into();
+    }
+    let basis = s.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let reserviert = matches!(basis.as_str(), "CON" | "PRN" | "AUX" | "NUL") || ((basis.starts_with("COM") || basis.starts_with("LPT")) && basis.len() == 4 && basis.as_bytes()[3].is_ascii_digit());
+    if reserviert {
+        s.push('_');
+    }
+    s
+}
+
+/// Freier Pfad in `ordner`: „Name.step“, sonst „Name (2).step“ … (Groß/Klein egal, wie unter Windows).
+fn freier_pfad(ordner: &std::path::Path, name: &str, ext: &str, belegt: &mut std::collections::HashSet<String>) -> std::path::PathBuf {
+    if belegt.is_empty() {
+        if let Ok(rd) = std::fs::read_dir(ordner) {
+            for d in rd.flatten() {
+                belegt.insert(d.file_name().to_string_lossy().to_lowercase());
+            }
+        }
+        belegt.insert(String::new());
+    }
+    let mut n = 1;
+    loop {
+        let kandidat = if n == 1 { format!("{name}{ext}") } else { format!("{name} ({n}){ext}") };
+        if !belegt.contains(&kandidat.to_lowercase()) && !ordner.join(&kandidat).exists() {
+            belegt.insert(kandidat.to_lowercase());
+            return ordner.join(kandidat);
+        }
+        n += 1;
+    }
+}
+
+/// Auftrag für `hasi-kern --step-export`, je Datei eine Zeile (Tab-getrennt):
+/// Datei, Schema, Anzahl Teile, dann je Teil Unikat und Matrix (12 Werte, Komma-getrennt) oder „-“.
+fn auftrag_text(dateien: &[ExportDatei], schema: &str) -> String {
+    let mut auftrag = String::new();
+    for (k, d) in dateien.iter().enumerate() {
+        auftrag.push_str(&format!("t{k}.step\t{schema}\t{}", d.teile.len()));
+        for t in &d.teile {
+            let m = match &t.m {
+                Some(m) if m.len() == 12 && m.iter().all(|v| v.is_finite()) => m.iter().map(|v| format!("{v:e}")).collect::<Vec<_>>().join(","),
+                _ => "-".into(),
+            };
+            auftrag.push_str(&format!("\t{}\t{m}", t.u));
+        }
+        auftrag.push('\n');
+    }
+    auftrag
+}
+
+/// Liest t{k}.step aus dem Arbeitsordner, setzt den Produktnamen ein und schreibt an den Zielpfad.
+fn export_fertigstellen(arbeit: &std::path::Path, dateien: &[ExportDatei], pfade: &[std::path::PathBuf]) -> Result<Vec<String>, String> {
+    let mut fertig = Vec::new();
+    for (k, d) in dateien.iter().enumerate() {
+        let roh = std::fs::read(arbeit.join(format!("t{k}.step"))).map_err(|e| format!("STEP-Datei fehlt: {e}"))?;
+        let text = produktname_einsetzen(&String::from_utf8_lossy(&roh), &produkt_pruefen(&d.produkt));
+        std::fs::write(&pfade[k], text).map_err(|e| format!("Datei konnte nicht geschrieben werden: {e}"))?;
+        fertig.push(pfade[k].to_string_lossy().into_owned());
+    }
+    Ok(fertig)
+}
+
+fn export_stufe(fenster: &tauri::WebviewWindow, k: i64, n: i64) {
+    let _ = fenster.eval(&format!("window.__exportStufe&&window.__exportStufe({k},{n})"));
+}
+
+/// Schreibt Einzelteile über den nativen Kern als STEP. `ziel`: "datei" (Speichern-Dialog, eine Datei),
+/// "ordner" (Ordner wählen, je Eintrag eine Datei, nie überschreiben) oder "temp" (für „Als Einzelteil öffnen“).
+/// Ergebnis: geschriebene Pfade; None = Dialog abgebrochen. Fehler "abgebrochen" = vom Benutzer abgebrochen.
+#[tauri::command]
+async fn step_export(app: tauri::AppHandle, fenster: tauri::WebviewWindow, dateien: Vec<ExportDatei>, schema: String, ziel: String, zustand: tauri::State<'_, KernZustand>, export: tauri::State<'_, ExportZustand>) -> Result<Option<Vec<String>>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let label = fenster.label().to_string();
+    let prog = kern_programm().ok_or("Nativer Kern nicht vorhanden")?;
+    let brep = zustand.brep.lock().unwrap().get(&label).map(|o| o.pfad.clone()).filter(|p| p.is_file()).ok_or("Geometrie des nativen Kerns nicht mehr vorhanden")?;
+    if dateien.is_empty() {
+        return Err("Keine Teile gewählt".into());
+    }
+    let schema = if schema == "AP242" { "AP242" } else { "AP214" };
+    // Zielpfade festlegen, bevor gerechnet wird
+    let mut pfade: Vec<std::path::PathBuf> = Vec::new();
+    match ziel.as_str() {
+        "datei" => {
+            let p = app.dialog().file().set_title("Als STEP speichern").set_file_name(format!("{}.step", sicherer_dateiname(&dateien[0].name))).add_filter("STEP-Datei", &["step", "stp"]).blocking_save_file();
+            let Some(p) = p else { return Ok(None) };
+            pfade.push(p.into_path().map_err(|e| format!("Ungültiger Pfad: {e}"))?);
+        }
+        "ordner" => {
+            let p = app.dialog().file().set_title("Ordner für die Einzelteile wählen").blocking_pick_folder();
+            let Some(p) = p else { return Ok(None) };
+            let ordner = p.into_path().map_err(|e| format!("Ungültiger Pfad: {e}"))?;
+            let mut belegt = std::collections::HashSet::new();
+            for d in &dateien {
+                pfade.push(freier_pfad(&ordner, &sicherer_dateiname(&d.name), ".step", &mut belegt));
+            }
+        }
+        _ => {
+            let ordner = einzelteil_temp()?;
+            let mut belegt = std::collections::HashSet::new();
+            for d in &dateien {
+                pfade.push(freier_pfad(&ordner, &sicherer_dateiname(&d.name), ".step", &mut belegt));
+            }
+        }
+    }
+    let arbeit = std::env::temp_dir().join(format!("hasi-export-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)));
+    std::fs::create_dir_all(&arbeit).map_err(|e| format!("Temporärer Ordner: {e}"))?;
+    let auftrag = auftrag_text(&dateien, schema);
+    let auftrag_pfad = arbeit.join("auftrag.txt");
+    std::fs::write(&auftrag_pfad, auftrag).map_err(|e| format!("Auftrag: {e}"))?;
+    export.abgebrochen.lock().unwrap().remove(&label);
+    let mut cmd = kern_befehl_mit(&app, &prog, &[std::ffi::OsStr::new("--step-export"), brep.as_os_str(), auftrag_pfad.as_os_str(), arbeit.as_os_str()]);
+    cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    let mut kind = cmd.spawn().map_err(|e| format!("Nativer Kern konnte nicht gestartet werden: {e}"))?;
+    let stdout = kind.stdout.take();
+    let stderr = kind.stderr.take();
+    export.kinder.lock().unwrap().insert(label.clone(), kind);
+    let f2 = fenster.clone();
+    let (ausgabe, fehler) = tauri::async_runtime::spawn_blocking(move || {
+        use std::io::{BufRead, Read};
+        let fehlertext = std::thread::spawn(move || {
+            let mut s = String::new();
+            if let Some(mut e) = stderr {
+                let _ = e.read_to_string(&mut s);
+            }
+            s
+        });
+        let mut letzte = String::new();
+        if let Some(o) = stdout {
+            for zeile in std::io::BufReader::new(o).lines().map_while(Result::ok) {
+                if let Some((_, k, n)) = stufe_lesen(&zeile) {
+                    export_stufe(&f2, k, n);
+                } else if !zeile.trim().is_empty() {
+                    letzte = zeile;
+                }
+            }
+        }
+        (letzte, fehlertext.join().unwrap_or_default())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let status = export.kinder.lock().unwrap().remove(&label).map(|mut k| k.wait());
+    let abgebrochen = export.abgebrochen.lock().unwrap().remove(&label);
+    let ergebnis = (|| {
+        if abgebrochen {
+            return Err("abgebrochen".to_string());
+        }
+        match status {
+            Some(Ok(s)) if s.success() => {}
+            _ => {
+                let text = [ausgabe.as_str(), fehler.as_str()].iter().flat_map(|t| t.lines()).find(|z| z.contains("FEHLER")).unwrap_or("STEP-Export fehlgeschlagen").trim().to_string();
+                return Err(text);
+            }
+        }
+        export_fertigstellen(&arbeit, &dateien, &pfade).map(Some)
+    })();
+    let _ = std::fs::remove_dir_all(&arbeit);
+    ergebnis
+}
+
+/// Bricht den laufenden Export dieses Fensters ab; es wird nichts geschrieben.
+#[tauri::command]
+fn step_export_abbrechen(fenster: tauri::WebviewWindow, export: tauri::State<'_, ExportZustand>) {
+    let label = fenster.label().to_string();
+    if let Some(k) = export.kinder.lock().unwrap().get_mut(&label) {
+        export.abgebrochen.lock().unwrap().insert(label);
+        let _ = k.kill();
+    }
+}
+
+/// Ordner für die Einzelteile von „Als Einzelteil öffnen“ (wird beim Beenden gelöscht).
+fn einzelteil_temp() -> Result<std::path::PathBuf, String> {
+    let o = std::env::temp_dir().join(format!("hasi-einzelteile-{}", std::process::id()));
+    std::fs::create_dir_all(&o).map_err(|e| format!("Temporärer Ordner: {e}"))?;
+    Ok(o)
+}
+
+/// Ordner wählen (WASM-Rückfall beim Speichern aller Einzelteile).
+#[tauri::command]
+async fn ordner_waehlen(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    match app.dialog().file().set_title("Ordner für die Einzelteile wählen").blocking_pick_folder() {
+        Some(p) => Ok(Some(p.into_path().map_err(|e| format!("Ungültiger Pfad: {e}"))?.to_string_lossy().into_owned())),
+        None => Ok(None),
+    }
+}
+
+/// Legt Bytes (Rohdaten der Anfrage) als neue Datei ab, nie überschreibend (WASM-Rückfall).
+/// Kopfzeilen: x-ordner (leer = temporärer Ordner), x-name (Dateiname ohne Endung), beide URL-kodiert.
+#[tauri::command]
+fn datei_ablegen(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let kopf = |n: &str| request.headers().get(n).and_then(|v| v.to_str().ok()).map(url_dekodieren).unwrap_or_default();
+    let ordner = kopf("x-ordner");
+    let ordner = if ordner.is_empty() { einzelteil_temp()? } else { std::path::PathBuf::from(ordner) };
+    if !ordner.is_dir() {
+        return Err("Ordner nicht gefunden".into());
+    }
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else { return Err("Keine Daten".into()) };
+    let pfad = freier_pfad(&ordner, &sicherer_dateiname(&kopf("x-name")), ".step", &mut std::collections::HashSet::new());
+    std::fs::write(&pfad, data).map_err(|e| format!("Datei konnte nicht geschrieben werden: {e}"))?;
+    Ok(pfad.to_string_lossy().into_owned())
+}
+
+fn url_dekodieren(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut aus = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                aus.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        aus.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&aus).into_owned()
+}
+
+/// Öffnet eine (temporäre) STEP-Datei in einem eigenen Fenster „Einzelteil“.
+#[tauri::command]
+async fn einzelteil_fenster(app: tauri::AppHandle, pfad: String, titel: String) -> Result<(), String> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NR: AtomicUsize = AtomicUsize::new(1);
+    let p = std::path::PathBuf::from(&pfad);
+    if !ist_step(&p) || !p.is_file() {
+        return Err("Einzelteil-Datei nicht gefunden".into());
+    }
+    let produkt = app.config().product_name.clone().unwrap_or_else(|| "Hasi 3D".into());
+    let url = format!("index.html?datei={}", url_kodieren(&pfad));
+    tauri::WebviewWindowBuilder::new(&app, format!("einzelteil-{}", NR.fetch_add(1, Ordering::Relaxed)), tauri::WebviewUrl::App(url.into()))
+        .title(format!("{titel} – Einzelteil – {produkt}"))
+        .inner_size(1200.0, 800.0)
+        .disable_drag_drop_handler()
+        .build()
+        .map_err(|e| format!("Fenster konnte nicht geöffnet werden: {e}"))?;
+    Ok(())
+}
+
+fn url_kodieren(s: &str) -> String {
+    s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
 // ---------- Zwischenspeicher: dieselbe, unveränderte Datei öffnet beim zweiten Mal sofort ----------
@@ -241,22 +592,24 @@ fn speicher_aufraeumen(wurzel: &std::path::Path, max: usize) {
 
 /// Lädt eine STEP-Datei (Rohdaten im Body) mit dem nativen Kern und liefert modell.bin als Binärantwort.
 #[tauri::command]
-async fn kern_laden(app: tauri::AppHandle, request: tauri::ipc::Request<'_>, zustand: tauri::State<'_, KernZustand>) -> Result<tauri::ipc::Response, String> {
+async fn kern_laden(app: tauri::AppHandle, fenster: tauri::WebviewWindow, request: tauri::ipc::Request<'_>, zustand: tauri::State<'_, KernZustand>) -> Result<tauri::ipc::Response, String> {
+    let label = fenster.label().to_string();
     let tauri::ipc::InvokeBody::Raw(daten) = request.body() else {
         return Err("Nativer Kern: keine Dateidaten erhalten".into());
     };
     let prog = kern_programm().ok_or("Nativer Kern nicht vorhanden")?;
-    let ordner = kern_ordner(&zustand)?;
+    let ordner = kern_ordner(&zustand, &label)?;
     let ein = ordner.join("ein.step");
     std::fs::write(&ein, daten).map_err(|e| format!("Temporäre Datei: {e}"))?;
     let cmd = kern_befehl(&app, &prog, &ein, &ordner);
-    kern_auswerten(app, cmd, ein, ordner, true, None, zustand).await
+    kern_auswerten(app, label, cmd, ein, ordner, true, None, zustand).await
 }
 
 /// Lädt eine STEP-Datei über ihren Pfad. Die Originaldatei bleibt liegen, der Kern schreibt nur in einen temporären Ordner.
 /// Ein Ergebnis für dieselbe, unveränderte Datei kommt aus dem Zwischenspeicher.
 #[tauri::command]
-async fn kern_laden_pfad(app: tauri::AppHandle, pfad: String, zustand: tauri::State<'_, KernZustand>) -> Result<tauri::ipc::Response, String> {
+async fn kern_laden_pfad(app: tauri::AppHandle, fenster: tauri::WebviewWindow, pfad: String, zustand: tauri::State<'_, KernZustand>) -> Result<tauri::ipc::Response, String> {
+    let label = fenster.label().to_string();
     let ein = std::path::PathBuf::from(&pfad);
     if !ist_step(&ein) {
         return Err("Nur STEP-Dateien (.step, .stp)".into());
@@ -269,18 +622,19 @@ async fn kern_laden_pfad(app: tauri::AppHandle, pfad: String, zustand: tauri::St
     if let Some(z) = &ziel {
         if z.join("fertig").is_file() && z.join("modell.brep").is_file() {
             if let Ok(bin) = std::fs::read(z.join("modell.bin")) {
-                if let Some(alt) = zustand.0.lock().unwrap().take() {
+                if let Some(alt) = zustand.laeufe.lock().unwrap().remove(&label) {
                     lauf_aufraeumen(alt);
                 }
+                brep_vergessen(&zustand, &label);
                 let _ = std::fs::write(z.join("fertig"), b"1"); // Änderungszeit = zuletzt benutzt
-                *zustand.0.lock().unwrap() = Some(Lauf { ordner: z.clone(), ende: None, aus_speicher: true, speicher_ziel: None });
+                zustand.laeufe.lock().unwrap().insert(label, Lauf { ordner: z.clone(), ende: None, aus_speicher: true, speicher_ziel: None });
                 return Ok(tauri::ipc::Response::new(bin));
             }
         }
     }
-    let ordner = kern_ordner(&zustand)?;
+    let ordner = kern_ordner(&zustand, &label)?;
     let cmd = kern_befehl(&app, &prog, &ein, &ordner);
-    kern_auswerten(app, cmd, ein, ordner, false, ziel, zustand).await
+    kern_auswerten(app, label, cmd, ein, ordner, false, ziel, zustand).await
 }
 
 /// Liest die Rohbytes einer STEP-Datei (für Einheiten und den WASM-Rückfall). Andere Endungen werden abgelehnt.
@@ -300,35 +654,45 @@ fn datei_lesen(pfad: String) -> Result<tauri::ipc::Response, String> {
 /// Liefert die Unikate des letzten Laufs als BREP-Text (für das Messen im WASM-Kern). Wartet, bis der Kern fertig ist,
 /// legt das Ergebnis in den Zwischenspeicher oder räumt auf.
 #[tauri::command]
-async fn kern_brep(zustand: tauri::State<'_, KernZustand>) -> Result<String, String> {
-    let lauf = zustand.0.lock().unwrap().take().ok_or("Kein Lauf des nativen Kerns vorhanden")?;
-    tauri::async_runtime::spawn_blocking(move || {
+async fn kern_brep(fenster: tauri::WebviewWindow, zustand: tauri::State<'_, KernZustand>) -> Result<String, String> {
+    let label = fenster.label().to_string();
+    let lauf = zustand.laeufe.lock().unwrap().remove(&label).ok_or("Kein Lauf des nativen Kerns vorhanden")?;
+    let (text, ort) = tauri::async_runtime::spawn_blocking(move || -> (Result<String, String>, Option<BrepOrt>) {
         if let Some(rx) = &lauf.ende {
             if let Ok(Err(e)) = rx.recv() {
                 let _ = std::fs::remove_dir_all(&lauf.ordner);
-                return Err(e);
+                return (Err(e), None);
             }
         }
         let text = std::fs::read_to_string(lauf.ordner.join("modell.brep")).map_err(|e| format!("Messdaten fehlen: {e}"));
         if lauf.aus_speicher {
-            return text;
+            let ort = BrepOrt { pfad: lauf.ordner.join("modell.brep"), eigen: None };
+            return (text, Some(ort));
         }
-        let mut abgelegt = false;
-        if let (Ok(_), Some(ziel)) = (&text, &lauf.speicher_ziel) {
+        if text.is_err() {
+            let _ = std::fs::remove_dir_all(&lauf.ordner);
+            return (text, None);
+        }
+        // In den Zwischenspeicher legen; sonst den Ordner behalten (Export braucht modell.brep), bis das Fenster neu lädt
+        if let Some(ziel) = &lauf.speicher_ziel {
             let _ = std::fs::create_dir_all(speicher_wurzel());
             let _ = std::fs::remove_dir_all(ziel);
-            if std::fs::rename(&lauf.ordner, ziel).is_ok() {
-                abgelegt = std::fs::write(ziel.join("fertig"), b"1").is_ok();
+            if std::fs::rename(&lauf.ordner, ziel).is_ok() && std::fs::write(ziel.join("fertig"), b"1").is_ok() {
                 speicher_aufraeumen(&speicher_wurzel(), SPEICHER_MAX);
+                return (text, Some(BrepOrt { pfad: ziel.join("modell.brep"), eigen: None }));
             }
         }
-        if !abgelegt {
-            let _ = std::fs::remove_dir_all(&lauf.ordner);
-        }
-        text
+        let _ = std::fs::remove_file(lauf.ordner.join("modell.bin"));
+        let ort = BrepOrt { pfad: lauf.ordner.join("modell.brep"), eigen: Some(lauf.ordner.clone()) };
+        (text, Some(ort))
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    if let Some(o) = ort {
+        brep_vergessen(&zustand, &label);
+        zustand.brep.lock().unwrap().insert(label, o);
+    }
+    text
 }
 
 /// Pfad aus einem zweiten Start, solange die Oberfläche ihn noch nicht abgeholt hat.
@@ -572,6 +936,68 @@ fn mac_menu(app: &mut tauri::App) -> tauri::Result<()> {
 
 #[cfg(test)]
 mod pruefen {
+    #[test]
+    fn produktname_platzhalter() {
+        let t = "FILE_NAME('Open CASCADE Shape Model','2026',('Author'),(''),'x','y','');\n#7 = PRODUCT('HASI_PRODUKTNAME 1',\n  'HASI_PRODUKTNAME 1','',(#8));\n#9 = PRODUCT('HASI_PRODUKTNAME','HASI_PRODUKTNAME','',(#8));\n#11 = PRODUCT('HASI_PRODUKTNAME 1.2','HASI_PRODUKTNAME 1.2','',(#8));\n#12 = PRODUCT('HASI_PRODUKTNAMEX','',(#8));";
+        let a = produktname_einsetzen(t, "Winkel \\X2\\00D6\\X0\\l");
+        assert!(a.starts_with("FILE_NAME('Winkel \\X2\\00D6\\X0\\l','2026'"));
+        assert!(a.contains("#7 = PRODUCT('Winkel \\X2\\00D6\\X0\\l',\n  'Winkel \\X2\\00D6\\X0\\l',''"));
+        assert!(a.contains("#9 = PRODUCT('Winkel \\X2\\00D6\\X0\\l','Winkel"));
+        assert!(a.contains("#11 = PRODUCT('Winkel \\X2\\00D6\\X0\\l (2)','Winkel \\X2\\00D6\\X0\\l (2)'"));
+        assert!(a.contains("'HASI_PRODUKTNAMEX'"));
+        assert_eq!(produkt_pruefen("O'Neil"), "Einzelteil");
+        assert_eq!(produkt_pruefen("O''Neil"), "O''Neil");
+        assert_eq!(produkt_pruefen("Ölçü"), "Einzelteil");
+    }
+
+    /// Mit HASI_TEST_KERN (hasi-kern) und HASI_TEST_BREP (modell.brep eines Laufs): Auftrag → Kern → fertige Dateien.
+    #[test]
+    fn export_mit_kern() {
+        let (Ok(kern), Ok(brep)) = (std::env::var("HASI_TEST_KERN"), std::env::var("HASI_TEST_BREP")) else { return };
+        let arbeit = std::env::temp_dir().join(format!("hasi-test-export-{}", std::process::id()));
+        std::fs::create_dir_all(&arbeit).unwrap();
+        let mut m = vec![0.0; 12];
+        m[0] = 1.0; m[5] = 1.0; m[10] = 1.0; m[3] = 10.0;
+        let dateien = vec![
+            ExportDatei { name: "Grundplatte".into(), produkt: "Grundplatte".into(), teile: vec![ExportTeil { u: 0, m: None }] },
+            ExportDatei { name: "Paar".into(), produkt: "\\X2\\015E\\X0\\asi".into(), teile: vec![ExportTeil { u: 1, m: Some(m.clone()) }, ExportTeil { u: 2, m: None }] },
+        ];
+        let auftrag = arbeit.join("auftrag.txt");
+        std::fs::write(&auftrag, auftrag_text(&dateien, "AP242")).unwrap();
+        let st = std::process::Command::new(kern).arg("--step-export").arg(&brep).arg(&auftrag).arg(&arbeit).status().unwrap();
+        assert!(st.success());
+        let pfade = vec![arbeit.join("a.step"), arbeit.join("b.step")];
+        export_fertigstellen(&arbeit, &dateien, &pfade).unwrap();
+        let a = std::fs::read_to_string(&pfade[0]).unwrap();
+        assert!(a.contains("PRODUCT('Grundplatte','Grundplatte'"), "{}", &a[..a.len().min(3000)]);
+        assert!(a.contains("AP242_MANAGED_MODEL_BASED"));
+        let b = std::fs::read_to_string(&pfade[1]).unwrap();
+        assert!(b.contains("PRODUCT('\\X2\\015E\\X0\\asi','\\X2\\015E\\X0\\asi'"));
+        assert!(b.contains("'\\X2\\015E\\X0\\asi (1)'") && b.contains("'\\X2\\015E\\X0\\asi (2)'"));
+        assert!(!b.contains("HASI_PRODUKTNAME"));
+        std::fs::remove_dir_all(&arbeit).unwrap();
+    }
+
+    #[test]
+    fn dateinamen_windows() {
+        assert_eq!(sicherer_dateiname("Şasi: Ölçü/ÄÖÜß?"), "Şasi_ Ölçü_ÄÖÜß_");
+        assert_eq!(sicherer_dateiname("CON"), "CON_");
+        assert_eq!(sicherer_dateiname("lpt1.teil"), "lpt1.teil_");
+        assert_eq!(sicherer_dateiname("  Teil. . "), "Teil");
+        assert_eq!(sicherer_dateiname(""), "Einzelteil");
+        assert_eq!(sicherer_dateiname(&"x".repeat(300)).chars().count(), 120);
+        let d = std::env::temp_dir().join(format!("hasi-test-namen-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("Bolzen.step"), b"").unwrap();
+        let mut b = std::collections::HashSet::new();
+        assert_eq!(freier_pfad(&d, "bolzen", ".step", &mut b).file_name().unwrap(), "bolzen (2).step");
+        assert_eq!(freier_pfad(&d, "Bolzen", ".step", &mut b).file_name().unwrap(), "Bolzen (3).step");
+        assert_eq!(freier_pfad(&d, "Platte", ".step", &mut b).file_name().unwrap(), "Platte.step");
+        std::fs::remove_dir_all(&d).unwrap();
+        assert_eq!(url_dekodieren("Bolzen%20%C3%96%2"), "Bolzen Ö%2");
+        assert_eq!(url_kodieren("C:\\a b"), "C%3A%5Ca%20b");
+    }
+
     use super::*;
 
     #[test]

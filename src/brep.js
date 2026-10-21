@@ -195,6 +195,22 @@ export function createBrep(ocIn){
         t.SetValues(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8],m[9],m[10],m[11]);
         this._loc=new oc.TopLoc_Location_2(t);this._locM=this.m}
       return this._loc}})}
+  // ---------- Einzelteile als STEP: AP214 oder AP242, Einheit mm, Teilname als Produktname ----------
+  // teile: [{u, m}] – u = Unikat, m = 3×4-Matrix (zeilenweise) oder null für das eigene Koordinatensystem des Teils.
+  // Mehrere Teile (Unterbaugruppe) werden als ein Verbund geschrieben. Farben liest der Kern nicht ein, also schreibt er auch keine.
+  let stepBereit=false;
+  M.stepSchreiben=({name,schema,teile})=>{
+    if(!Array.isArray(teile)||!teile.length)throw new Error('Kein Teil zum Speichern gewählt');
+    if(!stepBereit){new oc.STEPControl_Writer_1();stepBereit=true} // Steuerung einmal anlegen, danach gelten die Einstellungen
+    const S=oc.Interface_Static;S.SetCVal('write.step.schema',schema==='AP242'?'AP242DIS':'AP214IS');S.SetCVal('write.step.unit','MM');S.SetCVal('write.step.product.name',String(name||'Teil'));
+    const form1=t=>{const U=M.uniq[t.u];if(!U)throw new Error('Teil nicht gefunden');let s=U.shape;
+      if(t.m){const m=t.m,tr=new oc.gp_Trsf_1();tr.SetValues(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8],m[9],m[10],m[11]);s=new oc.BRepBuilderAPI_Transform_2(s,tr,true).Shape()}
+      return s};
+    let form;if(teile.length===1)form=form1(teile[0]);else{const bb=new oc.BRep_Builder(),c=new oc.TopoDS_Compound();bb.MakeCompound(c);teile.forEach(t=>bb.Add(c,form1(t)));form=c}
+    const w=new oc.STEPControl_Writer_1();const st=w.Transfer(form,oc.STEPControl_StepModelType.STEPControl_AsIs,true);
+    if(st!==oc.IFSelect_ReturnStatus.IFSelect_RetDone)throw new Error('STEP konnte nicht erzeugt werden');
+    const f='/e.step';if(w.Write(f)!==oc.IFSelect_ReturnStatus.IFSelect_RetDone)throw new Error('STEP konnte nicht geschrieben werden');
+    const b=oc.FS.readFile(f);oc.FS.unlink(f);return b};
   M.lagen=ms=>{
     if(!Array.isArray(ms)||ms.length!==M.inst.length)throw new Error('Lagen passen nicht zum Modell');
     ms.forEach((m,i)=>{if(m&&m.length===12)M.inst[i].m=m.slice()});

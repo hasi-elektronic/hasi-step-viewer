@@ -25,6 +25,7 @@ jobs:
       - run: node tools/test-export.mjs
       - run: node tools/test-baum.mjs
       - run: node tools/test-baugruppe-messen.mjs
+      - run: node tools/test-einzelteil.mjs
       - run: node tools/test-werkzeugleiste.mjs
       - run: node tools/test-sprache.mjs
       - run: npm run build
@@ -52,6 +53,7 @@ jobs:
           node tools/smoke-drehen.mjs
           node tools/smoke-messen.mjs
           SHOTDIR=docs/seitenleiste node tools/smoke-seitenleiste.mjs
+          node tools/smoke-einzelteil.mjs
           node tools/smoke-baugruppe.mjs
           SHOT=docs/hasi-baugruppe.png node tools/smoke-baugruppe-ui.mjs
           SHOTDIR=docs/werkzeugleiste node tools/smoke-werkzeugleiste.mjs
@@ -83,6 +85,7 @@ jobs:
           PORT=4174 SHOT=docs/sickinger-baugruppe.png node tools/smoke-baugruppe-ui.mjs
           PORT=4174 SHOTDIR=docs/werkzeugleiste node tools/smoke-werkzeugleiste.mjs
           PORT=4174 MARKE=ms3d SHOTDIR=docs/seitenleiste node tools/smoke-seitenleiste.mjs
+          PORT=4174 node tools/smoke-einzelteil.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: werkzeugleiste
@@ -156,6 +159,15 @@ jobs:
           node tools/test-export.mjs
           node tools/test-baum.mjs
           node tools/test-baugruppe-messen.mjs
+          node tools/test-einzelteil.mjs
+      - name: STEP-Export der App (Rust) mit dem nativen Kern
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -q libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+          mkdir -p "$RUNNER_TEMP/tb"
+          kern/build/hasi-kern testdaten/testbaugruppe.step "$RUNNER_TEMP/tb"
+          mkdir -p dist
+          cd src-tauri && HASI_TEST_KERN="$GITHUB_WORKSPACE/kern/build/hasi-kern" HASI_TEST_BREP="$RUNNER_TEMP/tb/modell.brep" cargo test --locked
       - name: Paket (Probe)
         run: python3 tools/kern-paket.py kern/build/hasi-kern "${{ runner.temp }}/occt" kern-paket --triple x86_64-unknown-linux-gnu
   build:
