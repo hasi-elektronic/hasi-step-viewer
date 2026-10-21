@@ -27,3 +27,39 @@ export function deltaLinien(p1,p2){const a=[p2[0],p1[1],p1[2]],b=[p2[0],p2[1],p1
 
 /** Normalabstand eines Punktes zu einer Ebene (Punkt o, Normale n). */
 export function normalAbstand(p,o,n){return Math.abs(dot(sub(p,o),norm(n)))}
+
+/** Maßrichtungen (wie SolidWorks/AutoCAD). Name = Zeile im Ergebnis. */
+export const RICHTUNGEN=[
+  ['ausgerichtet','Ausgerichtet (wahre Länge)',null],
+  ['vertikal','Vertikal (Höhe)','Höhe (vertikal)'],
+  ['horizontal','Horizontal (waagerecht)','Horizontal (waagerecht)'],
+  ['x','Modellachse X','Abstand in X'],
+  ['y','Modellachse Y','Abstand in Y'],
+  ['z','Modellachse Z','Abstand in Z'],
+  ['ansicht','Senkrecht zur Ansicht (wie gesehen)','In der Ansichtsebene'],
+];
+export const MODELL_OBEN=[0,0,1];// Hochachse des Modells (Z oben, wie in der Ansicht)
+/**
+ * Richtung (Einheitsvektor) für eine Maßrichtung und die Strecke p1→p2.
+ * sicht: {oben, rechts, blick} in Modellkoordinaten; bildschirm = true: „Vertikal/Horizontal“ nach dem Bildschirm statt nach der Hochachse.
+ * Liefert null für „ausgerichtet“ oder wenn die Richtung nicht bestimmbar ist (z. B. waagerechter Anteil 0).
+ */
+export function richtungsVektor(art,p1,p2,sicht={},bildschirm=false){const v=sub(p2,p1);
+  const oben=norm(bildschirm&&sicht.oben?sicht.oben:MODELL_OBEN);
+  if(art==='vertikal')return oben;
+  if(art==='horizontal'){if(bildschirm&&sicht.rechts)return norm(sicht.rechts);const s=dot(v,oben);const h=[v[0]-oben[0]*s,v[1]-oben[1]*s,v[2]-oben[2]*s];return len(h)>1e-9?norm(h):null}
+  if(art==='x')return [1,0,0];if(art==='y')return [0,1,0];if(art==='z')return [0,0,1];
+  if(art==='ansicht'){if(!sicht.blick)return null;const b=norm(sicht.blick),s=dot(v,b);const q=[v[0]-b[0]*s,v[1]-b[1]*s,v[2]-b[2]*s];return len(q)>1e-9?norm(q):null}
+  return null}
+/** Länge von p1→p2 in einer Maßrichtung (Betrag der Projektion; ausgerichtet = wahre Länge). */
+export function richtungsWert(art,p1,p2,sicht,bildschirm){const v=sub(p2,p1);const d=richtungsVektor(art,p1,p2,sicht,bildschirm);if(art==='ausgerichtet'||!d)return art==='ausgerichtet'?len(v):0;return Math.abs(dot(v,d))}
+/**
+ * Lineare Bemaßung beim Ziehen (wie AutoCAD BEMLINEAR): Ziehen seitlich → vertikal (Höhe), nach oben/unten → horizontal,
+ * senkrecht zu einer schrägen Strecke → ausgerichtet. Alles im Bildschirm (rechts/oben in Modellkoordinaten).
+ */
+export function linearArt(p1,p2,M,sicht){const r=norm(sicht.rechts),o=norm(sicht.oben);const v=sub(p2,p1),m=[(p1[0]+p2[0])/2,(p1[1]+p2[1])/2,(p1[2]+p2[2])/2],w=sub(M,m);
+  const sx=dot(v,r),sy=dot(v,o),ox=dot(w,r),oy=dot(w,o);const sl=Math.hypot(sx,sy),ol=Math.hypot(ox,oy);if(ol<1e-9)return null;
+  const winkel=sl>1e-9?Math.atan2(Math.abs(sy),Math.abs(sx))*180/Math.PI:0;const schraeg=winkel>15&&winkel<75;
+  const quer=sl>1e-9?Math.abs(sx*ox+sy*oy)/(sl*ol):1;// cos(Strecke, Zugrichtung): 0 = genau senkrecht dazu
+  if(schraeg&&quer<Math.sin(15*Math.PI/180))return 'ausgerichtet';
+  return Math.abs(ox)>Math.abs(oy)?'vertikal':'horizontal'}

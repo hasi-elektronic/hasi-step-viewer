@@ -47,4 +47,7 @@ l = l.cut(loch(6, 15, 15)).cut(loch(6, 15, 45))
 l = l.cut(cq.Workplane('XY').slot2D(20, 8, 0).extrude(10).translate((35, 30, -5)))
 l = l.cut(cq.Workplane('YZ').circle(5).extrude(10).translate((48, 30, 20)))
 cq.exporters.export(l, f'{out}/blech-bohrungen.step')
+# ---- Schräger Fuß (Höhe messen): Fuß x 0…40 bei z 0, Oberkante x 60…100 bei z 380, Tiefe y 0…30 ----
+fuss = cq.Workplane('XZ').polyline([(0, 0), (40, 0), (100, 380), (60, 380)]).close().extrude(-30)
+cq.exporters.export(fuss, f'{out}/schraeger-fuss.step')
 print('geschrieben', out)

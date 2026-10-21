@@ -1,5 +1,5 @@
 import {biegung} from './kfaktor.js';
-import {methodenZeile,projiziere,normalAbstand,PROJ_NORMALE} from './messen-hilfen.js';
+import {methodenZeile,projiziere,normalAbstand,PROJ_NORMALE,RICHTUNGEN,richtungsVektor} from './messen-hilfen.js';
 // B-Rep-Kern: Einlesen, Topologie, Messen, Blech. Läuft im Worker (Browser) und in Node (Tests).
 // Alle Längen intern in mm (OCCT rechnet STEP-Dateien beim Import in mm um).
 const V = {
@@ -363,6 +363,15 @@ export function createBrep(oc){
     else if(pj.art==='flaeche'){const f=sels.find(x=>x.k==='face'&&RES(x).f.plane);if(f){n=RES(f).f.plane.n;name='gewählte Ebene'}}
     if(!n||V.len(n)<1e-12){rows.push(['Projektion','keine ebene Fläche gewählt','t']);return}
     const q=projiziere(paar[0],paar[1],n);rows.push(['Projiziert auf '+name,q.inEbene,'L'],['Senkrecht zu '+name,q.normal,'L'])};
+  // Höhe, waagerechter Abstand und gewählte Maßrichtung (opts.richtung) zur gewählten Strecke; Hochachse = Modell-Z,
+  // bei „Projiziert auf: Bildschirm“ der Bildschirm (opts.sicht = {oben, rechts, blick} in Modellkoordinaten).
+  const richtungZeilen=(rows,paar,opts)=>{if(!paar)return null;const sicht=opts.sicht||{},bs=opts.projektion?.art==='bildschirm'&&!!sicht.oben;const v=V.sub(paar[1],paar[0]);
+    const hv=richtungsVektor('vertikal',paar[0],paar[1],sicht,bs),hz=richtungsVektor('horizontal',paar[0],paar[1],sicht,bs);
+    const zus=bs?' (Bildschirm)':'';rows.push(['Höhe (vertikal)'+zus,Math.abs(V.dot(v,hv)),'L'],['Horizontal (waagerecht)'+zus,hz?Math.abs(V.dot(v,hz)):0,'L']);
+    const art=opts.richtung||'ausgerichtet';if(art==='ausgerichtet')return null;
+    if(art==='vertikal'||art==='horizontal')return {art,name:(art==='vertikal'?'Höhe (vertikal)':'Horizontal (waagerecht)')+zus,dir:art==='vertikal'?hv:hz};
+    const d=richtungsVektor(art,paar[0],paar[1],sicht,bs);const name=(RICHTUNGEN.find(x=>x[0]===art)||[])[2];if(!name)return null;
+    rows.push([name,d?Math.abs(V.dot(v,d)):0,'L']);return {art,name,dir:d}};
   M.measure=(sels,opts={})=>{
     const rows=[],gfx=[];
     if(sels.length===1){const s0=sels[0],out={rows:M.describe(s0),gfx};
@@ -376,7 +385,8 @@ export function createBrep(oc){
       if(!rows.length)rows.push(['Hinweis','Mehrfachauswahl nur für Kanten (Gesamtlänge) oder Flächen','t']);
       return {rows,gfx}}
     const [a,b]=sels;
-    if(isP(a)&&isP(b)){const pa=selPoint(a),pb=selPoint(b);rows.push(['Abstand',V.len(V.sub(pb,pa)),'L']);delta(rows,pa,pb);gfx.push([pa,pb]);projZeilen(rows,[pa,pb],sels,opts);return {rows,gfx,label:rows[0],delta:[pa,pb],wahl:'Abstand'}}
+    if(isP(a)&&isP(b)){const pa=selPoint(a),pb=selPoint(b);rows.push(['Abstand',V.len(V.sub(pb,pa)),'L']);delta(rows,pa,pb);gfx.push([pa,pb]);const ri=richtungZeilen(rows,[pa,pb],opts);projZeilen(rows,[pa,pb],sels,opts);
+      const wahl=ri?ri.name:'Abstand';return {rows,gfx,label:rows.find(r=>r[0]===wahl)||rows[0],delta:[pa,pb],wahl,richtung:ri}}
     const md=M.minDist(sel2shape(a),sel2shape(b));const paare={min:[md.p1,md.p2]};
     rows.push(['Abstand min.',md.d,'L']);delta(rows,md.p1,md.p2);
     const mx=M.maxDist(a,b);if(mx){rows.push(['Abstand max.',mx.d,'L']);paare.max=[mx.p1,mx.p2]}
@@ -401,8 +411,8 @@ export function createBrep(oc){
     if(ha&&hb&&Math.abs(V.dot(ha.d,hb.d))>1-1e-9){const w=V.sub(hb.c,ha.c);const d=V.len(V.sub(w,V.mul(ha.d,V.dot(w,ha.d))));rows.push(['Lochabstand Mitte–Mitte',d,'L'])}
     // Gewählte Abstandsmethode bestimmt Messlinie, ΔX/ΔY/ΔZ-Linien und Bemaßung. Fehlt sie (z. B. Rand–Mitte bei einem Punkt), gilt die nächstliegende.
     let w=opts.methode||'min';if(!paare[w])w=w==='rand-mitte'?(isP(a)?'mitte':'min'):w==='mitte-rand'?(isP(b)?'mitte':'min'):'min';if(!paare[w])w='min';
-    const name=methodenZeile(w);gfx.push(paare[w]);projZeilen(rows,paare[w],sels,opts);
-    return {rows,gfx,label:rows.find(r=>r[0]===name)||rows[0],delta:paare[w],wahl:name}};
+    const ri=richtungZeilen(rows,paare[w],opts);const name=ri?ri.name:methodenZeile(w);gfx.push(paare[w]);projZeilen(rows,paare[w],sels,opts);
+    return {rows,gfx,label:rows.find(r=>r[0]===name)||rows[0],delta:paare[w],wahl:name,richtung:ri}};
   const meshVA=u=>{const U=M.uniq[u];if(U.mva)return U.mva;const p=U.p,ix=U.i;let v=0,A=0,cx=0,cy=0,cz=0;
     for(let t=0;t<ix.length;t+=3){const a=ix[t]*3,b=ix[t+1]*3,c=ix[t+2]*3;const ax=p[a],ay=p[a+1],az=p[a+2],bx=p[b],by=p[b+1],bz=p[b+2],qx=p[c],qy=p[c+1],qz=p[c+2];
       const dv=(ax*(by*qz-bz*qy)-ay*(bx*qz-bz*qx)+az*(bx*qy-by*qx))/6;v+=dv;cx+=dv*(ax+bx+qx)/4;cy+=dv*(ay+by+qy)/4;cz+=dv*(az+bz+qz)/4;

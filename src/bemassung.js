@@ -4,11 +4,16 @@ const V={add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],sub:(a,b)=>[a[0]-b[0],a[1]-b
   dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],len:a=>Math.hypot(a[0],a[1],a[2]),
   norm:a=>{const l=Math.hypot(a[0],a[1],a[2])||1;return [a[0]/l,a[1]/l,a[2]/l]}};
 export {V};
+import {linearArt,richtungsVektor,MODELL_OBEN} from './messen-hilfen.js';
+/** Modell-Hochachse im Bild gut sichtbar (nicht fast in Blickrichtung)? Sonst gilt beim Ziehen der Bildschirm. */
+export const hochachseSichtbar=sicht=>!sicht.blick||Math.abs(V.dot(V.norm(sicht.blick),MODELL_OBEN))<0.9;
 export const STIL_STANDARD={groesse:14,pfeil:'pfeil',stellen:2};
 export const PFEILARTEN=[['pfeil','Pfeil (gefüllt)'],['offen','Pfeil (offen)'],['schraeg','Schrägstrich'],['punkt','Punkt']];
-export const TYPEN=[['auto','Automatisch'],['ausgerichtet','Linear ausgerichtet'],['horizontal','Linear horizontal'],['vertikal','Linear vertikal'],['kette','Kettenmaß (weiter von der letzten Bemaßung)'],['basislinie','Basislinienmaß (von derselben Basis)'],['winkel','Winkel'],['radius','Radius R'],['durchmesser','Durchmesser Ø'],['bogen','Bogenlänge'],['fase','Fase'],['koordinate','Koordinate']];
+export const TYPEN=[['auto','Automatisch'],['linear','Linear (beim Ziehen: waagerecht / senkrecht / ausgerichtet)'],['ausgerichtet','Linear ausgerichtet (wahre Länge)'],['hoehe','Höhe (vertikal, Modell-Hochachse)'],['waagerecht','Horizontal (waagerechter Abstand)'],['achse-x','Abstand in X'],['achse-y','Abstand in Y'],['achse-z','Abstand in Z'],['ansicht','Senkrecht zur Ansicht (wie gesehen)'],['horizontal','Linear horizontal (Bildschirm)'],['vertikal','Linear vertikal (Bildschirm)'],['kette','Kettenmaß (weiter von der letzten Bemaßung)'],['basislinie','Basislinienmaß (von derselben Basis)'],['winkel','Winkel'],['radius','Radius R'],['durchmesser','Durchmesser Ø'],['bogen','Bogenlänge'],['fase','Fase'],['koordinate','Koordinate']];
 /** Lineare Bemaßungsarten. Nur „ausgerichtet“ richtet sich nach den beiden Punkten, alle anderen haben eine feste Richtung d.dir. */
-export const LINEAR=['ausgerichtet','horizontal','vertikal','kette','basislinie'];
+export const LINEAR=['ausgerichtet','horizontal','vertikal','kette','basislinie','linear','hoehe','waagerecht','achse-x','achse-y','achse-z','ansicht'];
+/** Feste Maßrichtung je Art (Messen-Panel „Maßrichtung“ → Bemaßungsart). */
+export const RICHTUNG_TYP={vertikal:'hoehe',horizontal:'waagerecht',x:'achse-x',y:'achse-y',z:'achse-z',ansicht:'ansicht'};
 export const TOLERANZEN=[['keine','Keine'],['symm','± symmetrisch'],['abmass','Abmaße (+/−)'],['grenz','Grenzmaß']];
 const zahl=(v,n)=>v.toLocaleString('de-DE',{minimumFractionDigits:n,maximumFractionDigits:n});
 const basis=n=>{const a=Math.abs(n[0])<0.9?[1,0,0]:[0,1,0];const e1=V.norm(V.cross(n,a));return [e1,V.cross(n,e1)]};
@@ -75,7 +80,11 @@ export function geomLinear(d){const dir=d.typ==='ausgerichtet'||!d.dir?V.norm(V.
 export function bogenPunkte(v,u1,u2,rr,N=32){const a=V.norm(u1),b=V.norm(u2);const om=Math.acos(Math.max(-1,Math.min(1,V.dot(a,b))));const out=[];
   for(let i=0;i<=N;i++){const t=i/N;let w;if(om<1e-6)w=a;else{const s=Math.sin(om);w=V.add(V.mul(a,Math.sin((1-t)*om)/s),V.mul(b,Math.sin(t*om)/s))}out.push(V.add(v,V.mul(w,rr)))}return out}
 /** Ziehen: Bemaßung so versetzen, dass sie durch den Modellpunkt M geht. */
-export function ziehe(d,M){if(LINEAR.includes(d.typ)){const g=geomLinear(d);d.off=V.sub(M,d.p1);d.off=V.sub(d.off,V.mul(g.dir,V.dot(d.off,g.dir)))}
+export function ziehe(d,M,sicht){
+  // Linear wie AutoCAD BEMLINEAR: Richtung folgt der Zugrichtung, bis sie mit H / V / A gesperrt wird (d.sperre)
+  if(d.typ==='linear'&&sicht&&sicht.rechts&&sicht.oben){const art=d.sperre||linearArt(d.p1,d.p2,M,sicht);if(art){const dir=art==='ausgerichtet'?V.norm(V.sub(d.p2,d.p1)):richtungsVektor(art,d.p1,d.p2,sicht,!hochachseSichtbar(sicht));
+    if(dir){d.linArt=art;d.dir=dir;d.wert=Math.abs(V.dot(V.sub(d.p2,d.p1),dir))}}}
+  if(LINEAR.includes(d.typ)){const g=geomLinear(d);d.off=V.sub(M,d.p1);d.off=V.sub(d.off,V.mul(g.dir,V.dot(d.off,g.dir)))}
   else if(d.typ==='winkel'){const r=V.len(V.sub(M,d.v));d.off=V.mul(V.norm(d.u1),Math.max(r,1e-3))}
   else if(d.typ==='radius'||d.typ==='durchmesser'){const [e1,e2]=basis(d.n);const w=V.sub(M,d.c);d.ang=Math.atan2(V.dot(w,e2),V.dot(w,e1))}
   else if(d.typ==='bogen'){const [e1,e2]=basis(d.n);const w=V.sub(M,d.c);const r=Math.hypot(V.dot(w,e1),V.dot(w,e2));d.offR=Math.max(r-d.rad,d.rad*0.05)}
@@ -96,7 +105,7 @@ export function folgeMass(ref,p,art,abstand){if(!ref||!LINEAR.includes(ref.typ)|
 
 /** Bemaßungen als Begleitdatei (neben der STEP-Datei, *.hasi3d.json). Die STEP-Datei bleibt unverändert. */
 export const BEGLEIT_FORMAT='hasi3d-bemassungen';
-const FELDER=['no','typ','sels','title','opts','dir','off','ang','offR','tol','praefix','suffix','text','refNo'];
+const FELDER=['no','typ','sels','title','opts','dir','linArt','sperre','off','ang','offR','tol','praefix','suffix','text','refNo'];
 export function bemassungenSpeichern(dims,meta={}){
   return JSON.stringify({format:BEGLEIT_FORMAT,version:1,datei:meta.datei||'',modell:meta.modell||null,erstellt:meta.erstellt||new Date().toISOString(),einheit:'mm',stil:meta.stil||null,
     bemassungen:dims.filter(d=>d.typ&&d.sels).map(d=>{const o={};for(const k of FELDER)if(d[k]!==undefined)o[k]=d[k];o.sels=d.sels.map(x=>{const q={k:x.k,id:x.id,inst:x.inst};if(x.src)q.src=x.src;if(x.p&&x.k==='point')q.p=x.p;return q});return o})},null,1)}
