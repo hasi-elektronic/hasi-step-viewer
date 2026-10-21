@@ -563,17 +563,39 @@ export function createBrep(ocIn){
   // ---------- Exakter Hüllquader (B-Rep, BRepBndLib::AddOptimal) ----------
   // Bereich der Instanzen entlang dreier orthonormaler Achsen (rechtshändig). Je Unikat und Drehung zwischengespeichert;
   // die Verschiebung der Instanz kommt analytisch dazu. Exakt auch für gekrümmte Flächen (Welle 66,209 statt 66,175 aus dem Netz).
-  const exaktBereich=(ids,ach)=>{const rr=[[Infinity,-Infinity],[Infinity,-Infinity],[Infinity,-Infinity]];
+  // Netzbereich (Knoten der Anzeige, liegen auf den Flächen) als schnelle Vorauswahl: nur Instanzen, die nahe an einer Außenseite liegen,
+  // bekommen AddOptimal (große Baugruppen: wenige hundert statt tausender exakter Rechnungen). Spielraum 10 % der Teilegröße + 0,5 mm
+  // deckt die Sehnenabweichung des Netzes sicher ab.
+  const drehKey=R=>R.flat().map(x=>x.toFixed(9)).join(',');
+  const netzBereich=(U,R,key)=>{const C=U.netzBer??=new Map();let b=C.get(key);if(b)return b;const p=U.p;const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+    for(let k=0;k<p.length;k+=3){const x=p[k],y=p[k+1],z=p[k+2];for(let j=0;j<3;j++){const v=R[j][0]*x+R[j][1]*y+R[j][2]*z;if(v<lo[j])lo[j]=v;if(v>hi[j])hi[j]=v}}
+    b=[lo,hi];if(C.size>200)C.clear();C.set(key,b);return b};
+  const exaktBereich=(ids,ach)=>{const rr=[[Infinity,-Infinity],[Infinity,-Infinity],[Infinity,-Infinity]];const L=[];
     for(const i of instListe(ids)){const I=M.inst[i],m=I.m;
       // R = Achsen · Drehung der Instanz, t = Achsen · Verschiebung
-      const R=ach.map(a=>[0,1,2].map(j=>a[0]*m[j]+a[1]*m[4+j]+a[2]*m[8+j])),t=ach.map(a=>a[0]*m[3]+a[1]*m[7]+a[2]*m[11]);
-      const U=M.uniq[I.u],C=U.bereiche??=new Map();const key=R.flat().map(x=>x.toFixed(9)).join(',');let b=C.get(key);
+      const R=ach.map(a=>[0,1,2].map(j=>a[0]*m[j]+a[1]*m[4+j]+a[2]*m[8+j])),t=ach.map(a=>a[0]*m[3]+a[1]*m[7]+a[2]*m[11]);const U=M.uniq[I.u],key=drehKey(R);
+      const nb=U.p&&U.p.length?netzBereich(U,R,key):null;L.push({I,U,R,t,key,nb})}
+    const mx=[-Infinity,-Infinity,-Infinity],mn=[Infinity,Infinity,Infinity];
+    for(const x of L)if(x.nb)for(let j=0;j<3;j++){mn[j]=Math.min(mn[j],x.nb[0][j]+x.t[j]);mx[j]=Math.max(mx[j],x.nb[1][j]+x.t[j])}
+    
+    // Spielraum je Instanz: Sehnenfehler des Netzes ≤ Teilegröße/600 bzw. 0,75 % (Winkel 0,35) → 2 % + 0,01 mm ist sicher
+    const sp=x=>Math.hypot(x.nb[1][0]-x.nb[0][0],x.nb[1][1]-x.nb[0][1],x.nb[1][2]-x.nb[0][2])*0.02+0.01;
+    const ueber=(x,lo,hi)=>{if(!x.nb)return Infinity;const d=sp(x);let u=-Infinity;for(let j=0;j<3;j++)u=Math.max(u,x.nb[1][j]+x.t[j]+d-hi[j],lo[j]-(x.nb[0][j]+x.t[j]-d));return u};
+    // Reihenfolge: nächste an den Außenseiten zuerst; danach nur noch Instanzen, die über den bereits exakten Bereich hinausreichen könnten
+    const K=L.length>1?L.map(x=>({x,u:ueber(x,mn,mx)})).filter(k=>k.u>=0).sort((a,b)=>b.u-a.u).map(k=>k.x):L;
+    for(const x of K){const {U,R,t,key}=x;
+      if(L.length>1&&isFinite(rr[0][0])&&ueber(x,rr.map(r=>r[0]),rr.map(r=>r[1]))<0)continue;
+      const C=U.bereiche??=new Map();let b=C.get(key);
       if(!b){const tr=new oc.gp_Trsf_1();tr.SetValues(R[0][0],R[0][1],R[0][2],0,R[1][0],R[1][1],R[1][2],0,R[2][0],R[2][1],R[2][2],0);
         const sh=U.shape.Moved(new oc.TopLoc_Location_2(tr));const box=new oc.Bnd_Box_1();
         tryCall(()=>oc.BRepBndLib.AddOptimal(sh,box,false,false),()=>oc.BRepBndLib.Add(sh,box,false));
         b=box.IsVoid()?null:[P(box.CornerMin()),P(box.CornerMax())];box.delete?.();if(C.size>200)C.clear();C.set(key,b)}
       if(!b)continue;for(let j=0;j<3;j++){rr[j][0]=Math.min(rr[j][0],b[0][j]+t[j]);rr[j][1]=Math.max(rr[j][1],b[1][j]+t[j])}}
     return isFinite(rr[0][0])?rr:null};
+  // Flächeninhalt je Fläche aus dem Anzeigenetz (nur zur Wahl der Grundfläche/Hauptrichtung – schnell auch bei tausenden Flächen)
+  const netzFlaechen=U=>{if(U.netzA)return U.netzA;const p=U.p,ix=U.i,f=U.f,A=new Float64Array((U.faces?.length)||0);if(!p||!f)return U.netzA=A;
+    for(let t=0;t<f.length;t++){const a=ix[t*3]*3,b=ix[t*3+1]*3,c=ix[t*3+2]*3;const ux=p[b]-p[a],uy=p[b+1]-p[a+1],uz=p[b+2]-p[a+2],wx=p[c]-p[a],wy=p[c+1]-p[a+1],wz=p[c+2]-p[a+2];
+      A[f[t]]+=Math.hypot(uy*wz-uz*wy,uz*wx-ux*wz,ux*wy-uy*wx)/2}return U.netzA=A};
   const rechts=ach=>[ach[0],ach[1],V.cross(ach[0],ach[1])];
   const exaktQuader=(ids,q)=>{const ach=rechts(q.achsen);const rr=exaktBereich(ids,ach);return rr?{...mkQuader(ach,rr),exakt:true}:q};
   // ---------- Abmessungen (wie ZW3D, Hamdis Regel „Grundfläche“) ----------
@@ -583,7 +605,7 @@ export function createBrep(ocIn){
   // Werte exakt aus der B-Rep. Länge ≥ Breite, Höhe immer entlang der Grundflächen-Normalen. Dazu die Maße in Modellachsen.
   M.abmessungen=(opts={})=>{const ids=instListe(opts.ids);if(!ids.length)return {ok:false,msg:'Keine Geometrie (alles ausgeblendet?).'};
     const ebenen=[],zyl=[];let gross=0;
-    for(const i of ids){const I=M.inst[i],U=M.uniq[I.u];for(const f of U.faces){if(f.plane){const a=f.area;ebenen.push({n:T.d(I.m,f.plane.n),a});if(a>gross)gross=a}else if(f.cyl)zyl.push({d:T.d(I.m,f.cyl.d),a:f.area})}
+    for(const i of ids){const I=M.inst[i],U=M.uniq[I.u],NA=netzFlaechen(U);U.faces.forEach((f,fi)=>{const a=NA[fi]||0;if(f.plane){ebenen.push({n:T.d(I.m,f.plane.n),a});if(a>gross)gross=a}else if(f.cyl)zyl.push({d:T.d(I.m,f.cyl.d),a})})
       if(ebenen.length>20000)break}
     let a1=null,quelle='';
     if(opts.bezug){const s=opts.bezug,I=M.inst[s.inst??0],f=M.uniq[I.u].faces[s.id];
