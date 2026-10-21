@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import * as BM from './bemassung.js';
 import { MARKE } from './marke.js';
-import { deltaLinien } from './messen-hilfen.js';
+import { deltaLinien ,richtungsVektor,RICHTUNGEN} from './messen-hilfen.js';
 const $=id=>document.getElementById(id), view=$('view');
 if(MARKE.id==='sickinger'){document.documentElement.dataset.marke='sickinger';document.title=MARKE.produkt}
 let logoZusage=null;
@@ -277,7 +277,8 @@ let rdown=null;
 renderer.domElement.addEventListener('pointerdown',e=>{if(e.button===2)rdown=[e.clientX,e.clientY]});
 renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
 renderer.domElement.addEventListener('pointerup',e=>{if(e.button!==2||!rdown)return;const moved=Math.hypot(e.clientX-rdown[0],e.clientY-rdown[1])>4;rdown=null;if(!moved&&model)viewMenu(e.clientX,e.clientY)});
-const closeCtx=()=>document.getElementById('ctx')?.remove();addEventListener('pointerdown',e=>{if(!e.target.closest('#ctx'))closeCtx();if(!e.target.closest('.menu')&&!e.target.closest('#exportMenue')&&!e.target.closest('#exportKnopf'))menueZu()});addEventListener('keydown',e=>{if(e.key==='Escape'){closeCtx();$('props').hidden=true;$('einstDlg').hidden=true;$('hilfeDlg').hidden=true;menueZu()}});
+const closeCtx=()=>document.getElementById('ctx')?.remove();addEventListener('pointerdown',e=>{if(!e.target.closest('#ctx'))closeCtx();if(!e.target.closest('.menu')&&!e.target.closest('#exportMenue')&&!e.target.closest('#exportKnopf'))menueZu()});addEventListener('keydown',e=>{if(e.key==='Escape'){const offen=!!document.getElementById('ctx')||!$('props').hidden||!$('einstDlg').hidden||!$('hilfeDlg').hidden||!!document.querySelector('.menu.offen,.menu.open');
+  closeCtx();$('props').hidden=true;$('einstDlg').hidden=true;$('hilfeDlg').hidden=true;menueZu();if(offen)e.hasiDialogZu=true}});
 async function showProps(n){const sicht=n.all.filter(i=>bodies[i]?.visible);const ids=sicht.length?sicht:n.all;const q=await call('props',{ids});const d=parseFloat($('dens').value)||0;const s=V3(q.bbox.max).sub(V3(q.bbox.min));
   $('propsTitle').textContent='Eigenschaften: '+n.name;const aus=n.all.length-sicht.length;
   kv($('propsBody'),[['Typ',isAsm(n)?'Baugruppe':'Teil'],['Körper',q.bodies],...(sicht.length&&aus?[['Ausgeblendet (nicht gerechnet)',aus+' Körper']]:[]),...(!sicht.length?[['Hinweis','Teil ist ausgeblendet – Werte des ausgeblendeten Teils']]:[]),['Volumen',q.volume,'V'],['Oberfläche',q.area,'A'],['Dichte',nf(d,2)+' g/cm³'],['Masse',q.volume/1000*d,'M'],['Bounding-Box X',s.x,'L'],['Bounding-Box Y',s.y,'L'],['Bounding-Box Z',s.z,'L']]);
@@ -360,8 +361,19 @@ renderer.domElement.addEventListener('pointermove',e=>{letzteMaus=[e.clientX,e.c
 renderer.domElement.addEventListener('pointerleave',()=>{if(hoverRAF){cancelAnimationFrame(hoverRAF);hoverRAF=0}$('snaptip').hidden=true;hov=null;hoverObj.clear();$('hover').textContent='';needs=true});
 renderer.domElement.addEventListener('pointerup',e=>{if(zugSperre){zugSperre=false;return}if(e.button!==0||werkzeug!=='wahl')return;if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;
   if(festWahl){const f=pickAt(e.clientX,e.clientY,{nurFlaeche:true});if(f)festSetzen(f);return}
-  const s=pickAt(e.clientX,e.clientY);if(s){select(s,e.ctrlKey||e.shiftKey||e.metaKey);if(s.body){const n=nodeOfBody(s.body.userData.inst);if(n){selNode=n;selMenge=new Set([n]);selAnker=n;for(let x=n.parent;x;x=x.parent)x.open=true;renderTree();hervorheben();document.querySelector(`.trow[data-id="${n.id}"]`)?.scrollIntoView({block:'nearest'})}}}});
+  const s=pickAt(e.clientX,e.clientY);if(!s&&!(e.ctrlKey||e.shiftKey||e.metaKey)){auswahlAufheben();return}if(s){select(s,e.ctrlKey||e.shiftKey||e.metaKey);if(s.body){const n=nodeOfBody(s.body.userData.inst);if(n){selNode=n;selMenge=new Set([n]);selAnker=n;for(let x=n.parent;x;x=x.parent)x.open=true;renderTree();hervorheben();document.querySelector(`.trow[data-id="${n.id}"]`)?.scrollIntoView({block:'nearest'})}}}});
+// Esc wie in eDrawings: 1. Esc löscht die aktuelle Mess-Auswahl samt Ergebnis (Messen bleibt aktiv), 2. Esc hebt die Bauteilauswahl auf.
+// Gespeicherte Bemaßungen bleiben immer erhalten. Nicht beim Tippen in einem Textfeld.
+function textFeld(){const t=document.activeElement;if(!t)return false;if(t.tagName==='TEXTAREA'||t.isContentEditable)return true;
+  return t.tagName==='INPUT'&&!['checkbox','radio','range','button','submit','reset','color','file'].includes((t.type||'').toLowerCase())}
+function auswahlAufheben(){if(zug)return null;
+  if(festWahl){festWahl=false;festAnzeigen();return 'feste Fläche'}
+  if(sels.length||lastRes||$('mresult').textContent.trim()){clearSel();lastRes=null;hoverObj.clear();needs=true;$('status').textContent='Auswahl aufgehoben – nächste Messung wählen';return 'messung'}
+  if(selNode||selMenge.size){selectNode(null);triadeAktualisieren();return 'bauteil'}
+  return null}
 addEventListener('keydown',e=>{
+  if(e.key==='Escape'){if(e.hasiDialogZu||textFeld()||e.repeat)return;const t=document.activeElement;if(t&&['SELECT','BUTTON'].includes(t.tagName))t.blur();
+    if(auswahlAufheben())e.preventDefault();return}
   if(tippt())return;
   if(e.key==='Tab'){e.preventDefault();tabSicht(e);return}
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.code==='KeyZ'&&!e.shiftKey){e.preventDefault();rueckgaengig();return}
@@ -385,7 +397,9 @@ function tabSicht(e){if(!model)return;
   const n=teilAnCursor(false);if(!n)return;n.checked=false;applyVis();renderTree()}
 $('clearSel').onclick=()=>clearSel();
 // Messoptionen: Abstandsmethode und Projektion (Bildschirm = aktuelle Blickrichtung in Modellkoordinaten)
-function messOpts(){const art=$('projektion')?.value||'keine';const pj={art};if(art==='bildschirm'&&model)pj.n=camDir(new THREE.Vector3(0,0,1));return {methode:$('methode')?.value||'min',projektion:pj}}
+// Bildschirmrichtungen in Modellkoordinaten: oben, rechts, blick (zum Betrachter hin)
+function sicht(){if(!model)return {};return {oben:camDir(new THREE.Vector3(0,1,0)),rechts:camDir(new THREE.Vector3(1,0,0)),blick:camDir(new THREE.Vector3(0,0,1))}}
+function messOpts(){const art=$('projektion')?.value||'keine';const pj={art};if(art==='bildschirm'&&model)pj.n=camDir(new THREE.Vector3(0,0,1));return {methode:$('methode')?.value||'min',projektion:pj,richtung:$('massRichtung')?.value||'ausgerichtet',sicht:sicht()}}
 function messGrafik(r){r.gfx.forEach(([a,b])=>{const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(a),V3(b)]),new THREE.LineBasicMaterial({color:0x1f8fd0,depthTest:false}));l.renderOrder=11;marks.add(l)});
   if(r.delta&&$('deltaZeigen')?.checked)deltaLinien(r.delta[0],r.delta[1]).forEach(d=>{const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(d.von),V3(d.bis)]),new THREE.LineBasicMaterial({color:d.farbe,depthTest:false}));l.renderOrder=11;l.userData.delta=d.achse;marks.add(l)})}
 async function neuMessen(){if(!sels.length)return;const s=sels.slice(),opts=messOpts();try{const r=await call('measure',{sels:s,opts});lastRes={r,sels:s,title:s.map(label).join(' + '),opts};
@@ -422,13 +436,16 @@ const lineOf=s=>{if(s.k!=='edge')return null;const e=UQ(s).edges[s.id];if(e.type
 const pointOf=s=>{const U=UQ(s),m=IM(s);if(s.k==='vertex')return TP(m,U.verts[s.id]);if(s.k==='mid')return TP(m,U.edges[s.id].mid);if(s.k==='center'){const e=U.edges[s.id];return e.c?TP(m,e.c):null}if(s.k==='point')return s.p;return null};
 const letzteLinear=()=>{const sel=dims.find(x=>x.no===dimSel);if(sel&&BM.LINEAR.includes(sel.typ))return sel;for(let i=dims.length-1;i>=0;i--)if(BM.LINEAR.includes(dims[i].typ))return dims[i];return null};
 function baueDim(res,typ,refDim){const sl=res.sels,r=res.r,size=box.getSize(new THREE.Vector3()).length();const d={typ:null,einheit:'L',tol:{art:'keine',o:0,u:0},praefix:'',suffix:'',text:''};
-  if(typ==='auto'){if(sl.length===1){const ci=circleOf(sl[0]);typ=ci?(ci.voll?'durchmesser':'radius'):r.fase?'fase':(pointOf(sl[0])?'koordinate':null)}else typ=r.gfx.length?'ausgerichtet':null}
+  if(typ==='auto'){if(sl.length===1){const ci=circleOf(sl[0]);typ=ci?(ci.voll?'durchmesser':'radius'):r.fase?'fase':(pointOf(sl[0])?'koordinate':null)}else typ=r.gfx.length?(r.richtung&&BM.RICHTUNG_TYP[r.richtung.art]||'linear'):null}
   if(!typ)return null;d.typ=typ;
   if(typ==='kette'||typ==='basislinie'){const p=sl.length===1?pointOf(sl[0]):(r.gfx[0]&&r.gfx[0][1]);const ref=refDim||letzteLinear();if(!p||!ref)return null;
     const g=BM.folgeMass(ref,p,typ,size*0.05);if(!g)return null;return Object.assign(d,g)}
   if(typ==='fase'){const f=r.fase;if(!f)return null;return Object.assign(d,{a:f.a,b:f.b,winkel:f.winkel,p:f.p,wert:f.a,off:[size*0.05,size*0.05,size*0.03]})}
-  if(['ausgerichtet','horizontal','vertikal'].includes(typ)){if(!r.gfx.length)return null;const [a,b]=r.gfx[0];d.p1=a;d.p2=b;
-    d.dir=typ==='horizontal'?camDir(new THREE.Vector3(1,0,0)):typ==='vertikal'?camDir(new THREE.Vector3(0,1,0)):BM.V.norm(BM.V.sub(b,a));
+  const FEST={hoehe:'vertikal',waagerecht:'horizontal','achse-x':'x','achse-y':'y','achse-z':'z',ansicht:'ansicht'};
+  if(['ausgerichtet','horizontal','vertikal','linear',...Object.keys(FEST)].includes(typ)){if(!r.gfx.length)return null;const [a,b]=r.gfx[0];d.p1=a;d.p2=b;
+    if(FEST[typ]){d.dir=richtungsVektor(FEST[typ],a,b,sicht(),$('projektion')?.value==='bildschirm');if(!d.dir)return null}
+    else d.dir=typ==='horizontal'?camDir(new THREE.Vector3(1,0,0)):typ==='vertikal'?camDir(new THREE.Vector3(0,1,0)):BM.V.norm(BM.V.sub(b,a));
+    if(typ==='linear')d.linArt='ausgerichtet';
     d.wert=Math.abs(BM.V.dot(BM.V.sub(b,a),BM.V.norm(d.dir)));
     const up=camDir(new THREE.Vector3(0,1,0));let side=BM.V.norm(BM.V.cross(d.dir,camDir(new THREE.Vector3(0,0,1))));if(BM.V.dot(side,up)<0)side=BM.V.mul(side,-1);d.off=BM.V.mul(side,size*0.06);return d}
   if(typ==='winkel'){const L1=lineOf(sl[0]),L2=sl[1]&&lineOf(sl[1]);if(!L1||!L2)return null;
@@ -467,6 +484,7 @@ $('deClose').onclick=()=>{dimSel=null;$('dimedit').hidden=true;needs=true};
 // ---- Maßstil ----
 $('stPfeil').innerHTML=BM.PFEILARTEN.map(([k,t])=>`<option value="${k}">${t}</option>`).join('');$('stGroesse').value=STIL.groesse;$('stPfeil').value=STIL.pfeil;$('stStellen').value=STIL.stellen;
 ['stGroesse','stPfeil','stStellen'].forEach(id=>$(id).addEventListener('input',()=>{STIL={groesse:Math.max(8,Math.min(40,+$('stGroesse').value||14)),pfeil:$('stPfeil').value,stellen:Math.max(0,Math.min(4,parseInt($('stStellen').value)||0))};localStorage.setItem('massstil',JSON.stringify(STIL));needs=true}));
+if($('massRichtung'))$('massRichtung').innerHTML=RICHTUNGEN.map(([k,t])=>`<option value="${k}">${t}</option>`).join('');
 $('dimtyp').innerHTML=BM.TYPEN.map(([k,t])=>`<option value="${k}">${t}</option>`).join('');
 $('dimSet').onclick=()=>keepDim($('dimtyp').value);
 // ---- Bemaßung ziehen: Maßtext mit links greifen und ziehen ----
@@ -475,7 +493,12 @@ const modelPointAt=(cx,cy,ref)=>{const r=renderer.domElement.getBoundingClientRe
 function dimRef(d){return d.p1?BM.V.mul(BM.V.add(d.p1,d.p2),0.5):(d.v||d.c||d.p)}
 renderer.domElement.addEventListener('pointerdown',e=>{if(e.button!==0||!dims.length)return;const r=renderer.domElement.getBoundingClientRect();const x=e.clientX-r.left,y=e.clientY-r.top;
   const h=dimHits.find(h=>Math.abs(h.x-x)<(h.w?h.w/2+6:h.r)&&Math.abs(h.y-y)<(h.h?h.h:h.r));if(!h)return;const d=dims.find(q=>q.no===h.no);dimDrag={d,moved:false};dimSel=d.no;try{renderer.domElement.setPointerCapture(e.pointerId)}catch{}e.stopImmediatePropagation();needs=true},true);
-renderer.domElement.addEventListener('pointermove',e=>{if(!dimDrag)return;e.stopImmediatePropagation();dimDrag.moved=true;BM.ziehe(dimDrag.d,modelPointAt(e.clientX,e.clientY,dimRef(dimDrag.d)));needs=true},true);
+renderer.domElement.addEventListener('pointermove',e=>{if(!dimDrag)return;e.stopImmediatePropagation();dimDrag.moved=true;BM.ziehe(dimDrag.d,modelPointAt(e.clientX,e.clientY,dimRef(dimDrag.d)),sicht());needs=true},true);
+// Lineare Bemaßung sperren (beim Ziehen oder für die gewählte Bemaßung): H = horizontal, V = vertikal (Höhe), A = ausgerichtet, L = wieder automatisch
+function linearSperren(art){const d=dimDrag?.d||dims.find(x=>x.no===dimSel);if(!d||d.typ!=='linear')return false;d.sperre=art||undefined;
+  if(art){const dir=art==='ausgerichtet'?BM.V.norm(BM.V.sub(d.p2,d.p1)):richtungsVektor(art,d.p1,d.p2,sicht(),!BM.hochachseSichtbar(sicht()));if(dir){d.dir=dir;d.linArt=art;d.wert=Math.abs(BM.V.dot(BM.V.sub(d.p2,d.p1),dir));if(d.off)BM.ziehe(d,BM.V.add(d.p1,d.off))}}
+  $('status').textContent=art?`Bemaßung ${d.no}: ${({horizontal:'horizontal',vertikal:'vertikal (Höhe)',ausgerichtet:'ausgerichtet'})[art]} gesperrt`:`Bemaßung ${d.no}: Richtung folgt wieder dem Ziehen`;renderDims();needs=true;return true}
+addEventListener('keydown',e=>{if(e.ctrlKey||e.metaKey||e.altKey||textFeld())return;const art={KeyH:'horizontal',KeyV:'vertikal',KeyA:'ausgerichtet',KeyL:null}[e.code];if(art===undefined)return;if(linearSperren(art))e.preventDefault()});
 renderer.domElement.addEventListener('pointerup',e=>{if(!dimDrag)return;e.stopImmediatePropagation();const d=dimDrag.d,mv=dimDrag.moved;dimDrag=null;down=null;if(!mv)editDim(d);needs=true},true);
 // ---- Ansicht mit Bemaßungen exportieren (PNG/PDF) ----
 function ansichtBild(){renderer.render(scene,camera);drawDims();const c=document.createElement('canvas');c.width=renderer.domElement.width;c.height=renderer.domElement.height;const x=c.getContext('2d');
@@ -500,7 +523,7 @@ async function bemassungenEinlesen(text){if(!data)throw new Error('Bitte zuerst 
   const neu=[];let fehl=0;
   for(const b of j.bemassungen){try{const r=await call('measure',{sels:b.sels,opts:b.opts||{}});const ref=b.refNo!=null?neu.find(x=>x.no===b.refNo):null;
     const g=baueDim({r,sels:b.sels},b.typ,ref);if(!g){fehl++;continue}const d={no:b.no,r,sels:b.sels,title:b.title||'',opts:b.opts,...g};
-    for(const k of ['off','ang','offR','tol','praefix','suffix','text','refNo'])if(b[k]!==undefined)d[k]=b[k];
+    for(const k of ['off','ang','offR','tol','praefix','suffix','text','refNo','linArt','sperre'])if(b[k]!==undefined)d[k]=b[k];
     if(b.dir&&BM.LINEAR.includes(d.typ)&&d.typ!=='ausgerichtet'){d.dir=b.dir;d.wert=Math.abs(BM.V.dot(BM.V.sub(d.p2,d.p1),BM.V.norm(d.dir)))}
     neu.push(d)}catch{fehl++}}
   dims=neu;dimNo=neu.reduce((m,d)=>Math.max(m,d.no),0);dimSel=null;renderDims();
@@ -601,7 +624,7 @@ $('exportKnopf').onclick=e=>{e.stopPropagation();if($('exportMenue').hidden)oeff
 $('stilWahl').onchange=()=>setStil($('stilWahl').value);
 $('projektionWahl').onchange=()=>{camera.fov=$('projektionWahl').value==='orthogonal'?4:35;camera.updateProjectionMatrix();if(model)fit()};
 $('standardWahl').onchange=()=>{const v=$('standardWahl').value;if(v)animiereAnsicht(v);$('standardWahl').value=''};
-['methode','projektion','deltaZeigen'].forEach(id=>$(id)?.addEventListener('change',()=>neuMessen()));
+['methode','projektion','deltaZeigen','massRichtung'].forEach(id=>$(id)?.addEventListener('change',()=>neuMessen()));
 document.querySelectorAll('[data-werkzeug]').forEach(b=>b.onclick=()=>setWerkzeug(b.dataset.werkzeug));
 $('btnReset').onclick=()=>animiereAnsicht('iso');
 $('btnDreh').onclick=()=>{drehen=!drehen;$('btnDreh').classList.toggle('on',drehen);needs=true};
@@ -650,20 +673,31 @@ document.querySelectorAll('.tab').forEach(t=>{const alt=t.onclick;t.onclick=ev=>
 let zug=null,zugSperre=false;
 const ACHSE={X:new THREE.Vector3(1,0,0),Y:new THREE.Vector3(0,1,0),Z:new THREE.Vector3(0,0,1)};
 const GRIFF={x:'X',y:'Y',z:'Z',rx:'X',ry:'Y',rz:'Z'};
-function triadeSkalieren(){if(!triade||!triade.visible||!model)return;const welt=model.localToWorld(triade.position.clone());
-  const dist=Math.max(camera.position.distanceTo(welt),1);const s=dist*0.16;if(Math.abs(triade.scale.x-s)>s*0.03)triade.scale.setScalar(s)}
+// Triade in fester Bildschirmgröße (wie SolidWorks/eDrawings): Ringradius TRIADE_PX Pixel, unabhängig von Zoom, Teilegröße und Einheit
+const TRIADE_PX=70,TRIADE_RING=.78;
+function triadeMassstab(){if(!triade||!model)return 1;const welt=model.localToWorld(triade.position.clone());const blick=camera.getWorldDirection(new THREE.Vector3());
+  const tiefe=Math.max(welt.sub(camera.position).dot(blick),camera.near);const h=renderer.domElement.clientHeight||1;
+  const wpp=2*tiefe*Math.tan(camera.fov*Math.PI/360)/h;const ms=model.getWorldScale(new THREE.Vector3()).x||1;return TRIADE_PX*wpp/TRIADE_RING/ms}
+function triadeSkalieren(){if(!triade||!triade.visible||!model)return;const s=triadeMassstab();if(Math.abs(triade.scale.x-s)>s*0.005)triade.scale.setScalar(s)}
+// Ringradius der Triade in Pixel (für Tests)
+function triadePixel(){if(!triade||!triade.visible)return null;triadeSkalieren();triade.updateMatrixWorld(true);const r=renderer.domElement.getBoundingClientRect();
+  const c=triade.getWorldPosition(new THREE.Vector3()),rechts=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0).normalize();
+  const welt=TRIADE_RING*triade.getWorldScale(new THREE.Vector3()).x;const sp=v=>{const q=v.clone().project(camera);return [(q.x+1)/2*r.width,(1-q.y)/2*r.height]};
+  const a=sp(c),b=sp(c.clone().addScaledVector(rechts,welt));return Math.hypot(b[0]-a[0],b[1]-a[1])}
 function baueTriade(){
   const g=new THREE.Group();g.name='triade';g.renderOrder=40;
   const pfeil=(farbe,dir,name)=>{const h=new THREE.Group();const mat=new THREE.MeshBasicMaterial({color:farbe,depthTest:false,transparent:true,opacity:.95});
     const schaft=new THREE.Mesh(new THREE.CylinderGeometry(.028,.028,.7,10),mat);schaft.position.y=.36;
     const kopf=new THREE.Mesh(new THREE.ConeGeometry(.075,.22,14),mat);kopf.position.y=.8;
-    h.add(schaft,kopf);h.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir.clone().normalize());
+    const treffer=new THREE.Mesh(new THREE.CylinderGeometry(.11,.11,.95,8),new THREE.MeshBasicMaterial({visible:false}));treffer.position.y=.47;
+    h.add(schaft,kopf,treffer);h.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir.clone().normalize());
     h.traverse(o=>{if(o.isMesh){o.userData.griff=name;o.renderOrder=40}});return h};
   const ring=(farbe,dir,name)=>{const m=new THREE.Mesh(new THREE.TorusGeometry(.78,.02,8,48),new THREE.MeshBasicMaterial({color:farbe,depthTest:false,transparent:true,opacity:.9}));
-    m.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),dir.clone().normalize());m.userData.griff=name;m.renderOrder=39;return m};
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),dir.clone().normalize());m.userData.griff=name;m.renderOrder=39;
+    const treffer=new THREE.Mesh(new THREE.TorusGeometry(.78,.07,6,48),new THREE.MeshBasicMaterial({visible:false}));treffer.userData.griff=name;m.add(treffer);return m};
   g.add(pfeil(0xd24b4b,ACHSE.X,'x'),pfeil(0x3c9a4a,ACHSE.Y,'y'),pfeil(0x3a6fbf,ACHSE.Z,'z'));
   g.add(ring(0xd24b4b,ACHSE.X,'rx'),ring(0x3c9a4a,ACHSE.Y,'ry'),ring(0x3a6fbf,ACHSE.Z,'rz'));
-  const kugel=new THREE.Mesh(new THREE.SphereGeometry(.09,16,12),new THREE.MeshBasicMaterial({color:0xf2f4f6,depthTest:false}));
+  const kugel=new THREE.Mesh(new THREE.SphereGeometry(.12,16,12),new THREE.MeshBasicMaterial({color:0xf2f4f6,depthTest:false}));
   kugel.userData.griff='frei';kugel.renderOrder=41;g.add(kugel);g.visible=false;return g}
 function mittelpunkt(ids){const b=new THREE.Box3();ids.forEach(i=>{const body=bodies[i];if(!body)return;if(!body.geometry.boundingBox)body.geometry.computeBoundingBox();
   b.union(body.geometry.boundingBox.clone().applyMatrix4(body.matrix))});return b.isEmpty()?new THREE.Vector3():b.getCenter(new THREE.Vector3())}
@@ -698,8 +732,9 @@ async function nachBewegung(){if(!bodies.length)return;const lagen=bodies.map((_
   await dimsAktualisieren();needs=true}
 async function dimsAktualisieren(){if(!dims.length){renderDims();return}
   for(const d of dims){if(!d.sels||!d.typ)continue;try{const r=await call('measure',{sels:d.sels,opts:d.opts||{}});
-    const keep={no:d.no,tol:d.tol,praefix:d.praefix,suffix:d.suffix,text:d.text,off:d.off,ang:d.ang,offR:d.offR,title:d.title,refNo:d.refNo};
-    const g=baueDim({r,sels:d.sels},d.typ,d.refNo!=null?dims.find(x=>x.no===d.refNo):null);d.r=r;d.sels=d.sels;if(g)Object.assign(d,g,keep);else Object.assign(d,keep)}catch{/* Messung bleibt stehen */}}
+    const keep={no:d.no,tol:d.tol,praefix:d.praefix,suffix:d.suffix,text:d.text,off:d.off,ang:d.ang,offR:d.offR,title:d.title,refNo:d.refNo,linArt:d.linArt,sperre:d.sperre};
+    const festDir=d.dir&&BM.LINEAR.includes(d.typ)&&!['ausgerichtet','kette','basislinie'].includes(d.typ)&&!(d.typ==='linear'&&d.linArt==='ausgerichtet')?d.dir:null;
+    const g=baueDim({r,sels:d.sels},d.typ,d.refNo!=null?dims.find(x=>x.no===d.refNo):null);d.r=r;d.sels=d.sels;if(g)Object.assign(d,g,keep);else Object.assign(d,keep);if(festDir&&d.p1&&d.p2){d.dir=festDir;d.wert=Math.abs(BM.V.dot(BM.V.sub(d.p2,d.p1),festDir))}}catch{/* Messung bleibt stehen */}}
   renderDims()}
 async function bewege(ids,dx,dy,dz,achse,grad){if(!ids.length)return;const before=snapshot(ids);const v=new THREE.Vector3(dx||0,dy||0,dz||0);
   if(v.lengthSq()>0)schiebe(ids,v);if(grad)dreheUm(ids,ACHSE[achse]||ACHSE.Z,grad*Math.PI/180,mittelpunkt(ids));
@@ -759,7 +794,7 @@ window.__app={hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position
   verschiebe:(name,dx,dy,dz)=>bewege((knotenNachName(name)||selNode)?.all||[],dx,dy,dz,'Z',0),
   drehe:(name,achse,grad)=>bewege((knotenNachName(name)||selNode)?.all||[],0,0,0,achse,grad),
   rueckgaengig,wiederholen,resetPos:name=>resetPos(name?((knotenNachName(name)||{all:[]}).all):bodies.map((_,i)=>i)),resetAlle:()=>resetPos(bodies.map((_,i)=>i)),
-  gizmo:()=>!!(triade&&triade.visible),triadePos:()=>triade?triade.position.toArray():null,
+  gizmo:()=>!!(triade&&triade.visible),triadePixel,triadeSkala:()=>triade?.scale.x,auswahlAufheben,sels:()=>sels.slice(),triadePos:()=>triade?triade.position.toArray():null,
   oeffneBewegen:()=>selNode&&act('move',selNode),modell:()=>data?.model,neuMessen,messOpts,bemassungenText,bemassungenEinlesen,festSetzen,fest:()=>fest,letzteMessung:()=>lastRes,blech:()=>sheetCache,
   deltaLinien:()=>marks.children.filter(o=>o.userData.delta).map(o=>o.userData.delta),namen:()=>nodes.map(n=>n.name),ausgeblendet:()=>nodes.filter(n=>!visible(n)).map(n=>n.name)};
 window.__toggleMeasure=()=>{};
