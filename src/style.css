@@ -194,3 +194,4 @@ html[data-marke="sickinger"] #drop{flex-direction:column;gap:4px}
 .kv.warnung div.big{color:#e0a100!important}
 .hint.klein{font-size:11px;margin:2px 0 6px}
 #abmKnopf.on{background:var(--a,#0a8f5a);color:#fff}
+.dunkel .kv div.big{color:#fff!important}

@@ -492,7 +492,7 @@ function snapSym(k,p,color){const gg=new THREE.BufferGeometry();gg.setAttribute(
 let down=null,hoverRAF=0;
 renderer.domElement.addEventListener('pointerdown',e=>down=[e.clientX,e.clientY]);
 renderer.domElement.addEventListener('pointermove',e=>{letzteMaus=[e.clientX,e.clientY];if(e.buttons||hoverRAF||zug)return;hoverRAF=requestAnimationFrame(()=>{hoverRAF=0;hov=pickAt(e.clientX,e.clientY);hoverObj.clear();if(hov)hoverObj.add(hiObj(hov,0xff6a00));$('hover').textContent=hov?label(hov):'';
-  const tip=$('snaptip'),r=$('view').getBoundingClientRect();tip.hidden=!hov;if(hov){tip.textContent=label(hov);tip.style.left=(e.clientX-r.left)+'px';tip.style.top=(e.clientY-r.top)+'px'}window.__vorschau=null;if(hov&&!abm)vorschau(hov,e.clientX,e.clientY);needs=true})});
+  const tip=$('snaptip'),r=$('view').getBoundingClientRect();tip.hidden=!hov;if(hov){tip.textContent=label(hov);tip.style.left=(e.clientX-r.left)+'px';tip.style.top=(e.clientY-r.top)+'px';tipEinpassen()}window.__vorschau=null;if(hov&&!abm)vorschau(hov,e.clientX,e.clientY);needs=true})});
 renderer.domElement.addEventListener('pointerleave',()=>{if(hoverRAF){cancelAnimationFrame(hoverRAF);hoverRAF=0}$('snaptip').hidden=true;hov=null;hoverObj.clear();$('hover').textContent='';needs=true});
 renderer.domElement.addEventListener('pointerup',e=>{if(zugSperre){zugSperre=false;return}if(e.button!==0||werkzeug!=='wahl')return;if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;
   if(festWahl){const f=pickAt(e.clientX,e.clientY,{nurFlaeche:true});if(f)festSetzen(f);return}
@@ -556,12 +556,15 @@ if($('nurFlaechen')){$('nurFlaechen').checked=localStorage.getItem('nurFlaechen'
 // Vorschau: höchstens eine Anfrage gleichzeitig, die jeweils letzte gewinnt
 let vorschauLauf=false,vorschauNaechste=null,vorschauLinie=null;
 const vorschauKey=(a,b)=>`${a.inst??0}:${a.id}|${b.inst??0}:${b.id}`;const vorschauCache=new Map();
+// Tipp am Cursor nie unter das angedockte Messen-Fenster schieben
+function tipEinpassen(){const tip=$('snaptip');if(tip.hidden)return;tip.style.marginLeft='0px';const r=tip.getBoundingClientRect(),pn=$('messenPanel'),pr=pn&&!pn.hidden?pn.getBoundingClientRect():null;
+  const grenze=pr&&pr.width&&r.bottom>pr.top&&r.top<pr.bottom?pr.left-6:$('view').getBoundingClientRect().right-6;if(r.right>grenze)tip.style.marginLeft=(grenze-r.right-28)+'px'}
 function vorschauText(v){return v?`${v.name} ${fmt(v.wert,v.einheit)}`:''}
 async function vorschau(h,cx,cy){if(sels.length!==1||sels[0].k!=='face'||!h||h.k!=='face'||(h.id===sels[0].id&&(h.inst??0)===(sels[0].inst??0)))return;
   const a={k:'face',id:sels[0].id,inst:sels[0].inst??0,p:sels[0].p},b={k:'face',id:h.id,inst:h.inst??0,p:h.p};
   if(vorschauLauf){vorschauNaechste=[h,cx,cy];return}vorschauLauf=true;
   try{const k=vorschauKey(a,b);let v=vorschauCache.get(k);if(!v||v.linie){v=await call('vorschau',{a,b});if(v&&!v.linie)vorschauCache.set(k,v)}
-    if(hov===h){const tip=$('snaptip');tip.textContent=label(h)+(v?' · '+vorschauText(v):'');window.__vorschau=v;
+    if(hov===h){const tip=$('snaptip');tip.textContent=label(h)+(v?' · '+vorschauText(v):'');tipEinpassen();window.__vorschau=v;
       if(vorschauLinie){vorschauLinie.removeFromParent();vorschauLinie=null}
       if(v&&v.linie){const g=new THREE.BufferGeometry().setFromPoints(v.linie.map(V3));vorschauLinie=new THREE.Line(g,new THREE.LineDashedMaterial({color:0xff6a00,dashSize:2,gapSize:1.5,depthTest:false}));
         vorschauLinie.computeLineDistances();vorschauLinie.renderOrder=11;hoverObj.add(vorschauLinie)}needs=true}}
@@ -1120,7 +1123,7 @@ window.__viewMenu=(x,y)=>viewMenu(x,y);window.__loadUrl=async u=>load(await (awa
 window.__loadBytes=(buf,name)=>load(buf,name);window.__call=call;
 window.__einzelteil={dialog:(a,id)=>einzelDialog(a,id==null?null:nodes.find(x=>x.id===id)),ausfuehren:(a,id,lage,schema)=>einzelAusfuehren(a,id==null?null:nodes.find(x=>x.id===id),lage,schema),alle:()=>alleEinzelteile(),teile:(id,lage)=>einzelTeile(nodes.find(x=>x.id===id),lage)};
 window.__steuerung=()=>({daempfung:controls.enableDamping,autoRotate:controls.autoRotate,autodrehen:drehen,ziel:controls.target.toArray(),pos:camera.position.toArray(),mitte:model?box.getCenter(new THREE.Vector3()).toArray():null});
-window.__app={huelle:a=>huelleRechnen(a),schwerpunkt:()=>{$('schwerpunktZeigen').checked=true;return schwerpunktZeigen()},protokollDaten:()=>protokollDatenSammeln(),faltSetzen,faltEnde,faltNetz:()=>faltNetzHolen(),rissSetzen,riss:()=>riss,huellObj:()=>huellObj&&!!huellObj.parent,hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position.toArray(),fitIso:()=>fit(views.iso),dimLabels:()=>dimHits.map(h=>[[h.x,h.y,0],h.no]),exportPng,exportPdf,editDim:no=>editDim(dims.find(d=>d.no===no)),stil:()=>STIL,dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
+window.__app={huelle:a=>huelleRechnen(a),abmessungen:b=>abmRechnen(b),abm:()=>abm,abmDims:()=>abmDims.length,nurFlaechen:an=>{if(an!=null)nurFlaechenSetzen(an);return nurFl()},reihe:s=>reiheMessen(s),sels:()=>sels.map(x=>({k:x.k,id:x.id,inst:x.inst})),schwerpunkt:()=>{$('schwerpunktZeigen').checked=true;return schwerpunktZeigen()},protokollDaten:()=>protokollDatenSammeln(),faltSetzen,faltEnde,faltNetz:()=>faltNetzHolen(),rissSetzen,riss:()=>riss,huellObj:()=>huellObj&&!!huellObj.parent,hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position.toArray(),fitIso:()=>fit(views.iso),dimLabels:()=>dimHits.map(h=>[[h.x,h.y,0],h.no]),exportPng,exportPdf,editDim:no=>editDim(dims.find(d=>d.no===no)),stil:()=>STIL,dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
   screenOf:p=>{const r=renderer.domElement.getBoundingClientRect();const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*r.width+r.left,(1-w.y)/2*r.height+r.top]},
   ausrichtung:()=>{const d=camera.position.clone().sub(controls.target).normalize();return {blick:Math.max(...ACHSEN.map(a=>Math.abs(d.dot(a)))),oben:Math.max(...ACHSEN.map(a=>Math.abs(camera.up.dot(a)))),dir:d.toArray(),up:camera.up.toArray()}},
   schief:()=>{if(!model)return;const c=box.getCenter(new THREE.Vector3()),s=box.getSize(new THREE.Vector3()).length()||1;camera.position.copy(c).add(new THREE.Vector3(.35,.15,1).normalize().multiplyScalar(s*1.7));camera.up.set(.45,.75,.4).normalize();controls.target.copy(c);camera.lookAt(c);controls.update();anim=null;needs=true},
