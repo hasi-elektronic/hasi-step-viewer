@@ -1,14 +1,16 @@
 import {createBrep} from './brep.js';
 import {parseStepHierarchy} from './stephier.js';
-let B=null,initP=null;
-async function init(base){
-  const {default:f}=await import(/* @vite-ignore */ base+'ocjs/opencascade.wasm.js');
-  const wasmBinary=await (await fetch(base+'ocjs/opencascade.wasm.wasm')).arrayBuffer();
-  B=createBrep(await new f({wasmBinary,print:()=>{},printErr:()=>{}}));
-}
+// Der WASM-Kern (opencascade.js, ~66 MB) lädt im Hintergrund. Die Anzeige aus dem nativen Kern (loadNative) wartet nicht auf ihn;
+// alle anderen Befehle warten, bis er bereit ist.
+const B=createBrep(null);let initP=null;
+function init(base){
+  if(!initP)initP=(async()=>{const {default:f}=await import(/* @vite-ignore */ base+'ocjs/opencascade.wasm.js');
+    const wasmBinary=await (await fetch(base+'ocjs/opencascade.wasm.wasm')).arrayBuffer();
+    B.setOC(await new f({wasmBinary,print:()=>{},printErr:()=>{}}))})();
+  return initP}
 self.onmessage=async e=>{const {id,cmd,args}=e.data;
   try{
-    if(!initP)initP=init(args.base);await initP;
+    const p=init(args.base);if(cmd!=='loadNative')await p;else p.catch(()=>{});
     let r;
     if(cmd==='init')r=true;
     else if(cmd==='load'){const bytes=new Uint8Array(args.buf);let hier=null;const th=Date.now();

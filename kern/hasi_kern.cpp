@@ -504,11 +504,12 @@ int main(int argc, char** argv) {
   std::string head = js.str(); std::ofstream o(outDir + "/modell.bin", std::ios::binary); uint32_t hl = head.size(); o.write((char*)&hl, 4); o.write(head.data(), hl);
   static const char z4[4] = {0, 0, 0, 0}; while ((4 + hl) % 4) { hl++; o.write(z4, 1); }
   for (auto& b : blobs) { if (b.first) o.write((const char*)b.first, b.second); else o.write(z4, b.second); }
-  o.close();
+  o.close(); if (!o) { fprintf(stderr, "FEHLER: %s/modell.bin konnte nicht geschrieben werden\n", outDir.c_str()); return 3; }
   // Die App kann jetzt anzeigen; modell.brep (für das Messen) folgt
   fprintf(stdout, "BIN %ld\n", ms()); fflush(stdout);
   { long tB = ms(); BRep_Builder bb; TopoDS_Compound c; bb.MakeCompound(c); for (auto& u : U) bb.Add(c, u.shape);
-    std::ofstream f(outDir + "/modell.brep"); BRepTools::Write(c, f, false, false, TopTools_FormatVersion_VERSION_1); times["brep"] = ms() - tB; }
+    std::ofstream f(outDir + "/modell.brep"); BRepTools::Write(c, f, false, false, TopTools_FormatVersion_VERSION_1); f.close(); times["brep"] = ms() - tB;
+    if (!f) { fprintf(stderr, "FEHLER: %s/modell.brep konnte nicht geschrieben werden\n", outDir.c_str()); return 3; } }
   if (pruefen && !unbekannt) { // Abgleich mit dem seriellen OCCT-Transfer: Welt-Bounding-Boxen aller Instanzen
     std::unordered_map<int, bool> isChild; for (auto& kv : nauoChild) isChild[kv.second] = true;
     std::vector<std::array<double, 6>> A, B;

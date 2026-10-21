@@ -40,8 +40,15 @@ fn main() {
 }
 
 // ---------- Nativer Kern (Sidecar hasi-kern, OCCT dynamisch gelinkt) ----------
-/// Ordner des letzten Laufs (enthält modell.brep für das Nachladen der Messdaten).
-struct KernZustand(std::sync::Mutex<Option<std::path::PathBuf>>);
+/// Letzter Lauf: Ordner mit modell.bin/modell.brep. Der Kern schreibt modell.brep (für das Messen) erst nach modell.bin;
+/// `ende` meldet, wenn der Prozess fertig ist. Ein Lauf aus dem Zwischenspeicher wird nie gelöscht.
+struct Lauf {
+    ordner: std::path::PathBuf,
+    ende: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
+    aus_speicher: bool,
+    speicher_ziel: Option<std::path::PathBuf>,
+}
+struct KernZustand(std::sync::Mutex<Option<Lauf>>);
 
 fn kern_programm() -> Option<std::path::PathBuf> {
     if std::env::var("HASI_KERN").map(|v| v == "aus").unwrap_or(false) {
@@ -58,11 +65,27 @@ fn kern_verfuegbar() -> bool {
     kern_programm().is_some()
 }
 
+fn lauf_aufraeumen(lauf: Lauf) {
+    if lauf.aus_speicher {
+        return;
+    }
+    // Läuft der Kern noch (modell.brep), erst nach seinem Ende löschen
+    if let Some(rx) = lauf.ende {
+        let ordner = lauf.ordner;
+        std::thread::spawn(move || {
+            let _ = rx.recv();
+            let _ = std::fs::remove_dir_all(&ordner);
+        });
+    } else {
+        let _ = std::fs::remove_dir_all(&lauf.ordner);
+    }
+}
+
 fn kern_ordner(zustand: &tauri::State<'_, KernZustand>) -> Result<std::path::PathBuf, String> {
     let ordner = std::env::temp_dir().join(format!("hasi-kern-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
     std::fs::create_dir_all(&ordner).map_err(|e| format!("Temporärer Ordner: {e}"))?;
     if let Some(alt) = zustand.0.lock().unwrap().take() {
-        let _ = std::fs::remove_dir_all(alt);
+        lauf_aufraeumen(alt);
     }
     Ok(ordner)
 }
@@ -106,22 +129,114 @@ fn kern_befehl(app: &tauri::AppHandle, prog: &std::path::Path, ein: &std::path::
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // kein Konsolenfenster
     }
+    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
     cmd
 }
 
-async fn kern_auswerten(mut cmd: std::process::Command, ein: std::path::PathBuf, ordner: std::path::PathBuf, loesche_eingabe: bool, zustand: tauri::State<'_, KernZustand>) -> Result<tauri::ipc::Response, String> {
-    let aus = tauri::async_runtime::spawn_blocking(move || cmd.output()).await.map_err(|e| e.to_string())?.map_err(|e| format!("Nativer Kern konnte nicht gestartet werden: {e}"))?;
-    if loesche_eingabe {
-        let _ = std::fs::remove_file(&ein);
+/// Zerlegt eine Fortschrittszeile des Kerns („STUFE heilen 3/20“) in Name, k, n.
+fn stufe_lesen(zeile: &str) -> Option<(String, i64, i64)> {
+    let mut teile = zeile.strip_prefix("STUFE ")?.split_whitespace();
+    let name = teile.next()?.to_string();
+    let (k, n) = teile.next().and_then(|t| t.split_once('/')).and_then(|(a, b)| Some((a.parse::<i64>().ok()?, b.parse::<i64>().ok()?))).unwrap_or((-1, -1));
+    Some((name, k, n))
+}
+
+fn stufe_melden(app: &tauri::AppHandle, zeile: &str) {
+    use tauri::Manager;
+    let Some((name, k, n)) = stufe_lesen(zeile) else { return };
+    if let Some(fenster) = app.get_webview_window("main") {
+        let _ = fenster.eval(&format!("window.__kernStufe&&window.__kernStufe({},{k},{n})", js_string(&name)));
     }
-    if !aus.status.success() {
-        let _ = std::fs::remove_dir_all(&ordner);
-        let meldung = String::from_utf8_lossy(&aus.stderr).lines().find(|l| l.starts_with("FEHLER")).unwrap_or("Abbruch").to_string();
-        return Err(format!("Nativer Kern: {meldung}"));
+}
+
+enum Meldung {
+    Bin,
+    Ende(Result<(), String>),
+}
+
+async fn kern_auswerten(app: tauri::AppHandle, mut cmd: std::process::Command, ein: std::path::PathBuf, ordner: std::path::PathBuf, loesche_eingabe: bool, speicher_ziel: Option<std::path::PathBuf>, zustand: tauri::State<'_, KernZustand>) -> Result<tauri::ipc::Response, String> {
+    let mut kind = cmd.spawn().map_err(|e| format!("Nativer Kern konnte nicht gestartet werden: {e}"))?;
+    let stdout = kind.stdout.take();
+    let stderr = kind.stderr.take();
+    let (tx, rx) = std::sync::mpsc::channel::<Meldung>();
+    let (tx_ende, rx_ende) = std::sync::mpsc::channel::<Result<(), String>>();
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        use std::io::{BufRead, Read};
+        let fehlertext = std::thread::spawn(move || {
+            let mut t = String::new();
+            if let Some(mut e) = stderr {
+                let _ = e.read_to_string(&mut t);
+            }
+            t
+        });
+        if let Some(out) = stdout {
+            for zeile in std::io::BufReader::new(out).lines().map_while(Result::ok) {
+                if zeile.starts_with("STUFE ") {
+                    stufe_melden(&app2, &zeile);
+                } else if zeile.starts_with("BIN") {
+                    let _ = tx.send(Meldung::Bin);
+                }
+            }
+        }
+        let status = kind.wait();
+        let text = fehlertext.join().unwrap_or_default();
+        if loesche_eingabe {
+            let _ = std::fs::remove_file(&ein);
+        }
+        let erg = match status {
+            Ok(s) if s.success() => Ok(()),
+            Ok(_) => Err(format!("Nativer Kern: {}", text.lines().find(|l| l.starts_with("FEHLER")).unwrap_or("Abbruch"))),
+            Err(e) => Err(format!("Nativer Kern: {e}")),
+        };
+        let _ = tx.send(Meldung::Ende(erg.clone()));
+        let _ = tx_ende.send(erg);
+    });
+    // Warten, bis modell.bin fertig ist (Zeile BIN) oder der Kern endet
+    let erste = tauri::async_runtime::spawn_blocking(move || rx.recv()).await.map_err(|e| e.to_string())?.map_err(|_| "Nativer Kern: keine Antwort".to_string())?;
+    let mut ende = Some(rx_ende);
+    if let Meldung::Ende(erg) = erste {
+        if let Err(e) = erg {
+            let _ = std::fs::remove_dir_all(&ordner);
+            return Err(e);
+        }
+        ende = None; // Prozess ist schon fertig
     }
     let bin = std::fs::read(ordner.join("modell.bin")).map_err(|e| format!("Ergebnis fehlt: {e}"))?;
-    *zustand.0.lock().unwrap() = Some(ordner);
+    *zustand.0.lock().unwrap() = Some(Lauf { ordner, ende, aus_speicher: false, speicher_ziel });
     Ok(tauri::ipc::Response::new(bin))
+}
+
+// ---------- Zwischenspeicher: dieselbe, unveränderte Datei öffnet beim zweiten Mal sofort ----------
+const SPEICHER_MAX: usize = 4;
+fn speicher_wurzel() -> std::path::PathBuf {
+    std::env::temp_dir().join("hasi-kern-speicher")
+}
+fn speicher_schluessel(ein: &std::path::Path, prog: &std::path::Path) -> Option<String> {
+    use std::hash::{Hash, Hasher};
+    let m = std::fs::metadata(ein).ok()?;
+    let k = std::fs::metadata(prog).ok()?;
+    let zeit = |t: std::io::Result<std::time::SystemTime>| t.ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos()).unwrap_or(0);
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    std::fs::canonicalize(ein).unwrap_or_else(|_| ein.to_path_buf()).hash(&mut h);
+    m.len().hash(&mut h);
+    zeit(m.modified()).hash(&mut h);
+    k.len().hash(&mut h);
+    zeit(k.modified()).hash(&mut h);
+    env!("CARGO_PKG_VERSION").hash(&mut h);
+    Some(format!("{:016x}", h.finish()))
+}
+fn speicher_aufraeumen(wurzel: &std::path::Path, max: usize) {
+    let Ok(rd) = std::fs::read_dir(wurzel) else { return };
+    let mut e: Vec<(std::time::SystemTime, std::path::PathBuf)> = rd
+        .filter_map(|d| d.ok())
+        .filter(|d| d.path().is_dir())
+        .map(|d| (std::fs::metadata(d.path().join("fertig")).and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH), d.path()))
+        .collect();
+    e.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, p) in e.into_iter().skip(max) {
+        let _ = std::fs::remove_dir_all(p);
+    }
 }
 
 /// Lädt eine STEP-Datei (Rohdaten im Body) mit dem nativen Kern und liefert modell.bin als Binärantwort.
@@ -135,10 +250,11 @@ async fn kern_laden(app: tauri::AppHandle, request: tauri::ipc::Request<'_>, zus
     let ein = ordner.join("ein.step");
     std::fs::write(&ein, daten).map_err(|e| format!("Temporäre Datei: {e}"))?;
     let cmd = kern_befehl(&app, &prog, &ein, &ordner);
-    kern_auswerten(cmd, ein, ordner, true, zustand).await
+    kern_auswerten(app, cmd, ein, ordner, true, None, zustand).await
 }
 
 /// Lädt eine STEP-Datei über ihren Pfad. Die Originaldatei bleibt liegen, der Kern schreibt nur in einen temporären Ordner.
+/// Ein Ergebnis für dieselbe, unveränderte Datei kommt aus dem Zwischenspeicher.
 #[tauri::command]
 async fn kern_laden_pfad(app: tauri::AppHandle, pfad: String, zustand: tauri::State<'_, KernZustand>) -> Result<tauri::ipc::Response, String> {
     let ein = std::path::PathBuf::from(&pfad);
@@ -149,9 +265,22 @@ async fn kern_laden_pfad(app: tauri::AppHandle, pfad: String, zustand: tauri::St
         return Err(format!("Datei nicht gefunden: {}", ein.display()));
     }
     let prog = kern_programm().ok_or("Nativer Kern nicht vorhanden")?;
+    let ziel = if std::env::var("HASI_KERN_SPEICHER").map(|v| v == "aus").unwrap_or(false) { None } else { speicher_schluessel(&ein, &prog).map(|k| speicher_wurzel().join(k)) };
+    if let Some(z) = &ziel {
+        if z.join("fertig").is_file() && z.join("modell.brep").is_file() {
+            if let Ok(bin) = std::fs::read(z.join("modell.bin")) {
+                if let Some(alt) = zustand.0.lock().unwrap().take() {
+                    lauf_aufraeumen(alt);
+                }
+                let _ = std::fs::write(z.join("fertig"), b"1"); // Änderungszeit = zuletzt benutzt
+                *zustand.0.lock().unwrap() = Some(Lauf { ordner: z.clone(), ende: None, aus_speicher: true, speicher_ziel: None });
+                return Ok(tauri::ipc::Response::new(bin));
+            }
+        }
+    }
     let ordner = kern_ordner(&zustand)?;
     let cmd = kern_befehl(&app, &prog, &ein, &ordner);
-    kern_auswerten(cmd, ein, ordner, false, zustand).await
+    kern_auswerten(app, cmd, ein, ordner, false, ziel, zustand).await
 }
 
 /// Liest die Rohbytes einer STEP-Datei (für Einheiten und den WASM-Rückfall). Andere Endungen werden abgelehnt.
@@ -168,13 +297,38 @@ fn datei_lesen(pfad: String) -> Result<tauri::ipc::Response, String> {
     Ok(tauri::ipc::Response::new(daten))
 }
 
-/// Liefert die Unikate des letzten Laufs als BREP-Text (für das Messen im WASM-Kern) und räumt auf.
+/// Liefert die Unikate des letzten Laufs als BREP-Text (für das Messen im WASM-Kern). Wartet, bis der Kern fertig ist,
+/// legt das Ergebnis in den Zwischenspeicher oder räumt auf.
 #[tauri::command]
 async fn kern_brep(zustand: tauri::State<'_, KernZustand>) -> Result<String, String> {
-    let ordner = zustand.0.lock().unwrap().take().ok_or("Kein Lauf des nativen Kerns vorhanden")?;
-    let text = std::fs::read_to_string(ordner.join("modell.brep")).map_err(|e| format!("Messdaten fehlen: {e}"));
-    let _ = std::fs::remove_dir_all(&ordner);
-    text
+    let lauf = zustand.0.lock().unwrap().take().ok_or("Kein Lauf des nativen Kerns vorhanden")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(rx) = &lauf.ende {
+            if let Ok(Err(e)) = rx.recv() {
+                let _ = std::fs::remove_dir_all(&lauf.ordner);
+                return Err(e);
+            }
+        }
+        let text = std::fs::read_to_string(lauf.ordner.join("modell.brep")).map_err(|e| format!("Messdaten fehlen: {e}"));
+        if lauf.aus_speicher {
+            return text;
+        }
+        let mut abgelegt = false;
+        if let (Ok(_), Some(ziel)) = (&text, &lauf.speicher_ziel) {
+            let _ = std::fs::create_dir_all(speicher_wurzel());
+            let _ = std::fs::remove_dir_all(ziel);
+            if std::fs::rename(&lauf.ordner, ziel).is_ok() {
+                abgelegt = std::fs::write(ziel.join("fertig"), b"1").is_ok();
+                speicher_aufraeumen(&speicher_wurzel(), SPEICHER_MAX);
+            }
+        }
+        if !abgelegt {
+            let _ = std::fs::remove_dir_all(&lauf.ordner);
+        }
+        text
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Pfad aus einem zweiten Start, solange die Oberfläche ihn noch nicht abgeholt hat.
@@ -427,6 +581,45 @@ mod pruefen {
         assert!(ist_step(std::path::Path::new("teil.stp")));
         assert!(!ist_step(std::path::Path::new("a.iges")));
         assert!(!ist_step(std::path::Path::new("step")));
+    }
+
+    #[test]
+    fn kern_stufe() {
+        assert_eq!(stufe_lesen("STUFE heilen 3/20"), Some(("heilen".to_string(), 3, 20)));
+        assert_eq!(stufe_lesen("STUFE lesen"), Some(("lesen".to_string(), -1, -1)));
+        assert_eq!(stufe_lesen("BIN 512"), None);
+    }
+
+    #[test]
+    fn speicher_begrenzt() {
+        let wurzel = std::env::temp_dir().join(format!("hasi-speicher-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&wurzel);
+        for i in 0..6 {
+            let d = wurzel.join(format!("e{i}"));
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("fertig"), b"1").unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        speicher_aufraeumen(&wurzel, 4);
+        let mut rest: Vec<String> = std::fs::read_dir(&wurzel).unwrap().map(|d| d.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        rest.sort();
+        assert_eq!(rest, vec!["e2", "e3", "e4", "e5"]);
+        let _ = std::fs::remove_dir_all(&wurzel);
+    }
+
+    #[test]
+    fn speicher_schluessel_aendert_sich() {
+        let dir = std::env::temp_dir().join(format!("hasi-schluessel-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("teil.step");
+        let prog = dir.join("kern");
+        std::fs::write(&prog, b"x").unwrap();
+        std::fs::write(&f, b"ISO-10303-21;").unwrap();
+        let a = speicher_schluessel(&f, &prog).unwrap();
+        assert_eq!(a, speicher_schluessel(&f, &prog).unwrap());
+        std::fs::write(&f, b"ISO-10303-21; geaendert").unwrap();
+        assert_ne!(a, speicher_schluessel(&f, &prog).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

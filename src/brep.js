@@ -28,8 +28,9 @@ export function stepUnit(text){
   return {name:'Millimeter (nicht angegeben, angenommen)',sym:'mm',mm:1};
 }
 
-export function createBrep(oc){
-  const TA=oc.TopAbs_ShapeEnum, ST=oc.GeomAbs_SurfaceType, CT=oc.GeomAbs_CurveType;
+export function createBrep(ocIn){
+  // oc darf später kommen (setOC): die Anzeige aus dem nativen Kern braucht den WASM-Kern nicht, erst das Messen.
+  let oc=null,TA,ST,CT;const bindOC=o=>{oc=o;TA=o.TopAbs_ShapeEnum;ST=o.GeomAbs_SurfaceType;CT=o.GeomAbs_CurveType};if(ocIn)bindOC(ocIn);
   const explore=(s,type,f)=>{const ex=new oc.TopExp_Explorer_2(s,type,TA.TopAbs_SHAPE);for(;ex.More();ex.Next())f(ex.Current());ex.delete?.()};
   const mkVertex=p=>new oc.BRepBuilderAPI_MakeVertex(new oc.gp_Pnt_3(p[0],p[1],p[2])).Vertex();
   const props=(kind,s)=>{const g=new oc.GProp_GProps_1();
@@ -41,7 +42,7 @@ export function createBrep(oc){
     find(s,add){const h=s.HashCode(1<<30);let arr=this.b.get(h);if(!arr)this.b.set(h,arr=[]);
       for(const i of arr)if(this.list[i].shape.IsSame(s))return i;if(!add)return -1;const i=this.list.length;this.list.push(add(s));arr.push(i);return i}}
 
-  const M={};
+  const M={};M.setOC=bindOC;M.hatOC=()=>!!oc;
   // Instanz-Transformationen (3x4, zeilenweise)
   const T={p:(m,q)=>[m[0]*q[0]+m[1]*q[1]+m[2]*q[2]+m[3],m[4]*q[0]+m[5]*q[1]+m[6]*q[2]+m[7],m[8]*q[0]+m[9]*q[1]+m[10]*q[2]+m[11]],
     d:(m,q)=>[m[0]*q[0]+m[1]*q[1]+m[2]*q[2],m[4]*q[0]+m[5]*q[1]+m[6]*q[2],m[8]*q[0]+m[9]*q[1]+m[10]*q[2]]};
