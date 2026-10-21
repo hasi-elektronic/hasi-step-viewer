@@ -98,7 +98,9 @@
 <div class="ahead">Einheiten</div>
 <div class="row"><label for="einheitLaenge">Länge</label> <select id="einheitLaenge" title="Längen einheit" disabled><option>Millimeter</option></select></div>
 <div class="row"><label for="einheitWinkel">Winkel</label> <select id="einheitWinkel" title="Winkel einheit" disabled><option>Grad</option></select></div>
-<div class="row"><label for="bogenart">Bogen-/Kreismessungen</label> <select id="bogenart" title="Abstand bei Bögen und Kreisen"><option value="mitte">Abstand Mitte zu Mitte</option><option value="min">Min</option><option value="max">Max</option></select></div>
+<div class="row"><label for="methode">Abstandsmethode</label> <select id="methode" title="Welcher Abstand als Messlinie und Bemaßung gilt (Rand = Element selbst, Mitte = Mittelpunkt, Achse oder Schwerpunkt)"><option value="min" selected>Rand–Rand (min.)</option><option value="rand-mitte">Rand–Mitte</option><option value="mitte-rand">Mitte–Rand</option><option value="mitte">Mitte–Mitte</option><option value="max">Max.</option><option value="unendlich">Gerade/Ebene unendlich verlängert</option></select></div>
+<div class="row"><label for="projektion">Projiziert auf</label> <select id="projektion" title="Abstand zusätzlich in eine Ebene projizieren (Anteil in der Ebene und senkrecht dazu)"><option value="keine" selected>Keine</option><option value="bildschirm">Bildschirm</option><option value="xy">Ebene XY</option><option value="xz">Ebene XZ</option><option value="yz">Ebene YZ</option><option value="flaeche">Gewählte ebene Fläche</option></select></div>
+<div class="row"><label title="ΔX rot, ΔY grün, ΔZ blau als Teilstrecken der Messlinie"><input type="checkbox" id="deltaZeigen" checked> ΔX/ΔY/ΔZ in 3D zeigen</label></div>
 <div class="ahead">Ergebnisse</div>
 <div id="selinfo" class="sel"></div>
 <div id="mresult" class="kv"></div>
@@ -115,6 +117,8 @@
 <div class="row"><label>Toleranz <select id="deTol"><option value="keine">Keine</option><option value="symm">± symmetrisch</option><option value="abmass">Abmaße (+/−)</option><option value="grenz">Grenzmaß</option></select></label> <label>oben <input id="deO" size="5" value="0"></label> <label>unten <input id="deU" size="5" value="0"></label></div>
 <p class="hint">Maßtext in der Ansicht mit der linken Maustaste ziehen, um die Maßlinie zu versetzen.</p></div>
 <div class="row"><button class="btn" id="dimCopyAll">Alle kopieren</button> <button class="btn" id="dimClear">Alle löschen</button> <button class="btn" id="dimPng">Als PNG</button> <button class="btn" id="dimPdf">Als PDF</button></div>
+<div class="row"><button class="btn" id="dimSpeichern" title="Bemaßungen als Begleitdatei (*.hasi3d.json) neben der STEP-Datei speichern – die STEP-Datei bleibt unverändert">Bemaßungen speichern …</button> <label class="btn" title="Gespeicherte Bemaßungen (*.hasi3d.json) zum geöffneten Modell laden">Bemaßungen laden …<input id="dimLaden" type="file" accept=".json" hidden></label></div>
+<p class="hint">Kettenmaß und Basislinienmaß: einen Punkt wählen (Ecke, Kantenmitte, Kreismittelpunkt) und „Bemaßen“ – es geht von der letzten linearen Bemaßung weiter. Fase: Fasenfläche wählen.</p>
 <div class="ahead">Maßstil</div>
 <div class="row"><label>Textgröße <input id="stGroesse" type="number" min="8" max="40" style="width:4em"> px</label> <label>Pfeil <select id="stPfeil"></select></label> <label>Stellen <input id="stStellen" type="number" min="0" max="4" style="width:3em"></label></div>
 <div class="ahead">Genauigkeit</div>
@@ -133,10 +137,14 @@
 <div class="row"><span>Werkstoff</span><select id="mat2" title="Werkstoff (Dichte für die Masse)"><option value="7.85">Stahl (7,85 g/cm³)</option><option value="7.90">Edelstahl (7,90 g/cm³)</option><option value="2.70">Aluminium (2,70 g/cm³)</option><option value="8.96">Kupfer (8,96 g/cm³)</option></select></div>
 <div class="row"><label class="btn" title="Eigene Biegetabelle als CSV laden (Spalten: s; ri; Winkel; v oder K)">Biegetabelle laden …<input id="csv" type="file" accept=".csv,.txt" hidden></label><button class="btn" id="csvClear" title="Eigene Biegetabelle entfernen" hidden>Entfernen</button><button class="btn" id="calcSheet">Berechnen</button></div>
 <div id="csvinfo" class="hint"></div>
+<div class="row"><span>Feste Fläche</span> <span id="festInfo" class="m">automatisch (größte Blechfläche)</span></div>
+<div class="row"><button class="btn" id="festWaehlen" title="Danach in der 3D-Ansicht eine ebene Blechfläche anklicken – sie bleibt bei der Abwicklung liegen">Feste Fläche wählen</button> <button class="btn" id="festAuto" title="Wieder die größte Blechfläche verwenden" hidden>Automatisch</button></div>
 <div id="sheeterr"></div><div id="sheetinfo" class="kv"></div>
 <div id="bends"></div>
 <div id="flatprev"></div>
 <button class="btn primary" id="dxf" disabled title="Abwicklung als DXF-Datei speichern">Abwicklung als DXF speichern</button>
+<div class="row"><label title="Layer BESCHRIFTUNG mit „B1 AUF 90° Ri 2“ je Biegelinie (für den Laser meist aus)"><input type="checkbox" id="dxfText"> Biegenotizen im DXF (Layer BESCHRIFTUNG)</label></div>
+<p class="hint">DXF 1:1 in mm: Bohrungen als Kreis, Konturen als geschlossene Polylinie mit echten Bögen. Layer KONTUR, BIEGELINIEN_AUF, BIEGELINIEN_AB.</p>
 <div class="row"><button class="btn" id="expPdf" disabled title="Biegetabelle als PDF speichern">Biegetabelle als PDF</button> <button class="btn" id="expXlsx" disabled title="Biegetabelle als Excel-Datei (XLSX) speichern">Biegetabelle als Excel (XLSX)</button></div>
 <div id="sheetwarn" class="warn"></div>
 </section></div></div>
