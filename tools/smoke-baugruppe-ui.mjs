@@ -91,3 +91,4 @@ await p.screenshot({ path: ziel });
 if (errs.length) throw new Error(errs.join(' | '));
 await b.close();
 console.log('OK: Baugruppe', ziel);
+await import('./smoke-triade-esc.mjs');

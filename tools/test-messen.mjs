@@ -55,3 +55,4 @@ console.log(`OK: ${n} Messungen innerhalb ${TOL} mm`);
 }
 console.log(`OK gesamt: ${n} Messungen`);
 await import('./test-messen-faz1.mjs');
+await import('./test-hoehe.mjs');
