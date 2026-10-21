@@ -124,6 +124,25 @@ laden('messteil');
 {const U=B.uniq[0];const ei=U.edges.findIndex(e=>e.circle&&Math.abs(e.circle.r-5)<1e-6&&Math.abs(e.circle.c[2]-20)<1e-6&&e.circle.ang>6),ej=U.edges.findIndex(e=>e.circle&&Math.abs(e.circle.r-8)<1e-6&&Math.abs(e.circle.c[2]-20)<1e-6);
  const r=messen([{k:'edge',id:ei,inst:0},{k:'edge',id:ej,inst:0}]);assert.ok(!r.ff);assert.equal(r.wahl,'Abstand min.');chk('Kreis–Kreis: Abstand max.',wert(r,'Abstand max.'),63)}
 
+console.log('5.4 Abmessungen (Grundfläche, exakt aus der B-Rep)');
+const ABM=[['messteil',[100,60,20],[100,60,20]],['faz1-messteil',[100,50,20],[100,50,20]],['block-45',[80,50,30],[91.9239,91.9239,30]],['block-schraeg',[80,50,30],[91.9239,94.6084,71.9427]],
+  ['scharf-l',[50,40,30],[50,40,30]],['blech-bohrungen',[60,54,34],[54,60,34]],['s-profil',[68,40,10],[68,40,10]],['wanne',[100,60,20],[100,60,20]],['welle',[40,40,90],[66.2091,66.2091,92.3649]],
+  ['messbaugruppe',[150,50,40],[150,50,40]],['schraeger-fuss',[100,30,380],[100,30,380]]];
+for(const [t,soll,mod] of ABM){laden(t);const a=B.abmessungen({});assert.ok(a.ok&&a.exakt);
+  chk('Länge × Breite × Höhe',[a.laenge,a.breite,a.hoehe].map(x=>x.toFixed(4)).join(' × '),soll.map(x=>x.toFixed(4)).join(' × '));
+  chk('Modellachsen X × Y × Z',[a.modellachsen.x,a.modellachsen.y,a.modellachsen.z].map(x=>x.toFixed(4)).join(' × '),mod.map(x=>x.toFixed(4)).join(' × '));
+  assert.equal(a.quelle,'Grundfläche',t+': Quelle')}
+// Klick auf eine Fläche richtet den Quader neu aus (Bezug = diese Fläche, Höhe senkrecht dazu)
+laden('schraeger-fuss');{const a=B.abmessungen({bezug:{...sfS1}});chk('Bezug schräge Wand',[a.laenge,a.breite,a.hoehe].map(x=>x.toFixed(4)).join(' × '),'390.9462 × 30.0000 × 39.5105');assert.equal(a.quelle,'gewählte Fläche');
+  const g=B.abmessungen({});chk('zurück zur Grundfläche',[g.laenge,g.breite,g.hoehe].map(x=>x.toFixed(4)).join(' × '),'100.0000 × 30.0000 × 380.0000')}
+laden('block-45');{const a=B.abmessungen({bezug:E([1,-1,0],[-0.607,-25.962,0])});chk('block-45 Bezug Seitenfläche',[a.laenge,a.breite,a.hoehe].map(x=>x.toFixed(4)).join(' × '),'80.0000 × 30.0000 × 50.0000')}
+laden('welle');{const h=B.huelle({});chk('Hüllquader achsparallel exakt (früher 66,175 aus dem Netz)',h.achsparallel.masse[0],66.2091);assert.ok(h.achsparallel.exakt);chk('Hüllquader minimal',h.minimal.sortiert.map(x=>x.toFixed(4)).join(' × '),'90.0000 × 40.0000 × 40.0000')}
+
+console.log('Offener Körper: Volumen nicht verlässlich');
+laden('offene-schale');{const o=B.offen();assert.ok(o.offen,'offene Schale nicht erkannt');chk('offene Schale erkannt',o.anzahl,1);
+  chk('Hinweis am Körper',wert(B.measure([{k:'solid',inst:0}]),'Hinweis'),'Volumen nicht verlässlich')}
+for(const t of ['messteil','messbaugruppe','welle']){laden(t);assert.ok(!B.offen().offen,t+' fälschlich offen');n++}
+
 console.log('Leistung');
 {laden('messteil');const P=[[mBoden,mDeckel],[mX0,mZ10],[mZ10,mZ16],[mDeckel,mSchraege]];const t0=performance.now();let k=0;
  for(let i=0;i<50;i++)for(const [a,b] of P){B.ffAnalyse({...a},{...b});k++}const ff=(performance.now()-t0)/k;

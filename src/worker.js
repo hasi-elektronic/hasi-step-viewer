@@ -28,6 +28,9 @@ self.onmessage=async e=>{const {id,cmd,args}=e.data;
     else if(cmd==='huelle')r=B.huelle(args.opts||{});
     else if(cmd==='faltNetz')r=B.faltNetz(args.netz);
     else if(cmd==='measure')r=B.measure(args.sels,args.opts||{});
+    else if(cmd==='vorschau')r=B.vorschau(args.a,args.b);
+    else if(cmd==='abmessungen')r=B.abmessungen(args.opts||{});
+    else if(cmd==='offen')r=B.offen(args.ids);
     else if(cmd==='sheet'){r=B.sheet(args.opts??args.K,args.inst);if(r.flat&&!r.flat.incomplete)r.dxf=B.dxf(r.flat,{beschriftung:!!(args.opts&&args.opts.beschriftung)})}
     const tr=[];if(cmd==='load')r.uniq.forEach(m=>tr.push(m.p.buffer,m.i.buffer,m.f.buffer));if(cmd==='stepSchreiben')tr.push(r.buffer);
     self.postMessage({id,ok:true,r},tr);

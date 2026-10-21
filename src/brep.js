@@ -1,6 +1,6 @@
 import {biegung} from './kfaktor.js';
 import {faltePunkt} from './falten.js';
-import {methodenZeile,projiziere,normalAbstand,PROJ_NORMALE,RICHTUNGEN,richtungsVektor,COS_PARALLEL,ebeneEbene,lotPaar,aufEbene,aufAchse,ebeneAchse,achseAchse,innenWinkel} from './messen-hilfen.js';
+import {methodenZeile,projiziere,normalAbstand,PROJ_NORMALE,RICHTUNGEN,richtungsVektor,COS_PARALLEL,SIN_PARALLEL,ebeneEbene,lotPaar,aufEbene,aufAchse,ebeneAchse,achseAchse,innenWinkel} from './messen-hilfen.js';
 // B-Rep-Kern: Einlesen, Topologie, Messen, Blech. Läuft im Worker (Browser) und in Node (Tests).
 // Alle Längen intern in mm (OCCT rechnet STEP-Dateien beim Import in mm um).
 const V = {
@@ -346,7 +346,7 @@ export function createBrep(ocIn){
     // Fasenwinkel = Winkel zwischen Fase und der Fläche mit dem längeren Schenkel
     const gleich=Math.abs(a-b)<1e-6;const text=gleich?`${deZahl(a)} × ${deZahl(winkel,2)}°`:`${deZahl(a)} × ${deZahl(b)} (${deZahl(winkel,2)}°)`;
     return {a,b,winkel,breite,text,ecke:X,p1:P1,p2:P2}};
-  M.describe=s=>{const R0=RES(s),R=[];if(s.k==='solid'){const q=M.solidProps([s.inst]);R.push(['Volumen',q.volume,'V'],['Oberfläche',q.area,'A']);return R}
+  M.describe=s=>{const R0=RES(s),R=[];if(s.k==='solid'){const q=M.solidProps([s.inst]);R.push(['Volumen',q.volume,'V'],['Oberfläche',q.area,'A']);if(offenU(M.inst[s.inst??0].u))R.push(['Hinweis','Körper nicht geschlossen – Volumen nicht verlässlich','t']);return R}
     if(s.k==='face'){const f=R0.f;R.push(['Fläche',f.type,'t'],['Flächeninhalt',f.area,'A']);const u=perimeter(R0.shape);R.push(['Umfang (gesamt)',u.s,'L']);if(Math.abs(u.outer-u.s)>1e-9)R.push(['Umfang (außen)',u.outer,'L']);
       if(f.cyl){const bi=M.bendInfo(M.inst[s.inst??0].u,s.id);
         if(bi){R.unshift(['Radius innen Ri',bi.ri,'L','!'],['Radius außen Ra',bi.ro,'L','!'],['Bogenlänge (angeklickt)',f.cyl.r*f.cyl.ang,'L','!'],['Biegewinkel',bi.phi*DEG,'W','!']);
@@ -560,15 +560,71 @@ export function createBrep(ocIn){
     const drin=(k,p)=>Math.hypot(p[0]-k.c[0],p[1]-k.c[1])<=k.r*(1+1e-12)+1e-9;
     let k={c:pts[0]||[0,0],r:0};for(let i=1;i<pts.length;i++)if(!drin(k,pts[i])){k={c:pts[i],r:0};for(let j=0;j<i;j++)if(!drin(k,pts[j])){k=k2(pts[i],pts[j]);
       for(let l=0;l<j;l++)if(!drin(k,pts[l])){const n=k3(pts[i],pts[j],pts[l]);if(n)k=n}}}return k};
+  // ---------- Exakter Hüllquader (B-Rep, BRepBndLib::AddOptimal) ----------
+  // Bereich der Instanzen entlang dreier orthonormaler Achsen (rechtshändig). Je Unikat und Drehung zwischengespeichert;
+  // die Verschiebung der Instanz kommt analytisch dazu. Exakt auch für gekrümmte Flächen (Welle 66,209 statt 66,175 aus dem Netz).
+  const exaktBereich=(ids,ach)=>{const rr=[[Infinity,-Infinity],[Infinity,-Infinity],[Infinity,-Infinity]];
+    for(const i of instListe(ids)){const I=M.inst[i],m=I.m;
+      // R = Achsen · Drehung der Instanz, t = Achsen · Verschiebung
+      const R=ach.map(a=>[0,1,2].map(j=>a[0]*m[j]+a[1]*m[4+j]+a[2]*m[8+j])),t=ach.map(a=>a[0]*m[3]+a[1]*m[7]+a[2]*m[11]);
+      const U=M.uniq[I.u],C=U.bereiche??=new Map();const key=R.flat().map(x=>x.toFixed(9)).join(',');let b=C.get(key);
+      if(!b){const tr=new oc.gp_Trsf_1();tr.SetValues(R[0][0],R[0][1],R[0][2],0,R[1][0],R[1][1],R[1][2],0,R[2][0],R[2][1],R[2][2],0);
+        const sh=U.shape.Moved(new oc.TopLoc_Location_2(tr));const box=new oc.Bnd_Box_1();
+        tryCall(()=>oc.BRepBndLib.AddOptimal(sh,box,false,false),()=>oc.BRepBndLib.Add(sh,box,false));
+        b=box.IsVoid()?null:[P(box.CornerMin()),P(box.CornerMax())];box.delete?.();if(C.size>200)C.clear();C.set(key,b)}
+      if(!b)continue;for(let j=0;j<3;j++){rr[j][0]=Math.min(rr[j][0],b[0][j]+t[j]);rr[j][1]=Math.max(rr[j][1],b[1][j]+t[j])}}
+    return isFinite(rr[0][0])?rr:null};
+  const rechts=ach=>[ach[0],ach[1],V.cross(ach[0],ach[1])];
+  const exaktQuader=(ids,q)=>{const ach=rechts(q.achsen);const rr=exaktBereich(ids,ach);return rr?{...mkQuader(ach,rr),exakt:true}:q};
+  // ---------- Abmessungen (wie ZW3D, Hamdis Regel „Grundfläche“) ----------
+  // Höhe = senkrecht zur Grundfläche: ebene Fläche, deren Normale am stärksten nach unten (−Z) zeigt (kleine Flächen < 5 % der größten
+  // zählen nicht; bei Gleichstand die größere). Länge/Breite: schwerste Normalengruppe senkrecht dazu (flächengewichtet), sonst eine
+  // Zylinderachse senkrecht dazu, sonst kleinstes Rechteck. Bezug (Klick auf eine Fläche) ersetzt die Grundfläche.
+  // Werte exakt aus der B-Rep. Länge ≥ Breite, Höhe immer entlang der Grundflächen-Normalen. Dazu die Maße in Modellachsen.
+  M.abmessungen=(opts={})=>{const ids=instListe(opts.ids);if(!ids.length)return {ok:false,msg:'Keine Geometrie (alles ausgeblendet?).'};
+    const ebenen=[],zyl=[];let gross=0;
+    for(const i of ids){const I=M.inst[i],U=M.uniq[I.u];for(const f of U.faces){if(f.plane){const a=f.area;ebenen.push({n:T.d(I.m,f.plane.n),a});if(a>gross)gross=a}else if(f.cyl)zyl.push({d:T.d(I.m,f.cyl.d),a:f.area})}
+      if(ebenen.length>20000)break}
+    let a1=null,quelle='';
+    if(opts.bezug){const s=opts.bezug,I=M.inst[s.inst??0],f=M.uniq[I.u].faces[s.id];
+      if(f?.plane){a1=V.mul(T.d(I.m,f.plane.n),-1);quelle='gewählte Fläche'}else if(f?.cyl){a1=T.d(I.m,f.cyl.d);quelle='Achse der gewählten Zylinderfläche'}else if(f?.cone){a1=T.d(I.m,f.cone.d);quelle='Achse der gewählten Kegelfläche'}
+      else return {ok:false,msg:'Bezug muss eine ebene Fläche oder eine Zylinderfläche sein.'}}
+    if(!a1){let best=null;for(const e of ebenen){if(e.a<gross*0.05)continue;const s=-e.n[2];
+        if(!best||s>best.s+1e-6||(Math.abs(s-best.s)<=1e-6&&e.a>best.a))best={s,n:e.n,a:e.a}}
+      if(best&&best.s>1e-6){a1=V.mul(best.n,-1);quelle='Grundfläche'}else{a1=[0,0,1];quelle='Modell-Hochachse (keine Fläche zeigt nach unten)'}}
+    a1=V.norm(a1);
+    // Länge/Breite: Normalengruppen senkrecht zu a1, flächengewichtet (± gleich)
+    const gruppen=[];const sammeln=(d,a)=>{d=V.norm(d);if(Math.abs(V.dot(d,a1))>SIN_PARALLEL)return;const g=gruppen.find(x=>Math.abs(V.dot(x.d,d))>=COS_PARALLEL);if(g)g.a+=a;else gruppen.push({d,a})};
+    ebenen.forEach(e=>sammeln(e.n,e.a));let a2=null;
+    if(gruppen.length){gruppen.sort((x,y)=>y.a-x.a);a2=gruppen[0].d}
+    else{const zg=[];zyl.forEach(z=>{const d=V.norm(z.d);if(Math.abs(V.dot(d,a1))>SIN_PARALLEL)return;const g=zg.find(x=>Math.abs(V.dot(x.d,d))>=COS_PARALLEL);if(g)g.a+=z.a;else zg.push({d,a:z.a})});
+      if(zg.length){zg.sort((x,y)=>y.a-x.a);a2=zg[0].d}
+      else{const pts=huellPunkte(ids);a2=pts.length>2?minRechteck(pts,a1).e1:basisZu(a1)[0]}}
+    a2=V.norm(V.sub(a2,V.mul(a1,V.dot(a2,a1))));
+    const ach=[a2,V.cross(a1,a2),a1];const rr=exaktBereich(ids,ach);if(!rr)return {ok:false,msg:'Keine Geometrie.'};
+    const q=mkQuader(ach,rr);let [l,b]=[q.masse[0],q.masse[1]],[al,ab]=[ach[0],ach[1]];if(b>l+1e-9){[l,b]=[b,l];[al,ab]=[ab,al]}
+    const ma=exaktBereich(ids,[[1,0,0],[0,1,0],[0,0,1]]);
+    return {ok:true,quelle,laenge:l,breite:b,hoehe:q.masse[2],richtung:{laenge:al,breite:ab,hoehe:a1},achsen:q.achsen,bereiche:rr,ecken:q.ecken,mitte:q.mitte,
+      modellachsen:{x:ma[0][1]-ma[0][0],y:ma[1][1]-ma[1][0],z:ma[2][1]-ma[2][0],min:ma.map(r=>r[0]),max:ma.map(r=>r[1])},exakt:true}};
+  // ---------- Offener Körper ----------
+  // Ein Unikat ist offen, wenn es keinen Volumenkörper hat oder eine seiner Schalen nicht geschlossen ist (BRep_Tool::IsClosed).
+  // Dann sind Volumen, Masse und Schwerpunkt nicht verlässlich.
+  const offenU=u=>{const U=M.uniq[u];if(U.offen!=null)return U.offen;const sh=U.shape;let schalen=0,offen=0,solids=0;
+    explore(sh,TA.TopAbs_SOLID,()=>{solids++});
+    explore(sh,TA.TopAbs_SHELL,s=>{schalen++;let zu=true;try{zu=tryCall(()=>oc.BRep_Tool.IsClosed_1(s),()=>oc.BRep_Tool.IsClosed(s))}catch{zu=true}if(!zu)offen++});
+    if(!schalen){let fl=0;explore(sh,TA.TopAbs_FACE,()=>{fl++});if(fl)offen=1}
+    return U.offen=offen>0||(solids===0&&schalen>0)};
+  M.offen=(ids)=>{const L=instListe(ids);const teile=[];const seen=new Map();for(const i of L){const u=M.inst[i].u;if(!seen.has(u))seen.set(u,offenU(u));if(seen.get(u))teile.push(i)}
+    return {offen:teile.length>0,anzahl:teile.length,teile:teile.slice(0,50)}};
   M.huelle=(opts={})=>{const ids=opts.ids;const pts=huellPunkte(ids,opts.netze);if(!pts.length)return {ok:false,msg:'Keine Geometrie (alles ausgeblendet?).'};
     const res={ok:true,punkte:pts.length};
     const mn=[0,1,2].map(j=>Math.min(...pts.map(p=>p[j]))),mx=[0,1,2].map(j=>Math.max(...pts.map(p=>p[j])));
-    res.achsparallel=mkQuader([[1,0,0],[0,1,0],[0,0,1]],[0,1,2].map(j=>[mn[j],mx[j]]));
+    res.achsparallel=exaktQuader(ids,mkQuader([[1,0,0],[0,1,0],[0,0,1]],[0,1,2].map(j=>[mn[j],mx[j]])));
     if(opts.bezug){const s=opts.bezug,I=M.inst[s.inst??0],U=M.uniq[I.u];let a=null,name='';
       if(s.k==='face'||s.k==='axis'){const f=U.faces[s.id];if(f?.plane){a=T.d(I.m,f.plane.n);name='Normale der gewählten Fläche'}else if(f?.cyl){a=T.d(I.m,f.cyl.d);name='Achse der gewählten Zylinderfläche'}else if(f?.cone){a=T.d(I.m,f.cone.d);name='Achse der gewählten Kegelfläche'}}
       else if(s.k==='edge'){const e=U.edges[s.id];if(e?.line){a=T.d(I.m,e.line.d);name='Richtung der gewählten Kante'}else if(e?.circle){a=T.d(I.m,e.circle.n);name='Achse der gewählten Kreiskante'}}
-      if(a){res.bezug={...quader(pts,a),name}}else res.bezugFehler='Bezug muss eine ebene Fläche, eine Zylinderfläche oder eine gerade bzw. kreisförmige Kante sein.'}
-    const K=kandidaten(ids);let best=null;for(const a of K){const q=quader(pts,a);if(!best||q.volumen<best.volumen-1e-9)best=q}res.minimal=best;res.kandidaten=K.length;
+      if(a){res.bezug={...exaktQuader(ids,quader(pts,a)),name}}else res.bezugFehler='Bezug muss eine ebene Fläche, eine Zylinderfläche oder eine gerade bzw. kreisförmige Kante sein.'}
+    const K=kandidaten(ids);let best=null;for(const a of K){const q=quader(pts,a);if(!best||q.volumen<best.volumen-1e-9)best=q}best=exaktQuader(ids,best);res.minimal=best;res.kandidaten=K.length;
     // Rohmaß Zylinder: Achse aus Zylinderflächen (nach Fläche gewichtet) oder den Achsen des minimalen Quaders
     const zk=[];const addZ=d=>{d=V.norm(d);if(!zk.some(x=>Math.abs(V.dot(x,d))>1-1e-9))zk.push(d)};
     for(const i of instListe(ids)){const I=M.inst[i];M.uniq[I.u].faces.filter(f=>f.cyl).sort((a,b)=>b.area-a.area).slice(0,20).forEach(f=>addZ(T.d(I.m,f.cyl.d)))}
