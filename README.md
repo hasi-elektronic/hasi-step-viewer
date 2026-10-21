@@ -2,6 +2,14 @@
 
 Produktnamen ab 20.10.2026: **Hasi 3D** (Marke Hasi, vorher „Hasi STEP-Betrachter“) und **MS3D** (Marke Sickinger, vorher „Sickinger STEP-Viewer“). Kennungen, Programmkennungen der Dateizuordnung und MSI-Upgrade-Codes bleiben gleich, damit ein Update die Vorschau-Installation ersetzt.
 
+Programmdatei ab 21.10.2026: `hasi-3d.exe` / `ms3d.exe` (macOS: `Hasi 3D.app/Contents/MacOS/hasi-3d`, `MS3D.app/Contents/MacOS/ms3d`), vorher `hasi-step-betrachter` / `sickinger-step-viewer`.
+
+### Alte Vorschau beim Installieren entfernen
+- **Setup.exe (NSIS):** `src-tauri/windows/hooks.nsh` (`NSIS_HOOK_PREINSTALL`) sucht vor dem Kopieren den Deinstallations-Eintrag des alten Produktnamens („Hasi STEP-Betrachter“ bzw. „Sickinger STEP-Viewer“/„Sickinger STEP-Betrachter“) unter HKCU und HKLM und startet den alten Deinstaller still (`/S _?=<ordner>`). Danach schreibt die neue Installation die Dateizuordnung auf die neue Programmdatei. Die aktuelle Installation (gleicher Produktname) wird nie angefasst; liegt die alte im selben Ordner, wird nur ihr Eintrag entfernt. Einstellungen bleiben (gleiche Kennung). Ein altes Vorschau-MSI wird über `msiexec /x` entfernt (Windows fragt nach Administratorrechten).
+- **MSI:** `MajorUpgrade` mit dem festen Upgrade-Code ersetzt ein altes Vorschau-MSI. Ein altes Setup.exe-Vorschau entfernt das MSI nicht, dafür das Setup.exe verwenden.
+- **macOS:** die alte `.app` im Programme-Ordner von Hand löschen.
+- CI (Windows) installiert den Vorschau-Installer von #13 und danach den neuen still darüber und prüft das Ergebnis (`tools/test-alte-vorschau.ps1`).
+
 Reiner STEP/STP-Viewer (keine Bearbeitung). Tauri 2 + three.js + occt-import-js (OpenCascade als WASM, Parsing im Web Worker).
 
 Funktionen: STEP öffnen (Menü, Doppelklick auf `.step`/`.stp`, Drag & Drop ins Fenster), dunkle Kopfleiste mit Datei/Ansicht/Werkzeuge/Hilfe, Dateireiter, schwebende Werkzeugleiste (Auswählen, Schwenken, Drehen, Zoom, Zoom-Fenster, Einpassen, Anzeigestil, Standardansichten), Ansichtswürfel mit Kompass N/O/S/W, Modellbaum, Messen in mm, Bemaßung, Schnitt, Blech.

@@ -1,4 +1,7 @@
 name: release
+permissions:
+  contents: read
+  actions: read  # Vorschau-Installer aus einem älteren Lauf für den Ersetzungs-Test laden
 on:
   workflow_dispatch:
   pull_request:
@@ -55,7 +58,7 @@ jobs:
           grep -q 'data-marke="sickinger"' dist/index.html
           test -f dist/marken/sickinger.png
           grep -q 'HASI <span>3D</span>' index.html
-          node --input-type=module -e "import fs from 'fs'; const j=JSON.parse(fs.readFileSync('src-tauri/tauri.sickinger.conf.json','utf8')); if(j.productName!=='MS3D'||j.identifier!=='de.sickinger.stepviewer'||j.bundle.publisher!=='Manfred Sickinger Apparatebau') process.exit(1); const ext=a=>a&&a.ext&&a.ext.join(','); const b=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8')); if(b.app.windows[0].dragDropEnabled!==true||ext(b.bundle.fileAssociations[0])!=='step,stp'||b.bundle.fileAssociations[0].name!=='HasiStep') process.exit(1); if(j.app.windows[0].dragDropEnabled!==true||ext(j.bundle.fileAssociations[0])!=='step,stp'||j.bundle.fileAssociations[0].name!=='SickingerStep') process.exit(1)"
+          node --input-type=module -e "import fs from 'fs'; const j=JSON.parse(fs.readFileSync('src-tauri/tauri.sickinger.conf.json','utf8')); if(j.productName!=='MS3D'||j.identifier!=='de.sickinger.stepviewer'||j.bundle.publisher!=='Manfred Sickinger Apparatebau') process.exit(1); const ext=a=>a&&a.ext&&a.ext.join(','); const b=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8')); if(b.app.windows[0].dragDropEnabled!==true||ext(b.bundle.fileAssociations[0])!=='step,stp'||b.bundle.fileAssociations[0].name!=='HasiStep'||b.mainBinaryName!=='hasi-3d'||b.bundle.windows.wix.upgradeCode!=='8058eeb3-a5b1-5569-a5d1-b51db6fb06e8'||b.bundle.windows.nsis.installerHooks!=='windows/hooks.nsh') process.exit(1); if(j.mainBinaryName!=='ms3d'||j.bundle.windows.wix.upgradeCode!=='18385c58-920f-58fc-b46f-21577a24369d') process.exit(1); if(j.app.windows[0].dragDropEnabled!==true||ext(j.bundle.fileAssociations[0])!=='step,stp'||j.bundle.fileAssociations[0].name!=='SickingerStep') process.exit(1)"
           if [ -x /usr/bin/google-chrome ]; then export CHROME=/usr/bin/google-chrome
           elif [ -x /usr/bin/google-chrome-stable ]; then export CHROME=/usr/bin/google-chrome-stable
           else
@@ -251,6 +254,10 @@ jobs:
           set -e; n=$(ls kern-paket/kern | wc -l | tr -d ' '); echo "Bibliotheken im Paket: $n"
           if [ "$RUNNER_OS" = "macOS" ]; then
             APP=$(ls -d src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app); ls -la "$APP/Contents/MacOS"; test -x "$APP/Contents/MacOS/hasi-kern"
+            if [ "$MARKE" = "sickinger" ]; then NAME=MS3D; BIN=ms3d; else NAME='Hasi 3D'; BIN=hasi-3d; fi
+            test "$(basename "$APP")" = "$NAME.app"
+            test -x "$APP/Contents/MacOS/$BIN"
+            test "$(plutil -extract CFBundleExecutable raw "$APP/Contents/Info.plist")" = "$BIN"
             test $(ls "$APP/Contents/Resources/kern" | wc -l) -ge $n
             otool -L "$APP/Contents/MacOS/hasi-kern" | grep -q '@rpath/'
             otool -l "$APP/Contents/MacOS/hasi-kern" | grep -q '@executable_path/../Resources/kern'
@@ -286,14 +293,38 @@ jobs:
             test -n "$NSI"
             grep -q "APP_ASSOCIATE \"step\" \"$KLASSE\"" "$NSI"
             grep -q "APP_ASSOCIATE \"stp\" \"$KLASSE\"" "$NSI"
+            BIN=hasi-3d; [ "$MARKE" = "sickinger" ] && BIN=ms3d
+            grep -q "!define MAINBINARYNAME \"$BIN\"" "$NSI"
+            grep -q 'hooks.nsh' "$NSI"
+            test -f "src-tauri/target/release/$BIN.exe"
             WXS=$(find src-tauri/target/release/wix -name '*.wxs' -print -quit)
             test -n "$WXS"
             grep -q "Extension Id=\"step\"" "$WXS"
             grep -q "Extension Id=\"stp\"" "$WXS"
             grep -q "ProgId Id=\"$KLASSE.step\"" "$WXS"
             grep -q "ProgId Id=\"$KLASSE.stp\"" "$WXS"
+            grep -q "$BIN.exe" "$WXS"
+            UC=8058eeb3-a5b1-5569-a5d1-b51db6fb06e8; [ "$MARKE" = "sickinger" ] && UC=18385c58-920f-58fc-b46f-21577a24369d
+            grep -qi "UpgradeCode=\"{\?$UC}\?\"" "$WXS"
           fi
           ls -la ${{ matrix.out }} 2>/dev/null || true
+      # Vorschau-Installer von #13 (41a8b06, alter Produktname und alte Programmdatei)
+      - uses: actions/download-artifact@v4
+        id: alt
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        with:
+          name: ${{ matrix.marke }}-step-viewer-windows
+          run-id: 39274836686
+          github-token: ${{ github.token }}
+          path: alt-vorschau
+      - name: Alte Vorschau wird ersetzt (Setup.exe)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          MARKE: ${{ matrix.marke }}
+          ALT_OK: ${{ steps.alt.outcome }}
+        run: ./tools/test-alte-vorschau.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.marke }}-step-viewer-${{ matrix.plattform }}
