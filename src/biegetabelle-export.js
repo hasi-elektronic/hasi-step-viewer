@@ -81,9 +81,9 @@ export function pdf(sheet, meta = {}) {
   const f = sheet.flat;
   if (f) {
     if (y > 110) { doc.addPage(); y = 20 } // Vorschau mindestens ca. 80 mm hoch, sonst auf eigener Seite
-    const bw = 120, bh = 190 - y, s = Math.min(bw / f.size[0], bh / f.size[1]);
+    const bw = 120, bh = 184 - y, s = Math.min(bw / f.size[0], bh / f.size[1]); // unten Platz für die Biegenotizen
     const X = p => 14 + (p[0] - f.min[0]) * s, Y = p => y + (f.max[1] - p[1]) * s;
-    doc.setFontSize(9); doc.setTextColor(110); doc.text(`Abwicklung (Maßstab ca. 1:${de(1 / s, 1)}), Biegelinien gestrichelt: rot = AUF (zum Betrachter), blau = AB; Pfeil zeigt zur bewegten Lasche`, 14, y - 1.5);
+    doc.setFontSize(9); doc.setTextColor(110); doc.text(`Abwicklung (Maßstab ca. 1:${de(1 / s, 1)}), Biegelinien gestrichelt: rot = AUF (Lasche biegt aus der Zeichenebene nach vorn), blau = AB (nach hinten); Pfeil zeigt zur bewegten Lasche`, 14, y - 1.5);
     doc.setDrawColor(20); doc.setLineWidth(0.25);
     f.contour.forEach(pl => { for (let i = 1; i < pl.length; i++) doc.line(X(pl[i - 1]), Y(pl[i - 1]), X(pl[i]), Y(pl[i])) });
     if (f.rissLinien?.length) { doc.setDrawColor(156, 39, 176); doc.setLineWidth(0.6); f.rissLinien.forEach(pl => { for (let i = 1; i < pl.length; i++) doc.line(X(pl[i - 1]), Y(pl[i - 1]), X(pl[i]), Y(pl[i])) }); doc.setLineWidth(0.25) }
@@ -94,10 +94,10 @@ export function pdf(sheet, meta = {}) {
       // Pfeil in Papier-Millimetern (feste Länge 7 mm), y im PDF nach unten
       const a = [X(n.mitte), Y(n.mitte)], d = [n.richtung[0], -n.richtung[1]], L = 7, b = [a[0] + d[0] * L, a[1] + d[1] * L], k = 2.2, q = [-d[1], d[0]];
       doc.line(a[0], a[1], b[0], b[1]); doc.triangle(b[0], b[1], b[0] - d[0] * k + q[0] * k * 0.5, b[1] - d[1] * k + q[1] * k * 0.5, b[0] - d[0] * k - q[0] * k * 0.5, b[1] - d[1] * k - q[1] * k * 0.5, 'F');
-      // Notiz entlang der Biegelinie auf der Seite der festen Fläche (bleibt innerhalb des Zuschnitts)
-      const w = n.winkel * Math.PI / 180, lv = [Math.cos(w), -Math.sin(w)], tw = doc.getTextWidth(n.text), nb = [-d[0], -d[1]];
-      const off = nb[0] * lv[1] - nb[1] * lv[0] > 0 ? 1.2 : 3.4; // Textoberseite zeigt zur festen Fläche → kleiner Abstand, sonst Texthöhe dazu
-      doc.text(n.text, a[0] - lv[0] * tw / 2 + nb[0] * off, a[1] - lv[1] * tw / 2 + nb[1] * off, { angle: n.winkel }) });
+      // Notiz entlang der Biegelinie (bei drei Vierteln der Länge) auf der Seite der festen Fläche, gegenüber dem Pfeil
+      const w = n.winkel * Math.PI / 180, lv = [Math.cos(w), -Math.sin(w)], tw = doc.getTextWidth(n.text), nb = [-d[0], -d[1]], c0 = [X(n.anker), Y(n.anker)];
+      const off = nb[0] * lv[1] - nb[1] * lv[0] > 0 ? 1.0 : 3.2; // Textoberseite zur festen Fläche → kleiner Abstand, sonst plus Texthöhe
+      doc.text(n.text, c0[0] - lv[0] * tw / 2 + nb[0] * off, c0[1] - lv[1] * tw / 2 + nb[1] * off, { angle: n.winkel }) });
     doc.setLineWidth(0.25);
   }
   doc.setFontSize(8); doc.setTextColor(110);

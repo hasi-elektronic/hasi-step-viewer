@@ -69,7 +69,7 @@ for(const [f,o] of teile){r=f==='testblech'?(B.load(new Uint8Array(fs.readFileSy
   const Ph=falteNetz(N,Fd,0.5);let dl=0;const Fl=B.uniq[B.inst[0].u].faces;
   for(let t=0;t<N.fk.length;t++){if(!Fl[N.fk[t]].plane)continue;for(let j=0;j<3;j++){const a=3*t+j,b=3*t+(j+1)%3;const L=(P,x,y)=>Math.hypot(P[3*x]-P[3*y],P[3*x+1]-P[3*y+1],P[3*x+2]-P[3*y+2]);dl=Math.max(dl,Math.abs(L(Ph,a,b)-L(P0,a,b)))}}
   assert(dl<TOL,f+': ebene Fläche verzerrt '+dl);
-  // Richtungspfeile: AUF/AB wie Tabelle (nach oben/unten) und wie die tatsächliche Faltung (Lasche hebt sich zum Betrachter = +n0)
+  // Richtungspfeile: AUF/AB wie Tabelle (nach oben/unten) und wie die tatsächliche Faltung (Lasche hebt sich aus der Zeichenebene nach vorn = +n0)
   const Nn=biegeNotizen(r.flat);assert.equal(Nn.length,r.bends.length);
   r.bends.forEach((bd,i)=>{assert.equal(Nn[i].auf,bd.dir==='nach oben',`${f} B${bd.nr}: Pfeil ≠ Tabelle`);assert.equal(Nn[i].text.includes(' AUF '),bd.dir==='nach oben');
     const fb=Fd.bends[i];assert.equal(fb.sigma===1,bd.dir==='nach oben',`${f} B${bd.nr}: Faltung ≠ Tabelle`);

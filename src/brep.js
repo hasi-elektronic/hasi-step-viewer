@@ -434,7 +434,7 @@ export function createBrep(oc){
   // Punkte: Knoten der Tessellierung (liegen exakt auf den Flächen; Ecken ebener Teile exakt, gekrümmte Flächen bis auf die Netzfeinheit).
   // Hüllquader „achsparallel“ (Modellachsen), „bezug“ (eine Achse = Normale der gewählten Fläche bzw. Richtung der gewählten Kante,
   // die beiden anderen als kleinstes Rechteck darum) und „minimal“ (kleinstes Volumen über alle Flächennormalen, Kanten- und Zylinderachsen).
-  const huellPunkte=ids=>{const seen=new Set(),out=[];for(const i of instListe(ids)){const I=M.inst[i],p=M.uniq[I.u].p;
+  const huellPunkte=(ids,netze)=>{const seen=new Set(),out=[];for(const i of instListe(ids)){const I=M.inst[i],p=netze?.[I.u]||M.uniq[I.u].p;
       for(let k=0;k<p.length;k+=3){const q=T.p(I.m,[p[k],p[k+1],p[k+2]]);const key=q.map(v=>Math.round(v*1e5)).join(',');if(!seen.has(key)){seen.add(key);out.push(q)}}}return out};
   const huelle2=P=>{const p=[...P].sort((a,b)=>a[0]-b[0]||a[1]-b[1]);if(p.length<3)return p;const cr=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);
     const lo=[],hi=[];for(const q of p){while(lo.length>1&&cr(lo.at(-2),lo.at(-1),q)<=1e-12)lo.pop();lo.push(q)}
@@ -464,7 +464,7 @@ export function createBrep(oc){
     const drin=(k,p)=>Math.hypot(p[0]-k.c[0],p[1]-k.c[1])<=k.r*(1+1e-12)+1e-9;
     let k={c:pts[0]||[0,0],r:0};for(let i=1;i<pts.length;i++)if(!drin(k,pts[i])){k={c:pts[i],r:0};for(let j=0;j<i;j++)if(!drin(k,pts[j])){k=k2(pts[i],pts[j]);
       for(let l=0;l<j;l++)if(!drin(k,pts[l])){const n=k3(pts[i],pts[j],pts[l]);if(n)k=n}}}return k};
-  M.huelle=(opts={})=>{const ids=opts.ids;const pts=huellPunkte(ids);if(!pts.length)return {ok:false,msg:'Keine Geometrie (alles ausgeblendet?).'};
+  M.huelle=(opts={})=>{const ids=opts.ids;const pts=huellPunkte(ids,opts.netze);if(!pts.length)return {ok:false,msg:'Keine Geometrie (alles ausgeblendet?).'};
     const res={ok:true,punkte:pts.length};
     const mn=[0,1,2].map(j=>Math.min(...pts.map(p=>p[j]))),mx=[0,1,2].map(j=>Math.max(...pts.map(p=>p[j])));
     res.achsparallel=mkQuader([[1,0,0],[0,1,0],[0,0,1]],[0,1,2].map(j=>[mn[j],mx[j]]));
@@ -655,7 +655,8 @@ export function createBrep(oc){
     M._blech={inst,maps,skin:[...skin],faltung:res.faltung};
     return res};
   // Netz der Blechhaut für die Falt-Animation: je Dreiecksecke die 2D-Lage in der Abwicklung (letzte M.sheet-Rechnung)
-  M.faltNetz=()=>{const S=M._blech;if(!S)return null;const I=M.inst[S.inst],U=M.uniq[I.u];const p=U.p,ix=U.i,f=U.f;const sk=new Set(S.skin);
+  // netz: {p,i,f} aus dem Hauptthread (im Browser wurden die Netzpuffer beim Laden an die Oberfläche übertragen)
+  M.faltNetz=(netz)=>{const S=M._blech;if(!S)return null;const I=M.inst[S.inst],U=M.uniq[I.u];const p=netz?.p||U.p,ix=netz?.i||U.i,f=netz?.f||U.f;if(!p.length)return null;const sk=new Set(S.skin);
     const p2=[],p3=[],fk=[];for(let t=0;t<f.length;t++){if(!sk.has(f[t]))continue;const m=S.maps.get(f[t]);fk.push(f[t]);
       for(let j=0;j<3;j++){const a=ix[3*t+j]*3;const q=[p[a],p[a+1],p[a+2]];const u=m.f(q);p2.push(u[0],u[1]);p3.push(...q)}}
     return {p2:new Float64Array(p2),p3:new Float32Array(p3),fk:new Int32Array(fk),m:I.m,faltung:S.faltung}};

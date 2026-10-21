@@ -128,6 +128,12 @@
 <div class="row"><select id="mat" title="Werkstoff wählen"><option value="7.85">Stahl (7,85 g/cm³)</option><option value="7.90">Edelstahl (7,90 g/cm³)</option><option value="2.70">Aluminium (2,70 g/cm³)</option><option value="8.96">Kupfer (8,96 g/cm³)</option><option value="8.50">Messing (8,50 g/cm³)</option><option value="custom">Eigene Dichte</option></select>
 <input id="dens" type="number" step="0.01" min="0" value="7.85" title="Dichte in g/cm³"> <span class="m">g/cm³</span></div>
 <div id="massinfo" class="kv"></div>
+<div class="ahead">Hüllquader und Rohmaß</div>
+<div class="row"><select id="huellArt" title="Achsparallel = Modellachsen; Gedreht = eine Achse folgt der gewählten Fläche oder Kante; Minimal = kleinstes Volumen"><option value="minimal" selected>Minimal (kleinstes Volumen)</option><option value="bezug">Gedreht zur gewählten Fläche/Kante</option><option value="achsparallel">Achsparallel (Modellachsen)</option></select> <button class="btn" id="huellRechnen" title="Hüllquader und Rohmaß der sichtbaren Teile berechnen">Berechnen</button></div>
+<div class="row"><label title="Hüllquader als Drahtmodell in der 3D-Ansicht"><input type="checkbox" id="huellZeigen" checked> Hüllquader zeigen</label> <label title="Schwerpunkt der sichtbaren Teile als Punkt in der 3D-Ansicht"><input type="checkbox" id="schwerpunktZeigen"> Schwerpunkt zeigen</label></div>
+<div id="huellinfo" class="kv"></div>
+<div class="ahead">Messprotokoll</div>
+<div class="row"><button class="btn" id="protPdf" title="Modellwerte, Hüllquader, Rohmaß, Bemaßungen und aktuelle Messung als PDF">Messprotokoll als PDF</button> <button class="btn" id="protXlsx" title="Dasselbe als Excel-Arbeitsmappe">Messprotokoll als Excel</button></div>
 <details><summary>Bedienung</summary>
 <p class="hint">Element anklicken (Rundung/Bogen: Radius und Bogenlänge sofort). Zweites Element anklicken: Abstand, Winkel, Lochabstand – wird als Bemaßung im 3D behalten. Weitere Arten über „Bemaßen“. Maus in „Auswählen“: Mitte ziehen = drehen, Rechts oder Umschalt+Mitte ziehen = schwenken, Rad = Zoom zum Cursor. Strg/Umschalt + Klick: weitere Kanten für die Gesamtlänge. Leertaste setzt die Auswahl zurück. F9 richtet eine schiefe Ansicht auf die nächste Standardansicht aus.</p>
 </details>
@@ -136,16 +142,23 @@
 <div class="pbody"><section id="tab-blech" hidden>
 <div class="row"><span>K-Faktor</span><select id="kmode" title="Wie der K-Faktor bestimmt wird"><option value="din">Automatisch (DIN 6935)</option><option value="manuell">Manuell</option></select><input id="kf" type="number" step="0.01" min="0" max="1" value="0.50" disabled title="K-Faktor (Lage der neutralen Faser, 0 … 1)"></div>
 <div class="row"><span>Werkstoff</span><select id="mat2" title="Werkstoff (Dichte für die Masse)"><option value="7.85">Stahl (7,85 g/cm³)</option><option value="7.90">Edelstahl (7,90 g/cm³)</option><option value="2.70">Aluminium (2,70 g/cm³)</option><option value="8.96">Kupfer (8,96 g/cm³)</option></select></div>
-<div class="row"><label class="btn" title="Eigene Biegetabelle als CSV laden (Spalten: s; ri; Winkel; v oder K)">Biegetabelle laden …<input id="csv" type="file" accept=".csv,.txt" hidden></label><button class="btn" id="csvClear" title="Eigene Biegetabelle entfernen" hidden>Entfernen</button><button class="btn" id="calcSheet">Berechnen</button></div>
+<div class="row"><label class="btn" title="Eigene Biegetabelle als CSV laden (Spalten: s; ri; Winkel; v, BD oder K; optional Werkstoff)">Biegetabelle laden …<input id="csv" type="file" accept=".csv,.txt" hidden></label><button class="btn" id="csvClear" title="Eigene Biegetabelle entfernen" hidden>Entfernen</button><button class="btn" id="calcSheet">Berechnen</button></div>
 <div id="csvinfo" class="hint"></div>
 <div class="row"><span>Feste Fläche</span> <span id="festInfo" class="m">automatisch (größte Blechfläche)</span></div>
 <div class="row"><button class="btn" id="festWaehlen" title="Danach in der 3D-Ansicht eine ebene Blechfläche anklicken – sie bleibt bei der Abwicklung liegen">Feste Fläche wählen</button> <button class="btn" id="festAuto" title="Wieder die größte Blechfläche verwenden" hidden>Automatisch</button></div>
+<div class="ahead">Scharfe Kanten und geschlossene Ecken</div>
+<div class="row"><label title="Kanten ohne Biegeradius mit diesem Innenradius abwickeln (der Radius steht nicht in der Datei)"><input type="checkbox" id="riAn"> Innenradius annehmen</label> <input id="riWert" type="number" step="0.1" min="0.1" value="2" style="width:5em" title="Angenommener Innenradius in mm"> <span class="m">mm</span></div>
+<div class="row"><span>Virtueller Riss</span> <span id="rissInfo" class="m">keiner</span></div>
+<div class="row"><button class="btn" id="rissSetzen" title="Geschlossene Ecke auftrennen: zuerst die Eckkante in der 3D-Ansicht wählen">Riss an gewählter Kante</button> <button class="btn" id="rissLoeschen" hidden title="Alle Risse entfernen">Risse löschen</button></div>
 <div id="sheeterr"></div><div id="sheetinfo" class="kv"></div>
 <div id="bends"></div>
 <div id="flatprev"></div>
+<div class="ahead">Falten / Entfalten</div>
+<div class="row"><input type="range" id="faltRegler" min="0" max="100" value="0" step="1" style="flex:1" title="0 % = gefaltet (3D-Teil), 100 % = flach (Abwicklung)" disabled> <span id="faltWert" class="m">0 %</span></div>
+<div class="row"><button class="btn" id="faltPlay" title="Teil in der 3D-Ansicht entfalten und wieder falten" disabled>Animation abspielen</button> <button class="btn" id="faltAus" hidden title="Animation beenden und das Teil wieder zeigen">Teil wieder zeigen</button></div>
 <button class="btn primary" id="dxf" disabled title="Abwicklung als DXF-Datei speichern">Abwicklung als DXF speichern</button>
 <div class="row"><label title="Layer BESCHRIFTUNG mit „B1 AUF 90° Ri 2“ je Biegelinie (für den Laser meist aus)"><input type="checkbox" id="dxfText"> Biegenotizen im DXF (Layer BESCHRIFTUNG)</label></div>
-<p class="hint">DXF 1:1 in mm: Bohrungen als Kreis, Konturen als geschlossene Polylinie mit echten Bögen. Layer KONTUR, BIEGELINIEN_AUF, BIEGELINIEN_AB.</p>
+<p class="hint">DXF 1:1 in mm: Bohrungen als Kreis, Konturen als geschlossene Polylinie mit echten Bögen. Layer KONTUR, BIEGELINIEN_AUF, BIEGELINIEN_AB; aufgetrennte Kanten (virtueller Riss) zusätzlich auf Layer RISS (nicht plotten).</p>
 <div class="row"><button class="btn" id="expPdf" disabled title="Biegetabelle als PDF speichern">Biegetabelle als PDF</button> <button class="btn" id="expXlsx" disabled title="Biegetabelle als Excel-Datei (XLSX) speichern">Biegetabelle als Excel (XLSX)</button></div>
 <div id="sheetwarn" class="warn"></div>
 </section></div></div>

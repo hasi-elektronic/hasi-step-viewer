@@ -79,3 +79,4 @@ lin=await A(no=>window.__app.dims().find(d=>d.no===no),hoehe.linNo);if(lin.linAr
 console.log('hoehe ok: wahre Länge',hoehe.abstand.toFixed(4),'Höhe',hoehe.hoehe,'waagerecht',hoehe.waagerecht,'| Linear seitlich → Höhe 380, H → 60 gesperrt');
 if(SHOTS){await A(()=>document.activeElement?.blur());await p.mouse.move(cv.x+cv.width-80,cv.y+cv.height-80);await p.mouse.wheel(0,500);await p.waitForTimeout(300);await p.screenshot({path:path.join(SHOTS,'hoehe-schraeger-fuss.png')})}
 console.log('fehler',JSON.stringify(errs));await b.close();if(errs.length)process.exit(1);console.log('OK: Triade und Esc');
+await import('./smoke-faz2.mjs');

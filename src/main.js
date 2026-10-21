@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import * as BM from './bemassung.js';
 import { MARKE } from './marke.js';
+import { biegeNotizen } from './biegenotiz.js';
+import { falteNetz } from './falten.js';
 import { deltaLinien ,richtungsVektor,RICHTUNGEN} from './messen-hilfen.js';
 const $=id=>document.getElementById(id), view=$('view');
 if(MARKE.id==='sickinger'){document.documentElement.dataset.marke='sickinger';document.title=MARKE.produkt}
@@ -141,8 +143,8 @@ async function load(buf,name,opt){
     mesh.matrix.set(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8],m[9],m[10],m[11],0,0,0,1);mesh.name=I.name;mesh.userData.inst=i;mesh.userData.u=I.u;
     const el=new THREE.LineSegments(geos[I.u].eg,edgeMat);el.userData.inst=i;el.visible=$('showEdges').checked;mesh.add(el);edgeObjs.push(el);
     model.add(mesh);bodies.push(mesh)});
-  model.add(marks);model.add(hoverObj);wahlMark=new THREE.Group();model.add(wahlMark);festMark=new THREE.Group();model.add(festMark);if(triade)model.add(triade);
-  fest=null;festWahl=false;festAnzeigen();
+  model.add(marks);model.add(hoverObj);wahlMark=new THREE.Group();model.add(wahlMark);festMark=new THREE.Group();model.add(festMark);rissMark=new THREE.Group();model.add(rissMark);if(triade)model.add(triade);
+  fest=null;festWahl=false;festAnzeigen();riss=[];rissAnzeigen(null);faltObj=null;faltNetzCache=null;if(faltLauf){cancelAnimationFrame(faltLauf);faltLauf=null}$('faltRegler').disabled=$('faltPlay').disabled=true;$('faltAus').hidden=true;huelle=null;huellObj=null;spObj=null;$('huellinfo').innerHTML='';$('schwerpunktZeigen').checked=false;
   ursprung=data.inst.map(I=>I.m.slice());undoStapel=[];redoStapel=[];isoSnap=null;selNode=null;selMenge=new Set();selAnker=null;bewegenOffen=false;
   scene.add(model);model.updateMatrixWorld(true);box.setFromObject(model);
   vIdx=new Map();
@@ -289,7 +291,48 @@ function showModel(){const m=data.model,s=isFinite(m.bbox.min[0])?V3(m.bbox.max)
   kv($('modelinfo'),[['Einheit der Datei',U.name],['Anzeige','Millimeter'],...(m.ausgeblendet?[['Ausgeblendet (nicht gerechnet)',m.ausgeblendet+' Körper']]:[]),['Körper',m.solids],['Flächen',m.faces],['Kanten',m.edges],['Bounding-Box X',s.x,'L'],['Bounding-Box Y',s.y,'L'],['Bounding-Box Z',s.z,'L'],[m.approx?'Volumen (≈, Netz)':'Volumen',m.volume,'V'],[m.approx?'Oberfläche (≈, Netz)':'Oberfläche',m.area,'A'],['Schwerpunkt',m.centroid,'P'],...(m.unique&&m.unique!==m.solids?[['Einzelteile (Unikate)',m.unique]]:[])]);showMass()}
 const V3=a=>new THREE.Vector3(...a);
 function showMass(){if(!data)return;const d=parseFloat($('dens').value)||0;kv($('massinfo'),[['Volumen',data.model.volume,'V'],['Dichte',nf(d,2)+' g/cm³'],['Masse',data.model.volume/1000*d,'M']])}
-$('mat').onchange=()=>{if($('mat').value!=='custom')$('dens').value=$('mat').value;showMass()};$('dens').oninput=()=>{$('mat').value='custom';showMass()};
+$('mat').onchange=()=>{if($('mat').value!=='custom')$('dens').value=$('mat').value;showMass()};
+// ---------- Hüllquader, Rohmaß, Schwerpunkt, Messprotokoll ----------
+let huelle=null,huellObj=null,spObj=null;
+const sichtbareIds=()=>bodies.map((b,i)=>b.visible||b.userData.faltVersteckt?i:-1).filter(i=>i>=0);
+const huellBezug=()=>sels.find(x=>x.k==='face'||x.k==='edge'||x.k==='axis');
+async function huelleRechnen(art){if(!data)return null;art=art||$('huellArt').value;$('huellArt').value=art;const bez=huellBezug();
+  if(art==='bezug'&&!bez){$('status').textContent='Bitte zuerst eine ebene Fläche oder eine Kante als Bezug wählen.';return null}
+  const ids=sichtbareIds(),netze={};ids.forEach(i=>{const u=data.inst[i].u;netze[u]=data.uniq[u].p});
+  const r=await call('huelle',{opts:{ids,netze,bezug:bez?{k:bez.k,id:bez.id,inst:bez.inst??0}:null}});huelle=r;window.__huelle=r;
+  if(!r.ok){$('huellinfo').innerHTML=`<div>Hinweis</div><div>${r.msg}</div>`;return r}
+  const q=art==='bezug'?r.bezug:art==='achsparallel'?r.achsparallel:r.minimal;const name={minimal:'Hüllquader minimal',bezug:'Hüllquader gedreht',achsparallel:'Hüllquader achsparallel'}[art];
+  const rows=[];if(art==='bezug'&&r.bezugFehler)rows.push(['Hinweis',r.bezugFehler]);
+  if(q){rows.push([name+' L',q.sortiert[0],'L',true],[name+' B',q.sortiert[1],'L'],[name+' H',q.sortiert[2],'L'],['Quadervolumen',q.volumen,'V']);if(q.name)rows.push(['Bezug',q.name])}
+  const z=r.rohmass.zylinder,b=r.rohmass.block;
+  rows.push(['Rohmaß Block',`${nf(b.masse[0],PREC)} × ${nf(b.masse[1],PREC)} × ${nf(b.masse[2],PREC)} mm`]);if(z)rows.push(['Rohmaß Zylinder',`Ø ${nf(z.d,PREC)} × ${nf(z.l,PREC)} mm`]);
+  rows.push(['Rohmaß Empfehlung',r.rohmass.empfehlung+' (kleineres Volumen)']);
+  kv($('huellinfo'),rows);huellZeichnen(q);return r}
+function huellZeichnen(q){if(huellObj){huellObj.removeFromParent();huellObj.geometry.dispose();huellObj=null}if(!q||!$('huellZeigen').checked||!model){needs=true;return}
+  const E=[[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]],a=[];E.forEach(([i,j])=>a.push(...q.ecken[i],...q.ecken[j]));
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(a,3));huellObj=new THREE.LineSegments(g,new THREE.LineDashedMaterial({color:0xe07b00,dashSize:3,gapSize:2,depthTest:false,transparent:true}));
+  huellObj.computeLineDistances();huellObj.renderOrder=5;model.add(huellObj);needs=true}
+function schwerpunktZeigen(){if(spObj){spObj.removeFromParent();spObj.traverse(o=>{o.geometry?.dispose();o.material?.dispose?.()});spObj=null}
+  if(!$('schwerpunktZeigen').checked||!data||!model){needs=true;return null}const c=data.model.centroid,s=(box.getSize(new THREE.Vector3()).length()||100)*0.012;
+  spObj=new THREE.Group();const m=new THREE.MeshBasicMaterial({color:0xd81b60,depthTest:false,transparent:true});const k=new THREE.Mesh(new THREE.SphereGeometry(s,20,14),m);k.renderOrder=6;spObj.add(k);
+  const a=[];for(let j=0;j<3;j++){const e=[0,0,0];e[j]=s*3;a.push(-e[0],-e[1],-e[2],...e)}const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(a,3));
+  const l=new THREE.LineSegments(g,new THREE.LineBasicMaterial({color:0xd81b60,depthTest:false,transparent:true}));l.renderOrder=6;spObj.add(l);spObj.position.set(...c);spObj.userData.schwerpunkt=c;model.add(spObj);needs=true;return c}
+$('huellRechnen').onclick=()=>huelleRechnen();$('huellArt').onchange=()=>{if(huelle)huelleRechnen()};
+$('huellZeigen').onchange=()=>{if(huelle){const a=$('huellArt').value;huellZeichnen(a==='bezug'?huelle.bezug:a==='achsparallel'?huelle.achsparallel:huelle.minimal)}};
+$('schwerpunktZeigen').onchange=()=>schwerpunktZeigen();
+const EINHEIT={L:'mm',W:'°',A:'mm²',V:'mm³',M:'g'};
+async function protokollDatenSammeln(){if(!data)return null;if(!huelle||!huelle.ok)await huelleRechnen($('huellArt').value==='bezug'&&!huellBezug()?'minimal':$('huellArt').value);
+  const d=parseFloat($('dens').value)||0;const m=data.model;
+  const wert=(v,k)=>k==='P'?v.map(x=>nf(x,PREC)).join(' / '):k==='M'?v:typeof v==='number'?v:v;
+  const bem=dims.map(x=>{const r=mainRow(x.r);const tol=x.tol&&x.tol.art&&x.tol.art!=='keine'?BM.massText(x,{...STIL,stellen:PREC}).filter(Boolean).join(' '):'–';
+    return {nr:x.no,art:x.title||r[0],wert:wert(r[1],r[2]),einheit:EINHEIT[r[2]]||(r[2]==='P'?'mm':''),toleranz:tol,elemente:(x.sels||[]).map(s=>{try{return label(s)}catch{return s.k}}).join(' / ')}});
+  const mess=(lastRes?.r?.rows||[]).map(r=>[r[0],wert(r[1],r[2]),EINHEIT[r[2]]||(r[2]==='P'?'mm':'')]);
+  const PM=await import('./messprotokoll.js');
+  return PM.protokollDaten({meta:{datei:window.__lastLoad?.name||'',produkt:MARKE.produkt||'Hasi 3D',werkstoff:$('mat').value==='custom'?`eigene Dichte ${nf(d,2)} g/cm³`:$('mat').selectedOptions[0]?.textContent,stellen:PREC},
+    modell:{volume:m.volume,area:m.area,masse:m.volume/1000*d,centroid:m.centroid},huelle,bemassungen:bem,messung:mess})}
+$('protPdf').onclick=async()=>{const D=await protokollDatenSammeln();if(!D)return;const PM=await import('./messprotokoll.js');const meta={produkt:MARKE.produkt||'Hasi 3D',stellen:PREC};
+  if(MARKE.logo)Object.assign(meta,{kopfFarbe:MARKE.akzentRgb,logo:await logoDaten()});await saveBytes(baseName()+'_Messprotokoll.pdf',PM.protokollPdf(D,meta),'PDF-Dokument','pdf','application/pdf')};
+$('protXlsx').onclick=async()=>{const D=await protokollDatenSammeln();if(!D)return;const PM=await import('./messprotokoll.js');await saveBytes(baseName()+'_Messprotokoll.xlsx',await PM.protokollXlsx(D),'Excel-Arbeitsmappe','xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')};$('dens').oninput=()=>{$('mat').value='custom';showMass()};
 $('file').onchange=async e=>{const f=e.target.files[0];if(f)load(await f.arrayBuffer(),f.name).catch(err=>$('status').textContent=err.message)};
 // In der Desktop-App fängt Tauri das Ziehen ab (on_webview_event). Im Browser bleibt HTML5.
 if(!window.__TAURI_INTERNALS__){
@@ -549,9 +592,40 @@ async function festSetzen(s){festWahl=false;fest={inst:s.inst,id:s.id};if(data&&
 $('festWaehlen').onclick=()=>{if(!data)return;festWahl=true;setWerkzeug('wahl');festAnzeigen()};
 $('festAuto').onclick=()=>{fest=null;festWahl=false;festAnzeigen();if(data)calcSheet()};
 $('dxfText').onchange=()=>{if(data)calcSheet()};
+$('riAn').onchange=()=>{if(data)calcSheet()};$('riWert').onchange=()=>{if(data&&$('riAn').checked)calcSheet()};
+// Virtueller Riss (ZW3D „Rip“): Kanten geschlossener Ecken auftrennen; gewählt wird in der 3D-Ansicht (auch die Innen- oder Außenkante der Ecke)
+let riss=[],rissMark=null;
+function rissAnzeigen(r){rissMark?.clear();const info=$('rissInfo');if(!info)return;$('rissLoeschen').hidden=!riss.length;
+  if(!riss.length){info.textContent='keiner';return}
+  const n=r?.rissKanten?.length||0;info.textContent=`${riss.length} gewählt`+(r?.ok?` · ${n} Kante(n) aufgetrennt`:'');
+  const inst=sheetSolid??0;(r?.rissKanten||[]).forEach(id=>rissMark?.add(hiObj({k:'edge',id,inst},0x9c27b0)));needs=true}
+async function rissSetzen(liste){const inst=sheetSolid??0;const neu=(liste||sels.filter(x=>x.k==='edge'||x.k==='mid').map(x=>({inst:x.inst??0,id:x.id}))).filter(x=>x.inst===inst);
+  if(!neu.length){$('status').textContent='Bitte zuerst eine Kante der geschlossenen Ecke wählen.';return null}
+  neu.forEach(x=>{if(!riss.some(y=>y.inst===x.inst&&y.id===x.id))riss.push(x)});tabTo('blech');return calcSheet()}
+$('rissSetzen').onclick=()=>rissSetzen();
+$('rissLoeschen').onclick=()=>{riss=[];if(data)calcSheet();else rissAnzeigen(null)};
+// Falten/Entfalten in der 3D-Ansicht: Blechhaut des Teils, alle Biegungen gleichzeitig (λ = 0 gefaltet … 1 flach)
+let faltNetzCache=null,faltObj=null,faltLauf=null;
+async function faltNetzHolen(){if(!faltNetzCache){const u=data.uniq[data.inst[sheetSolid??0].u];faltNetzCache=await call('faltNetz',{netz:{p:u.p,i:u.i,f:u.f}})}return faltNetzCache}
+async function faltSetzen(lambda){if(!data||!sheetCache?.faltung)return null;const N=await faltNetzHolen();if(!N)return null;
+  const inst=sheetSolid??0,B=bodies[inst];
+  if(!faltObj){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(N.p2.length/2*3),3));
+    faltObj=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0xd9a441,metalness:.2,roughness:.55,side:THREE.DoubleSide}));faltObj.matrixAutoUpdate=false;faltObj.matrix.copy(B.matrix);faltObj.userData.inst=inst;model.add(faltObj)}
+  const pos=faltObj.geometry.attributes.position;falteNetz(N,N.faltung,lambda,pos.array);pos.needsUpdate=true;faltObj.geometry.computeVertexNormals();faltObj.geometry.computeBoundingSphere();
+  B.userData.faltVersteckt=true;B.visible=false;faltObj.visible=true;if(rissMark)rissMark.visible=false;$('faltAus').hidden=false;
+  $('faltRegler').value=String(Math.round(lambda*100));$('faltWert').textContent=Math.round(lambda*100)+' %';needs=true;return pos.array}
+function faltEnde(){if(faltLauf){cancelAnimationFrame(faltLauf);faltLauf=null}
+  if(faltObj){faltObj.removeFromParent();faltObj.geometry.dispose();faltObj.material.dispose();faltObj=null}
+  bodies.forEach(b=>{if(b.userData.faltVersteckt){b.userData.faltVersteckt=false;b.visible=true}});if(rissMark)rissMark.visible=true;
+  if($('faltRegler')){$('faltRegler').value='0';$('faltWert').textContent='0 %';$('faltAus').hidden=true}needs=true}
+$('faltRegler').oninput=()=>{if(faltLauf){cancelAnimationFrame(faltLauf);faltLauf=null}faltSetzen(+$('faltRegler').value/100)};
+$('faltAus').onclick=()=>faltEnde();
+$('faltPlay').onclick=async()=>{if(faltLauf){cancelAnimationFrame(faltLauf);faltLauf=null}await faltNetzHolen();const T=2600,t0=performance.now();
+  const schritt=now=>{const u=Math.min(1,(now-t0)/(2*T));const l=u<.5?u*2:2-u*2;const e=l*l*(3-2*l);faltSetzen(e);faltLauf=u<1?requestAnimationFrame(schritt):null};faltLauf=requestAnimationFrame(schritt)};
 // K-Faktor-Modus, Werkstoff, eigene Biegetabelle
 let biegetabelle=null;try{biegetabelle=JSON.parse(localStorage.getItem('biegetabelle')||'null')}catch{}
-function showCsv(){$('csvinfo').textContent=biegetabelle?`Eigene Biegetabelle aktiv: ${biegetabelle.name} (${biegetabelle.rows.length} Zeilen) – hat Vorrang.`:'Keine eigene Biegetabelle geladen.';$('csvClear').hidden=!biegetabelle}
+function showCsv(){const ws=[...new Set((biegetabelle?.rows||[]).map(r=>r.werkstoff).filter(Boolean))],sp=[...new Set((biegetabelle?.rows||[]).map(r=>r.spalte).filter(Boolean))];
+  $('csvinfo').textContent=biegetabelle?`Eigene Biegetabelle aktiv: ${biegetabelle.name} (${biegetabelle.rows.length} Zeilen${sp.length?', Spalte '+sp.join('/'):''}${ws.length?', Werkstoffe: '+ws.join(', ')+' – es gilt der gewählte Werkstoff':''}) – hat Vorrang.`:'Keine eigene Biegetabelle geladen.';$('csvClear').hidden=!biegetabelle}
 showCsv();
 $('kmode').onchange=()=>{$('kf').disabled=$('kmode').value!=='manuell';if(data)calcSheet()};
 $('mat2').onchange=()=>{$('mat').value=$('mat2').value;$('dens').value=$('mat2').value;showMass();if(sheetCache)calcSheet()};
@@ -562,19 +636,27 @@ window.__setBiegetabelle=(name,rows)=>{biegetabelle={name,rows};showCsv()};
 function schenkelTab(bends,n2){const rows=bends.flatMap(b=>(b.schenkel||[]).map((l,i)=>`<tr><td>${b.nr}</td><td>${i+1}</td><td>${l.aussen!=null?n2(l.aussen):'–'}</td><td>${l.innen!=null?n2(l.innen):'–'}</td><td>${n2(l.geradeAussen)}</td><td>${l.geradeInnen!=null?n2(l.geradeInnen):'–'}</td></tr>`));
   return rows.length?`<table class="schenkel"><tr><th>Nr.</th><th>Schenkel</th><th title="gerader Teil + R·tan(φ/2), außen">bis Biegep. außen</th><th title="gerader Teil + R·tan(φ/2), innen">bis Biegep. innen</th><th>gerade außen</th><th>gerade innen</th></tr>${rows.join('')}</table>`:''}
 async function calcSheet(){if(!data)return;const K=parseFloat(String($('kf').value).replace(',','.'));if(!(K>=0&&K<=1)){$('sheetwarn').textContent='K-Faktor muss zwischen 0 und 1 liegen.';return}
-  const opts={modus:$('kmode').value,K,tabelle:biegetabelle?.rows||null,beschriftung:!!$('dxfText')?.checked,basis:fest&&(sheetSolid??0)===fest.inst?fest.id:null};
-  const r=await call('sheet',{opts,inst:sheetSolid});sheetCache=r;window.__lastSheet=r;
+  const riW=parseFloat(String($('riWert').value).replace(',','.'));if($('riAn').checked&&!(riW>0)){$('sheetwarn').textContent='Angenommener Innenradius muss größer als 0 sein.';return}
+  const opts={modus:$('kmode').value,K,tabelle:biegetabelle?.rows||null,werkstoff:$('mat2').selectedOptions[0]?.textContent||'',beschriftung:!!$('dxfText')?.checked,basis:fest&&(sheetSolid??0)===fest.inst?fest.id:null,
+    riAnnahme:$('riAn').checked?riW:null,riss:riss.filter(x=>x.inst===(sheetSolid??0)).map(x=>x.id)};
+  faltEnde();const r=await call('sheet',{opts,inst:sheetSolid});sheetCache=r;window.__lastSheet=r;faltNetzCache=null;rissAnzeigen(r);
+  $('faltRegler').disabled=$('faltPlay').disabled=!(r.ok&&r.faltung&&r.bends?.length);
   if(!r.ok){$('expPdf').disabled=$('expXlsx').disabled=true;$('sheeterr').innerHTML=`<div class="err"><b>Keine Abwicklung</b><br>• ${r.msg}</div>`;$('sheetinfo').innerHTML='';$('bends').innerHTML='';$('flatprev').innerHTML='';$('dxf').disabled=true;$('sheetwarn').textContent=r.msg;return}
   const rows=[['Teil',sheetSolid==null?'gesamtes Modell':(nodeOfBody(sheetSolid)?.name||'Körper '+(sheetSolid+1))],['Blechdicke (erkannt)',r.t,'L'],['K-Faktor',r.modus==='din'?(r.bends.some(b=>b.quelle==='Tabelle')?(r.bends.every(b=>b.quelle==='Tabelle')?'nach Biegetabelle':'nach Biegetabelle / DIN 6935 (je Biegung)'):'nach DIN 6935 (je Biegung)'):nf(K,2)],...(biegetabelle?[['Biegetabelle',biegetabelle.name]]:[]),['Biegungen',r.bends.length]];
   if(r.flat)rows.push(['Zuschnitt Länge',Math.max(...r.flat.size),'L'],['Zuschnitt Breite',Math.min(...r.flat.size),'L']);
   try{const q=await call('props',{ids:[sheetSolid??0]});const d=parseFloat($('mat2').value);rows.push(['Werkstoff',$('mat2').selectedOptions[0].textContent],['Masse',q.volume/1000*d,'M'])}catch{}
   kv($('sheetinfo'),rows);
   const n2=v=>nf(v,2);
-  $('bends').innerHTML=r.bends.length?`<table><tr><th>Nr.</th><th title="Innenradius">Ri</th><th>Winkel</th><th>Richtung</th><th title="Biegezugabe (neutrale Faser)">BZ</th><th title="Biegeverkürzung">v</th><th title="K-Faktor und Quelle">K</th></tr>${r.bends.map(b=>`<tr><td>${b.nr}</td><td>${n2(b.ri)}</td><td>${nf(b.ang,1)}°</td><td>${b.dir}</td><td>${n2(b.ba)}</td><td>${b.v==null?'–':n2(b.v)}</td><td title="${b.quelle}">${nf(b.K,3)}<span class="m"> ${b.quelle==='DIN 6935'?'DIN':b.quelle==='Tabelle'?'Tab.':'man.'}</span></td></tr>`).join('')}</table>${schenkelTab(r.bends,n2)}<p class="hint">Längen in mm. Schenkel bis Biegepunkt = gerader Teil + R·tan(Winkel/2); gerader Teil = ohne Biegung. BZ = Biegezugabe = Winkel·(Ri + K·s), K nach DIN 6935: K = (0,65 + 0,5·lg(Ri/s))/2 für Ri/s &lt; 5, sonst 0,5; v = BZ − 2·(Ri + s)·tan(Winkel/2). Biegelänge: ${r.bends.map(b=>n2(b.len)).join(' / ')} mm.</p>`:'<p class="hint">Keine zylindrischen Biegungen gefunden.</p>';
+  $('bends').innerHTML=r.bends.length?`<table><tr><th>Nr.</th><th title="Innenradius">Ri</th><th>Winkel</th><th>Richtung</th><th title="Biegezugabe (neutrale Faser)">BZ</th><th title="Ausgleichswert nach DIN 6935">v</th><th title="Biegeverkürzung: Zuschnitt = Summe der Außenmaße − BD">BD</th><th title="K-Faktor und Quelle">K</th></tr>${r.bends.map(b=>`<tr${b.angenommen?' class="angenommen" title="Innenradius angenommen, nicht aus der Datei"':''}><td>${b.nr}</td><td>${n2(b.ri)}${b.angenommen?'*':''}</td><td>${nf(b.ang,1)}°</td><td>${b.dir==='nach oben'?'AUF':'AB'} <span class="m">(${b.dir})</span></td><td>${n2(b.ba)}</td><td>${b.v==null?'–':n2(b.v)}</td><td>${b.bd==null?'–':n2(b.bd)}</td><td title="${b.quelle}${b.tabelle?` · Spalte ${b.tabelle.spalte}${b.tabelle.werkstoff?' · '+b.tabelle.werkstoff:''}`:''}">${nf(b.K,3)}<span class="m"> ${b.quelle==='DIN 6935'?'DIN':b.quelle==='Tabelle'?'Tab.':'man.'}</span></td></tr>`).join('')}</table>${r.bends.some(b=>b.angenommen)?'<p class="warn">* Innenradius angenommen, nicht aus der Datei.</p>':''}${schenkelTab(r.bends,n2)}<p class="hint">Längen in mm. Schenkel bis Biegepunkt = gerader Teil + R·tan(Winkel/2); gerader Teil = ohne Biegung. BZ = Biegezugabe = Winkel·(Ri + K·s), K nach DIN 6935: K = (0,65 + 0,5·lg(Ri/s))/2 für Ri/s &lt; 5, sonst 0,5; v = BZ − 2·(Ri + s)·tan(Winkel/2), BD = −v (Zuschnitt = Summe der Außenmaße − BD). Biegelänge: ${r.bends.map(b=>n2(b.len)).join(' / ')} mm.</p>`:'<p class="hint">Keine zylindrischen Biegungen gefunden.</p>';
   $('flatprev').innerHTML=r.flat?svg(r.flat):'';$('dxf').disabled=!r.flat||!!r.flat.incomplete;$('expPdf').disabled=$('expXlsx').disabled=!r.flat||!!r.flat.incomplete||!r.bends.length;$('dxf').title=r.flat?.incomplete?'DXF gesperrt: Abwicklung unvollständig oder fehlerhaft':'Abwicklung als DXF speichern';
   const warn=[...r.warn,'Hinweis: Abwicklung für Blechteile mit zylindrischen Biegungen (auch Biegung an Biegung, Laschen in mehrere Richtungen). Werte vor der Fertigung prüfen.'];$('sheeterr').innerHTML=r.fehler?.length?`<div class="err"><b>Abwicklung unvollständig – DXF gesperrt</b><br>${r.fehler.map(w=>'• '+w).join('<br>')}</div>`:'';$('sheetwarn').innerHTML=warn.filter(w=>!w.startsWith('ACHTUNG')).map(w=>'• '+w).join('<br>');return r}
-function svg(f){const pad=Math.max(...f.size)*0.04,w=f.size[0]+2*pad,h=f.size[1]+2*pad;const tr=p=>`${(p[0]-f.min[0]+pad).toFixed(3)},${(f.max[1]-p[1]+pad).toFixed(3)}`;const sw=Math.max(w,h)/400;
-  return `<svg viewBox="0 0 ${w.toFixed(3)} ${h.toFixed(3)}" xmlns="http://www.w3.org/2000/svg">${f.contour.map(pl=>`<polyline points="${pl.map(tr).join(' ')}" fill="none" stroke="${f.incomplete?'#c62828':'#1d1d1f'}" stroke-width="${sw}"/>`).join('')}${f.bendLines.map(b=>`<polyline points="${b.map(tr).join(' ')}" stroke="#d0342c" stroke-width="${sw}" stroke-dasharray="${sw*6} ${sw*4}"/>`).join('')}</svg>`}
+// Vorschau der Abwicklung: Kontur, Biegelinien (rot AUF / blau AB), Richtungspfeile mit Notiz „B1 AUF 90° Ri 2“, Risskanten violett
+function svg(f){const N0=biegeNotizen(f),fs0=Math.max(...f.size)/40,pad=Math.max(...f.size)*0.06,w=f.size[0]+2*pad,h=f.size[1]+2*pad;const X=p=>p[0]-f.min[0]+pad,Y=p=>f.max[1]-p[1]+pad;const tr=p=>`${X(p).toFixed(3)},${Y(p).toFixed(3)}`;const sw=Math.max(w,h)/400;
+  const N=N0,fs=fs0,farbe=n=>n.auf?'#d0342c':'#1f6fd1';
+  const pfeile=N.map(n=>{const [a,b]=n.pfeil,d=n.richtung,k=n.laenge*0.35,qx=[-d[1],d[0]];const s1=[b[0]-d[0]*k+qx[0]*k*0.5,b[1]-d[1]*k+qx[1]*k*0.5],s2=[b[0]-d[0]*k-qx[0]*k*0.5,b[1]-d[1]*k-qx[1]*k*0.5];
+    const tx=X(n.anker)-d[0]*fs*0.9,ty=Y(n.anker)+d[1]*fs*0.9;
+    return `<g class="biegenotiz" data-nr="${n.nr}" data-richtung="${n.auf?'AUF':'AB'}" data-dx="${d[0].toFixed(6)}" data-dy="${d[1].toFixed(6)}"><line x1="${X(a).toFixed(3)}" y1="${Y(a).toFixed(3)}" x2="${X(b).toFixed(3)}" y2="${Y(b).toFixed(3)}" stroke="${farbe(n)}" stroke-width="${sw*1.6}"/><polygon points="${[b,s1,s2].map(tr).join(' ')}" fill="${farbe(n)}"/><text x="${tx.toFixed(3)}" y="${ty.toFixed(3)}" font-size="${fs.toFixed(3)}" fill="${farbe(n)}" text-anchor="middle" dominant-baseline="middle" transform="rotate(${(-n.winkel).toFixed(2)} ${tx.toFixed(3)} ${ty.toFixed(3)})" font-family="sans-serif">${n.text}</text></g>`}).join('');
+  return `<svg viewBox="0 0 ${w.toFixed(3)} ${h.toFixed(3)}" xmlns="http://www.w3.org/2000/svg">${f.contour.map(pl=>`<polyline points="${pl.map(tr).join(' ')}" fill="none" stroke="${f.incomplete?'#c62828':'#1d1d1f'}" stroke-width="${sw}"/>`).join('')}${(f.rissLinien||[]).map(pl=>`<polyline class="riss" points="${pl.map(tr).join(' ')}" fill="none" stroke="#9c27b0" stroke-width="${sw*2.2}"/>`).join('')}${f.bendLines.map((b,i)=>`<polyline points="${b.map(tr).join(' ')}" stroke="${N[i]&&!N[i].auf?'#1f6fd1':'#d0342c'}" stroke-width="${sw}" stroke-dasharray="${sw*6} ${sw*4}"/>`).join('')}${pfeile}</svg>`}
 $('dxf').onclick=async()=>{if(!sheetCache?.dxf||sheetCache.flat?.incomplete)return;const name=(window.__lastLoad?.name||'teil').replace(/\.(step|stp)$/i,'')+'_Abwicklung.dxf';
   const inv=window.__TAURI_INTERNALS__?.invoke;
   if(inv){try{const ok=await inv('save_text',{name,content:sheetCache.dxf});if(ok)$('status').textContent='DXF gespeichert: '+name}catch(e){$('status').textContent='Fehler beim Speichern: '+e}}
@@ -598,7 +680,7 @@ function menueZu(){document.querySelectorAll('.menuliste').forEach(m=>m.hidden=t
 function zeigeReiter(name){const t=$('dateitab');if(!t)return;t.hidden=false;$('dateiname').textContent=name;$('dateiname').title=name}
 function dateiSchliessen(){anim=null;drehen=false;$('btnDreh')?.classList.remove('on');
   if(model){scene.remove(model);model.traverse(o=>{o.geometry?.dispose?.()});baseMat?.dispose?.()}
-  model=null;data=null;bodies=[];edgeObjs=[];baseMat=null;treeRoot=null;nodes=[];selNode=null;selMenge=new Set();sheetCache=null;sheetSolid=null;fest=null;festWahl=false;festAnzeigen();
+  model=null;data=null;bodies=[];edgeObjs=[];baseMat=null;treeRoot=null;nodes=[];selNode=null;selMenge=new Set();sheetCache=null;sheetSolid=null;fest=null;festWahl=false;festAnzeigen();riss=[];rissAnzeigen(null);if(faltLauf){cancelAnimationFrame(faltLauf);faltLauf=null}faltObj=null;faltNetzCache=null;huelle=null;huellObj=null;spObj=null;$('huellinfo').innerHTML='';
   ursprung=[];undoStapel=[];redoStapel=[];isoSnap=null;if(triade)triade.visible=false;if($('bewegenPanel'))$('bewegenPanel').hidden=true;
   $('tree').innerHTML='';$('modelinfo').innerHTML='';$('massinfo').innerHTML='';
   clearSel();dims=[];dimSel=null;$('dimedit').hidden=true;renderDims();
@@ -785,7 +867,7 @@ function knotenNachName(name){return nodes.find(n=>n.name===name)||null}
 // ---------- Test-Schnittstelle ----------
 window.__viewMenu=(x,y)=>viewMenu(x,y);window.__loadUrl=async u=>load(await (await fetch(u)).arrayBuffer(),u.split('/').pop());
 window.__loadBytes=(buf,name)=>load(buf,name);window.__call=call;
-window.__app={hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position.toArray(),fitIso:()=>fit(views.iso),dimLabels:()=>dimHits.map(h=>[[h.x,h.y,0],h.no]),exportPng,exportPdf,editDim:no=>editDim(dims.find(d=>d.no===no)),stil:()=>STIL,dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
+window.__app={huelle:a=>huelleRechnen(a),schwerpunkt:()=>{$('schwerpunktZeigen').checked=true;return schwerpunktZeigen()},protokollDaten:()=>protokollDatenSammeln(),faltSetzen,faltEnde,faltNetz:()=>faltNetzHolen(),rissSetzen,riss:()=>riss,huellObj:()=>huellObj&&!!huellObj.parent,hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position.toArray(),fitIso:()=>fit(views.iso),dimLabels:()=>dimHits.map(h=>[[h.x,h.y,0],h.no]),exportPng,exportPdf,editDim:no=>editDim(dims.find(d=>d.no===no)),stil:()=>STIL,dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
   screenOf:p=>{const r=renderer.domElement.getBoundingClientRect();const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*r.width+r.left,(1-w.y)/2*r.height+r.top]},
   ausrichtung:()=>{const d=camera.position.clone().sub(controls.target).normalize();return {blick:Math.max(...ACHSEN.map(a=>Math.abs(d.dot(a)))),oben:Math.max(...ACHSEN.map(a=>Math.abs(camera.up.dot(a)))),dir:d.toArray(),up:camera.up.toArray()}},
   schief:()=>{if(!model)return;const c=box.getCenter(new THREE.Vector3()),s=box.getSize(new THREE.Vector3()).length()||1;camera.position.copy(c).add(new THREE.Vector3(.35,.15,1).normalize().multiplyScalar(s*1.7));camera.up.set(.45,.75,.4).normalize();controls.target.copy(c);camera.lookAt(c);controls.update();anim=null;needs=true},
