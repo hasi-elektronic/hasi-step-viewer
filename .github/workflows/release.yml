@@ -48,6 +48,7 @@ jobs:
           node tools/smoke-drop.mjs
           SHOT=docs/hasi-oberflaeche.png node tools/smoke-ui.mjs
           node tools/smoke-drehen.mjs
+          node tools/smoke-messen.mjs
           node tools/smoke-baugruppe.mjs
           SHOT=docs/hasi-baugruppe.png node tools/smoke-baugruppe-ui.mjs
       - name: Marke Sickinger (Frontend)

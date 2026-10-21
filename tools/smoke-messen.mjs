@@ -6,11 +6,12 @@ const p=await b.newPage({viewport:{width:1500,height:900}});const errs=[];p.on('
 await p.goto(process.env.URL||'http://localhost:4173/');
 const fail=m=>{throw new Error(m)};
 await p.evaluate(()=>window.__loadUrl('./messteil.step'));
+await p.waitForFunction(()=>window.__lastLoad&&window.__lastLoad.bodies>0,null,{timeout:60000});await p.waitForTimeout(800); // Einpassen ist animiert: erst danach Raster absuchen
 const sel=(f,a)=>p.evaluate(f,a);
 // Fangen per Maus: Raster absuchen, bis Kantenmitte / Ecke / Kreismittelpunkt gefangen werden
 const found=await p.evaluate(()=>{const o={};for(let y=150;y<800;y+=6)for(let x=300;x<1150;x+=6){const s=window.__app.pickAt(x,y);if(s&&!o[s.k])o[s.k]=[x,y]}return o});
 console.log('fangen',JSON.stringify(Object.keys(found)));for(const k of ['vertex','mid','center','edge','face'])if(!found[k])fail('Fangart fehlt: '+k);
-await p.mouse.move(...found.center);await p.waitForTimeout(250);const tip=await p.textContent('#snaptip');console.log('hover',tip);if(tip!=='Kreismittelpunkt')fail('Hover-Vorschau fehlt');
+await p.mouse.move(...found.center);await p.waitForTimeout(250);const tip=await p.textContent('#snaptip');console.log('hover',tip);if(!/^Kreismittelpunkt( · |$)/.test(tip||''))fail('Hover-Vorschau fehlt'); // Tipp nennt seit Faz 2 auch das Teil
 await p.screenshot({path:'docs/messen-fangen.png'});
 await p.mouse.move(1400,450);await p.waitForTimeout(150);if(await p.evaluate(()=>window.__app.hoverCount())!==0||await p.isVisible('#snaptip'))fail('Hover-Marker bleibt nach Verlassen stehen');
 await p.mouse.move(...found.center);await p.waitForTimeout(150);await p.mouse.move(600,860);await p.waitForTimeout(150);if(await p.evaluate(()=>window.__app.hoverCount())!==0)fail('Hover-Marker bleibt neben dem Objekt stehen');console.log('hover-verlassen ok');
