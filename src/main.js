@@ -152,7 +152,33 @@ function flaechenNormalWelt(s){const B=bodies[s.inst??0];if(!B?.geometry?.userDa
   const welt=B.localToWorld(mid);if(n.dot(welt.sub(box.getCenter(new THREE.Vector3())))<0)n.negate();return n}
 function f10(){if(!model)return;const face=[...sels].reverse().find(s=>s.k==='face');if(!face){animiereAnsicht('iso');return}const n=flaechenNormalWelt(face);if(!n){animiereAnsicht('iso');return}animiere(n,upSenkrecht(n,camera.up))}
 function setStil(stil){const draht=stil==='draht',kanten=stil==='kanten'||draht;$('showEdges').checked=stil==='kanten';if($('stilWahl'))$('stilWahl').value=stil;
-  edgeObjs.forEach(e=>e.visible=kanten);if(baseMat){baseMat.transparent=draht;baseMat.opacity=draht?0.04:1;baseMat.depthWrite=!draht;baseMat.needsUpdate=true}needs=true}
+  edgeObjs.forEach(e=>e.visible=kanten);drahtModus=draht;koerperMats().forEach(m=>{m.transparent=draht;m.opacity=draht?0.04:1;m.depthWrite=!draht;m.needsUpdate=true});needs=true}
+// ---------- STEP-Farben (nativer Kern) ----------
+// Teil- und Flächenfarben aus der STEP-Datei; ohne Farbe bleibt das gewohnte Grau (baseMat). Schalter im Menü „Ansicht“.
+let farbenAn=localStorage.getItem('stepFarben')!=='aus',farbMats=new Map(),vcMatObj=null,drahtModus=false;
+const GRUNDFARBE=0xb9bec7,SRGB=THREE.SRGBColorSpace;
+const zuFarbe=c=>new THREE.Color().setRGB(((c>>16)&255)/255,((c>>8)&255)/255,(c&255)/255,THREE.SRGBColorSpace);
+const koerperMats=()=>[baseMat,vcMatObj,...farbMats.values()].filter(Boolean);
+function farbMat(c){if(!farbMats.has(c)){const m=baseMat.clone();m.color=zuFarbe(c);farbMats.set(c,m)}return farbMats.get(c)}
+function vcMat(){if(!vcMatObj){vcMatObj=baseMat.clone();vcMatObj.color=new THREE.Color(0xffffff);vcMatObj.vertexColors=true}return vcMatObj}
+// Farbe je Dreieck: Instanz-Flächenfarbe, Teil-Flächenfarbe, sonst Körperfarbe (Instanz vor Teil) bzw. Grau
+function farbGeometrie(g,ff,rest,instFF){const f=g.userData.face,n=f.length,a=new Float32Array(n*9),cache=new Map();
+  for(let t=0;t<n;t++){const fi=f[t];const c=instFF&&instFF[fi]!=null?instFF[fi]:(ff&&ff[fi]?ff[fi]&0xffffff:rest);let v=cache.get(c);if(!v){const k=zuFarbe(c);v=[k.r,k.g,k.b];cache.set(c,v)}a.set(v,t*9);a.set(v,t*9+3);a.set(v,t*9+6)}
+  const gc=new THREE.BufferGeometry();gc.setAttribute('position',g.attributes.position);gc.setAttribute('normal',g.attributes.normal);gc.setAttribute('color',new THREE.BufferAttribute(a,3));gc.userData=g.userData;gc.boundingBox=g.boundingBox;gc.boundingSphere=g.boundingSphere;return gc}
+function transpVon(m){if(!m.userData.transp){const t=m.clone();t.transparent=true;t.opacity=.3;t.depthWrite=false;m.userData.transp=t}return m.userData.transp}
+function farbenAnwenden(){if(!data||!bodies.length)return;const geteilt=new Map();
+  bodies.forEach((b,i)=>{const I=data.inst[i],u=data.uniq[I.u],g=b.userData.geo;let geo=g,mat=baseMat;
+    if(farbenAn){const hatFF=!!(u.ff&&u.ff.some(x=>x)),instFF=I.ff&&Object.keys(I.ff).length?I.ff:null;
+      if(hatFF||instFF){mat=vcMat();if(!instFF&&I.farbe==null){if(!geteilt.has(I.u))geteilt.set(I.u,farbGeometrie(g,u.ff,u.farbe??GRUNDFARBE,null));geo=geteilt.get(I.u)}
+        else geo=farbGeometrie(g,u.ff,I.farbe??u.farbe??GRUNDFARBE,instFF)}
+      else{const c=I.farbe??u.farbe;if(c!=null)mat=farbMat(c)}}
+    b.geometry=geo;b.userData.mat=mat;b.material=b.userData.transp?transpVon(mat):mat});
+  koerperMats().forEach(m=>{m.clippingPlanes=baseMat.clippingPlanes;m.transparent=drahtModus;m.opacity=drahtModus?0.04:1;m.depthWrite=!drahtModus;m.needsUpdate=true});
+  const hat=data.uniq.some(u=>u.farbe!=null||u.ff)||data.inst.some(I=>I.farbe!=null||I.ff);const mb=$('menuFarben');
+  if(mb){mb.textContent=(farbenAn?'✓ ':'')+'STEP-Farben anzeigen';mb.title=hat?'Farben aus der STEP-Datei zeigen oder einheitlich grau darstellen':(data.kernArt==='nativ'?'Diese Datei enthält keine Farben':'Farben werden nur mit dem nativen Kern (Desktop-App) gelesen')}
+  needs=true}
+window.__farben=()=>({an:farbenAn,koerper:bodies.map(b=>({name:b.name,farbe:b.geometry.attributes.color?'flaechen':'#'+b.material.color.getHexString(SRGB),grau:b.userData.mat===baseMat})),umschalten:()=>farbenUmschalten()});
+function farbenUmschalten(){farbenAn=!farbenAn;try{localStorage.setItem('stepFarben',farbenAn?'an':'aus')}catch{}farbenAnwenden()}
 function setWerkzeug(w){werkzeug=w;document.querySelectorAll('[data-werkzeug]').forEach(b=>b.classList.toggle('on',b.dataset.werkzeug===w));
   const mb={LEFT:null,MIDDLE:THREE.MOUSE.ROTATE,RIGHT:THREE.MOUSE.PAN};
   if(w==='schwenk')mb.LEFT=THREE.MOUSE.PAN;if(w==='drehen')mb.LEFT=THREE.MOUSE.ROTATE;if(w==='zoom')mb.LEFT=THREE.MOUSE.DOLLY;controls.mouseButtons=mb}
@@ -192,10 +218,12 @@ async function load(buf,name,opt){
     const seg=[],segE=[];u.edges.forEach((e,i)=>{for(let k=1;k<e.pts.length;k++){seg.push(...e.pts[k-1],...e.pts[k]);segE.push(i)}});
     const eg=new THREE.BufferGeometry();eg.setAttribute('position',new THREE.Float32BufferAttribute(seg,3));eg.userData.edge=segE;return {g:g2,eg}});
   stufe('netze');edgeObjs=[];
-  data.inst.forEach((I,i)=>{const mesh=new THREE.Mesh(geos[I.u].g,baseMat);const m=I.m;mesh.matrixAutoUpdate=false;
+  farbMats=new Map();vcMatObj=null;
+  data.inst.forEach((I,i)=>{const mesh=new THREE.Mesh(geos[I.u].g,baseMat);mesh.userData.geo=geos[I.u].g;mesh.userData.mat=baseMat;const m=I.m;mesh.matrixAutoUpdate=false;
     mesh.matrix.set(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8],m[9],m[10],m[11],0,0,0,1);mesh.name=I.name;mesh.userData.inst=i;mesh.userData.u=I.u;
     const el=new THREE.LineSegments(geos[I.u].eg,edgeMat);el.userData.inst=i;el.visible=$('showEdges').checked;mesh.add(el);edgeObjs.push(el);
     model.add(mesh);bodies.push(mesh)});
+  farbenAnwenden();stufe('farben');
   model.add(marks);model.add(hoverObj);wahlMark=new THREE.Group();model.add(wahlMark);festMark=new THREE.Group();model.add(festMark);rissMark=new THREE.Group();model.add(rissMark);if(triade)model.add(triade);
   fest=null;festWahl=false;festAnzeigen();riss=[];rissAnzeigen(null);faltObj=null;faltNetzCache=null;if(faltLauf){cancelAnimationFrame(faltLauf);faltLauf=null}$('faltRegler').disabled=$('faltPlay').disabled=true;$('faltAus').hidden=true;huelle=null;huellObj=null;spObj=null;$('huellinfo').innerHTML='';$('schwerpunktZeigen').checked=false;
   ursprung=data.inst.map(I=>I.m.slice());undoStapel=[];redoStapel=[];isoSnap=null;selNode=null;selMenge=new Set();selAnker=null;bewegenOffen=false;
@@ -300,7 +328,7 @@ async function act(a,n){
   if(a==='isoEnde'){if(!isoSnap)return;const map=new Map(isoSnap);nodes.forEach(x=>{if(map.has(x.id))x.checked=map.get(x.id)});isoSnap=null;applyVis();renderTree()}
   if(a==='showall'){isoSnap=null;nodes.forEach(x=>x.checked=true);applyVis();renderTree()}
   if(a==='invert'){umkehren();applyVis();renderTree()}
-  if(a==='transp'){const ziel=n&&selMenge.has(n)&&selMenge.size?[...selMenge]:[n];const an=!n.transp;if(!transpMat){transpMat=baseMat.clone();transpMat.transparent=true;transpMat.opacity=.3;transpMat.depthWrite=false}ziel.forEach(x=>{x.transp=an;x.all.forEach(i=>{if(bodies[i])bodies[i].material=an?transpMat:baseMat})});needs=true;renderTree()}
+  if(a==='transp'){const ziel=n&&selMenge.has(n)&&selMenge.size?[...selMenge]:[n];const an=!n.transp;if(!transpMat){transpMat=baseMat.clone();transpMat.transparent=true;transpMat.opacity=.3;transpMat.depthWrite=false}ziel.forEach(x=>{x.transp=an;x.all.forEach(i=>{const b=bodies[i];if(b){b.userData.transp=an;b.material=an?transpVon(b.userData.mat||baseMat):(b.userData.mat||baseMat)}})});needs=true;renderTree()}
   if(a==='zoom')zoomTo(n);
   if(a==='move'){bewegenOffen=true;if($('bewegenPanel'))$('bewegenPanel').hidden=false;triadeAktualisieren()}
   if(a==='measure'){tabTo('messen');if(n.all.length===1){clearSel();await select({k:'solid',inst:n.all[0]})}else{$('selinfo').textContent='Messen: bitte ein einzelnes Teil wählen.'}}
@@ -756,7 +784,7 @@ function drucken(){if(!model){$('status').textContent='Keine Datei zum Drucken';
   const doc=f.contentDocument;doc.open();doc.write('<!doctype html><title>Drucken</title><style>html,body{margin:0}img{max-width:100%}</style><img src="'+url+'">');doc.close();
   setTimeout(()=>{try{f.contentWindow.focus();f.contentWindow.print()}catch{$('status').textContent='Drucken ist in dieser Ansicht nicht verfügbar'}},60)}
 function oeffneExport(anker){const m=$('exportMenue');document.querySelectorAll('.menuliste').forEach(x=>{if(x!==m)x.hidden=true});m.hidden=false;const r=anker.getBoundingClientRect();m.style.position='fixed';m.style.left=Math.max(8,r.left)+'px';m.style.top=(r.bottom+4)+'px'}
-const aktion={
+const aktion={stepFarben:()=>farbenUmschalten(),
   oeffnen:()=>$('file').click(),screenshot:()=>screenshot(),exportPng:()=>$('dimPng').click(),exportPdf:()=>$('dimPdf').click(),dxf:()=>$('dxf').click(),expPdf:()=>$('expPdf').click(),expXlsx:()=>$('expXlsx').click(),
   drucken,schliessen:dateiSchliessen,einpassen:()=>$('fit').click(),f9,f10,schnitt:()=>$('btnSchnitt').click(),messen:()=>tabTo('messen'),bemassung:()=>$('btnMass').click(),blech:()=>tabTo('blech'),
   baum:()=>$('baum').classList.contains('zu')?$('baumLasche').click():$('baumZu').click(),drehen:()=>$('btnDreh').click(),zurueck:()=>animiereAnsicht('iso'),verschieben:()=>selNode?act('move',selNode):($('status').textContent='Bitte zuerst ein Bauteil im Baum oder in der Ansicht wählen.'),hilfe:()=>{$('hilfeDlg').hidden=false},einstellungen:()=>{$('einstDlg').hidden=false},
@@ -938,10 +966,15 @@ const einzelWahl=(()=>{try{return {lage:'eigen',schema:'AP214',...JSON.parse(loc
 // Aktuelle Lage (mit „Komponente verschieben“) als 3×4-Matrix zeilenweise
 function lageAktuell(i){const e=bodies[i].matrix.elements;return [e[0],e[4],e[8],e[12],e[1],e[5],e[9],e[13],e[2],e[6],e[10],e[14]]}
 // Ein Körper: eigenes Koordinatensystem (m=null) oder Lage in der Baugruppe; Unterbaugruppe: immer in Baugruppenlage
-function einzelTeile(n,lage){const ids=n.all||[];if(ids.length===1){const i=ids[0];return [{u:data.inst[i].u,m:lage==='baugruppe'?lageAktuell(i):null}]}
-  return ids.map(i=>({u:data.inst[i].u,m:lageAktuell(i)}))}
+// Farben eines Körpers für den Kern-Auftrag: „RRGGBB;Fläche:RRGGBB,…“ (Instanz vor Teil), null = ohne Farbe
+const hex6=c=>(c&0xffffff).toString(16).padStart(6,'0');
+function farbAuftrag(i){const I=data.inst[i],u=data.uniq[I.u];const k=I.farbe??u.farbe;const fl=new Map();
+  if(u.ff)u.ff.forEach((c,fi)=>{if(c)fl.set(fi,c&0xffffff)});if(I.ff)for(const [fi,c] of Object.entries(I.ff))fl.set(+fi,c);
+  if(k==null&&!fl.size)return null;return (k!=null?hex6(k):'-')+(fl.size?';'+[...fl].map(([fi,c])=>fi+':'+hex6(c)).join(','):'')}
+function einzelTeile(n,lage){const ids=n.all||[];if(ids.length===1){const i=ids[0];return [{u:data.inst[i].u,m:lage==='baugruppe'?lageAktuell(i):null,f:farbAuftrag(i)}]}
+  return ids.map(i=>({u:data.inst[i].u,m:lageAktuell(i),f:farbAuftrag(i)}))}
 // Jedes Unikat einmal, benannt nach seiner ersten Instanz, im eigenen Koordinatensystem
-function alleEinzelteile(){const ges=new Map();data.inst.forEach((I,i)=>{if(!ges.has(I.u))ges.set(I.u,{name:ohneNummer(nodeOfBody(i)?.name||I.name),teile:[{u:I.u,m:null}]})});return [...ges.values()]}
+function alleEinzelteile(){const ges=new Map();data.inst.forEach((I,i)=>{if(!ges.has(I.u))ges.set(I.u,{name:ohneNummer(nodeOfBody(i)?.name||I.name),teile:[{u:I.u,m:null,f:farbAuftrag(i)}]})});return [...ges.values()]}
 let exportStop=false;
 function exportAnzeige(text){const el=$('exportLauf');if(text==null){el.hidden=true;return}el.hidden=false;$('exportText').textContent=text}
 window.__exportStufe=(k,n)=>{if(!$('exportLauf').hidden)exportAnzeige(n>1?`STEP wird geschrieben … ${k} von ${n}`:'STEP wird geschrieben …')};
@@ -998,6 +1031,9 @@ function einzelDialog(art,n){
   $('einzelLageF').hidden=art==='alleStep'||!einer;$('einzelSchemaF').hidden=art==='einzelOeffnen';
   dlg.querySelector(`input[name=einzelLage][value=${einzelWahl.lage==='baugruppe'?'baugruppe':'eigen'}]`).checked=true;
   dlg.querySelector(`input[name=einzelSchema][value=${einzelWahl.schema==='AP242'?'AP242':'AP214'}]`).checked=true;
+  const nativ=!!window.__TAURI_INTERNALS__&&data.kernArt==='nativ'&&localStorage.getItem('export')!=='wasm';const hw=dlg.querySelector('.einzelHinweis');
+  hw.textContent='Einheit: mm · Produktname = Teilname · '+(nativ?'Farben werden übernommen':'ohne Farben');
+  hw.title=nativ?'Teil- und Flächenfarben aus der STEP-Datei werden mitgespeichert':'Der WASM-Kern (Browser) kann keine STEP-Farben lesen oder schreiben – die Datei wird ohne Farben gespeichert. Mit der Desktop-App (nativer Kern) bleiben die Farben erhalten.';
   $('einzelOk').textContent=art==='einzelOeffnen'?'Öffnen':art==='alleStep'?'Ordner wählen …':'Speichern …';
   dlg.hidden=false;$('einzelOk').focus();
   const zu=()=>{dlg.hidden=true;document.removeEventListener('keydown',taste,true)};

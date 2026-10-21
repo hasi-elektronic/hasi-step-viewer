@@ -129,23 +129,23 @@ export function createBrep(ocIn){
     const text=typeof stepHead==='string'?stepHead:new TextDecoder('latin1').decode(stepHead.subarray(0,Math.min(stepHead.length,4e6)));
     const unit=stepUnit(text);
     const arr=(C,[o,n])=>new C(buf,ds+o,n/4);
-    const U=meta.uniq.map((q,ui)=>{const u={nf:q.n[0],ne:q.n[1],nv:q.n[2],bb:q.bb,p:arr(Float32Array,q.p),i:arr(Uint32Array,q.i),f:arr(Uint32Array,q.f),native:q,ui};
+    const U=meta.uniq.map((q,ui)=>{const u={nf:q.n[0],ne:q.n[1],nv:q.n[2],bb:q.bb,p:arr(Float32Array,q.p),i:arr(Uint32Array,q.i),f:arr(Uint32Array,q.f),native:q,ui,farbe:q.farbe?parseInt(q.farbe,16):null,ff:q.ff?arr(Uint32Array,q.ff):null};
       for(const k of ['faces','edges','verts','shape'])Object.defineProperty(u,k,{get:()=>(M.ensure(ui),u['_'+k]),enumerable:false,configurable:true});return u});
-    const inst=[];const addInst=(u,m)=>{inst.push({u,m});return inst.length-1};
+    const inst=[];const addInst=(u,m,pfad,pd)=>{inst.push({u,m,pfad,pd});return inst.length-1};
     const stats={knoten:0,passend:0};let tree;const base=name.replace(/\.(step|stp)$/i,'');
     if(meta.modus==='parallel'){
       const pd=meta.pd;const isChild=new Set();Object.values(pd).forEach(e=>e.kids.forEach(k=>isChild.add(k[0])));
-      const solidsOf=(id,W)=>{const e=pd[id];if(!e)return [];const r=e.bodies.map(([u,m])=>addInst(u,mul34(W,m)));e.kids.forEach(([c,,m])=>r.push(...solidsOf(c,mul34(W,m))));return r};
-      const build=(id,sn,W)=>{stats.knoten++;const e=pd[id]||{kids:[],bodies:[]};const node={name:sn?sn.name:'Teil',children:[],bodies:[]};
-        if(!sn||!sn.children.length||!e.kids.length){node.bodies.push(...solidsOf(id,W));if(sn)stats.passend++;return node}
+      const solidsOf=(id,W,P)=>{const e=pd[id];if(!e)return [];const r=e.bodies.map(([u,m])=>addInst(u,mul34(W,m),P,id));e.kids.forEach(([c,na,m])=>r.push(...solidsOf(c,mul34(W,m),[...P,na])));return r};
+      const build=(id,sn,W,P)=>{stats.knoten++;const e=pd[id]||{kids:[],bodies:[]};const node={name:sn?sn.name:'Teil',children:[],bodies:[]};
+        if(!sn||!sn.children.length||!e.kids.length){node.bodies.push(...solidsOf(id,W,P));if(sn)stats.passend++;return node}
         if(e.kids.length===sn.children.length)stats.passend++;
-        e.kids.forEach(([c,,m],i)=>{const cs=sn.children[i]&&sn.children[i].product===c?sn.children[i]:null;const ch=build(c,cs||{name:'Teil',children:[]},mul34(W,m));if(ch.bodies.length||ch.children.length)node.children.push(ch)});
-        e.bodies.forEach(([u,m])=>node.bodies.push(addInst(u,mul34(W,m))));return node};
+        e.kids.forEach(([c,na,m],i)=>{const cs=sn.children[i]&&sn.children[i].product===c?sn.children[i]:null;const ch=build(c,cs||{name:'Teil',children:[]},mul34(W,m),[...P,na]);if(ch.bodies.length||ch.children.length)node.children.push(ch)});
+        e.bodies.forEach(([u,m])=>node.bodies.push(addInst(u,mul34(W,m),P,id)));return node};
       const roots=Object.keys(pd).map(Number).filter(id=>!isChild.has(id)).sort((a,b)=>a-b);
       const hroots=hier&&hier.roots||[];const sOf=id=>hroots.find(r=>r.product===id)||null;
-      if(roots.length===1&&pd[roots[0]].kids.length){tree=build(roots[0],sOf(roots[0])||{name:base,children:[]},ID34);if(!sOf(roots[0]))tree.name=base}
-      else if(roots.some(r=>pd[r].kids.length)){tree={name:base,children:[],bodies:[]};roots.forEach(r=>{const c=build(r,sOf(r)||{name:'Teil',children:[]},ID34);if(c.bodies.length||c.children.length)tree.children.push(c)})}
-      else{const ids=roots.flatMap(r=>solidsOf(r,ID34));const sr=hroots.length===1?hroots[0]:null;tree={name:(sr&&sr.name)||base,children:[],bodies:[]};
+      if(roots.length===1&&pd[roots[0]].kids.length){tree=build(roots[0],sOf(roots[0])||{name:base,children:[]},ID34,[]);if(!sOf(roots[0]))tree.name=base}
+      else if(roots.some(r=>pd[r].kids.length)){tree={name:base,children:[],bodies:[]};roots.forEach(r=>{const c=build(r,sOf(r)||{name:'Teil',children:[]},ID34,[]);if(c.bodies.length||c.children.length)tree.children.push(c)})}
+      else{const ids=roots.flatMap(r=>solidsOf(r,ID34,[]));const sr=hroots.length===1?hroots[0]:null;tree={name:(sr&&sr.name)||base,children:[],bodies:[]};
         if(ids.length===1)tree.bodies.push(ids[0]);else ids.forEach((x,i)=>tree.children.push({name:`Körper ${i+1}`,children:[],bodies:[x]}))}
     }else{
       // Rückfall-Modus des Kerns: OCCT-Struktur wie in M.load, Namen aus der STEP-Hierarchie
@@ -161,14 +161,19 @@ export function createBrep(ocIn){
       if(sroot&&sroot.children.length)tree=match(sroot,meta.tree);
       else{tree={name:(sroot&&sroot.name)||base,children:[],bodies:[]};const ss=allS(meta.tree);if(ss.length===1)tree.bodies.push(ss[0]);else ss.forEach((x,i)=>tree.children.push({name:`Körper ${i+1}`,children:[],bodies:[x]}))}
     }
+    // Instanzfarben aus der Baugruppe (Kern: „ueber“ mit NAUO-Pfad): gilt für Instanzen, deren Pfad alle NAUOs enthält
+    if(Array.isArray(meta.ueber)&&meta.ueber.length){const nachPd=new Map(),nachU=new Map();
+      meta.ueber.forEach((o,k)=>{const m=o.pd!=null?nachPd:nachU,key=o.pd!=null?o.pd:o.u;if(!m.has(key))m.set(key,[]);m.get(key).push({...o,k,rgb:parseInt(o.farbe,16)})});
+      inst.forEach(I=>{if(!I.pfad)return;const L=[...(nachPd.get(I.pd)||[]),...(nachU.get(I.u)||[])].sort((a,b)=>a.k-b.k);if(!L.length)return;const P=new Set(I.pfad);
+        for(const o of L){if(!o.pfad.every(n=>P.has(n)))continue;if(o.f){I.ff=I.ff||{};o.f.forEach(fi=>I.ff[fi]=o.rgb)}else I.farbe=o.rgb}})}
     numberNames(tree);bereinigeWurzel(tree,name);
     inst.forEach(I=>bindLoc(I,null));
     M.shape=null;M.uniq=U;M.inst=inst;M.unit=unit;M.vcache=new Map();M.nativeBrep=null;M.faces=[];M.edges=[];
     const nameOf=new Array(inst.length).fill('Körper');const w=n=>{n.bodies.forEach(b=>nameOf[b]=n.name);n.children.forEach(w)};w(tree);
     const times={...meta.times,js:Date.now()-t0};
     return {name,unit,tree,times,kern:{modus:meta.modus,threads:meta.threads,fehler:meta.fehler},stats:{...stats,unikate:U.length,instanzen:inst.length},
-      uniq:U.map(u=>({p:u.p,i:u.i,f:u.f,faces:u.native.faces.map(f=>({type:f.type,ax:f.ax})),edges:u.native.edges.map(e=>({type:e.type,pts:e.pts,c:e.c,n:e.n,r:e.r,mid:e.mid})),verts:u.native.verts})),
-      inst:inst.map((x,i)=>({u:x.u,m:x.m,name:nameOf[i]}))}};
+      uniq:U.map(u=>({p:u.p,i:u.i,f:u.f,faces:u.native.faces.map(f=>({type:f.type,ax:f.ax})),edges:u.native.edges.map(e=>({type:e.type,pts:e.pts,c:e.c,n:e.n,r:e.r,mid:e.mid})),verts:u.native.verts,farbe:u.farbe,ff:u.ff?u.ff.slice():null})),
+      inst:inst.map((x,i)=>({u:x.u,m:x.m,name:nameOf[i],farbe:x.farbe??null,ff:x.ff||null}))}};
   M.attachBrep=text=>{const t0=Date.now();oc.FS.writeFile('/m.brep',text);const sh=new oc.TopoDS_Shape();const b=new oc.BRep_Builder();
     const ok=tryCall(()=>oc.BRepTools.Read_2(sh,'/m.brep',b,new oc.Handle_Message_ProgressIndicator_1()),()=>oc.BRepTools.Read_2(sh,'/m.brep',b,new oc.Message_ProgressRange_1()));oc.FS.unlink('/m.brep'); // kurzer Name: ocjs 1.1.1 liest längere Pfade hier nicht
     if(ok===false||sh.IsNull())throw new Error('Messdaten des nativen Kerns konnten nicht gelesen werden ('+ok+','+text.length+')');
