@@ -21,8 +21,9 @@ self.onmessage=async e=>{const {id,cmd,args}=e.data;
     else if(cmd==='attach')r=B.attachBrep(args.text);
     else if(cmd==='lagen')r=B.lagen(args.m);
     else if(cmd==='props')r=B.solidProps(args.ids);
-    else if(cmd==='measure')r=B.measure(args.sels);
-    else if(cmd==='sheet'){r=B.sheet(args.opts??args.K,args.inst);if(r.flat&&!r.flat.incomplete)r.dxf=B.dxf(r.flat)}
+    else if(cmd==='modell')r=args.schnell?B.modelFast(args.ids):B.model(args.ids);
+    else if(cmd==='measure')r=B.measure(args.sels,args.opts||{});
+    else if(cmd==='sheet'){r=B.sheet(args.opts??args.K,args.inst);if(r.flat&&!r.flat.incomplete)r.dxf=B.dxf(r.flat,{beschriftung:!!(args.opts&&args.opts.beschriftung)})}
     const tr=[];if(cmd==='load')r.uniq.forEach(m=>tr.push(m.p.buffer,m.i.buffer,m.f.buffer));
     self.postMessage({id,ok:true,r},tr);
   }catch(err){
