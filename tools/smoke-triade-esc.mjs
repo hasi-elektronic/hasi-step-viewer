@@ -12,6 +12,7 @@ const SOLL=70,TOL=2;
 const triade=async name=>{await A(async name=>{const a=window.__app;const n=a.nodes().find(x=>x.name===name)||a.nodes()[0];a.selectNode(n);await a.act('move',n);a.fitIso()},name);await p.waitForTimeout(500)};
 const px=()=>A(()=>window.__app.triadePixel());const pruef=async was=>{const r=await px();if(r==null||Math.abs(r-SOLL)>TOL)fail(`Triade ${was}: ${r} px statt ${SOLL}`);return +r.toFixed(1)};
 await p.goto(URL);
+await p.evaluate(()=>{document.querySelectorAll('#messenErweitert,#blechDetails').forEach(d=>d.open=true);if(document.getElementById('messenPanel').hidden)document.getElementById('btnMessen').click()}); // Start ohne offenes Feld: für diesen Test Messen öffnen, „Erweitert“/„Details“ aufklappen
 // 1) Triade: gleiche Pixelgröße bei verschiedenen Teilen, Zoomstufen und Projektion
 const werte={};
 await laden('messbaugruppe.step');await triade('Boden');werte.baugruppe=await pruef('Baugruppe');
@@ -51,7 +52,7 @@ await A(()=>document.activeElement.blur());
 // d) sofort weiter messen
 await zweiFlaechen();await p.keyboard.press('Escape');await zweiFlaechen();z=await zustand();if(z.n!==2)fail('nach Esc nicht weiter messbar');
 // e) Klick ins Leere hebt die Auswahl auf, Bemaßungen bleiben
-await p.mouse.click(cv.x+60,cv.y+cv.height-60); // links unten: frei (rechts liegt die Seitenleiste)
+await p.mouse.click(cv.x+cv.width-60,cv.y+cv.height-60); // rechts unten: frei (Messen liegt unten links)
 await p.waitForTimeout(300);z=await zustand();if(z.n||z.txt)fail('Klick ins Leere hebt die Auswahl nicht auf');if(z.dims!==dims0)fail('Klick ins Leere löscht Bemaßungen');
 // f) zweites Esc ohne Mess-Auswahl hebt die Bauteilauswahl auf (Triade verschwindet)
 await triade('faz1-messteil');if(!await A(()=>window.__app.gizmo()))fail('Triade fehlt');await p.keyboard.press('Escape');

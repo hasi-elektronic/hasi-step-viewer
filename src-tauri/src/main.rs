@@ -886,21 +886,42 @@ fn start_pfad() -> Option<String> {
     START_PFAD.lock().ok().and_then(|mut slot| slot.take())
 }
 
-/// Speichert Text (z. B. DXF-Abwicklung) über den Speichern-Dialog des Systems.
+/// Hängt die Endung an, wenn der Dateiname keine hat (Windows-Dialog liefert sie nicht immer mit).
+fn mit_endung(p: std::path::PathBuf, ext: &str) -> std::path::PathBuf {
+    if ext.is_empty() || p.extension().is_some() {
+        return p;
+    }
+    let mut s = p.into_os_string();
+    s.push(".");
+    s.push(ext);
+    std::path::PathBuf::from(s)
+}
+
+/// Speichert Text (DXF-Abwicklung, Trumpf-GEO) über den Speichern-Dialog des Systems.
 #[tauri::command]
-async fn save_text(app: tauri::AppHandle, name: String, content: String) -> Result<bool, String> {
+async fn save_text(
+    app: tauri::AppHandle,
+    name: String,
+    content: String,
+    filter: Option<String>,
+    ext: Option<String>,
+) -> Result<bool, String> {
     use tauri_plugin_dialog::DialogExt;
+    let ext = ext.unwrap_or_else(|| "dxf".to_string());
+    let filter = filter.unwrap_or_else(|| "DXF-Zeichnung".to_string());
     let pfad = app
         .dialog()
         .file()
         .set_title("Abwicklung speichern")
         .set_file_name(&name)
-        .add_filter("DXF-Zeichnung", &["dxf"])
+        .add_filter(&filter, &[ext.as_str()])
         .blocking_save_file();
     match pfad {
         Some(p) => {
             let p = p.into_path().map_err(|e| format!("Ungültiger Pfad: {e}"))?;
-            std::fs::write(&p, content).map_err(|e| format!("Datei konnte nicht geschrieben werden: {e}"))?;
+            let p = mit_endung(p, &ext);
+            std::fs::write(&p, content.as_bytes())
+                .map_err(|e| format!("Datei konnte nicht geschrieben werden ({}): {e}", p.display()))?;
             Ok(true)
         }
         None => Ok(false),
@@ -921,6 +942,7 @@ async fn save_bytes(app: tauri::AppHandle, name: String, data: Vec<u8>, filter: 
     match pfad {
         Some(p) => {
             let p = p.into_path().map_err(|e| format!("Ungültiger Pfad: {e}"))?;
+            let p = mit_endung(p, &ext);
             std::fs::write(&p, data).map_err(|e| format!("Datei konnte nicht geschrieben werden: {e}"))?;
             Ok(true)
         }

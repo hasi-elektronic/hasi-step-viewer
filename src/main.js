@@ -51,15 +51,18 @@ const dock=document.createElement('div');dock.id='dock';view.appendChild(dock);
 const dockLasche=document.createElement('button');dockLasche.type='button';dockLasche.id='dockLasche';dockLasche.title='Seitenleiste ausklappen';dock.appendChild(dockLasche);
 for(const id of ['schnittPanel','bewegenPanel','props','messenPanel','blechPanel']){const el=$(id);if(el)dock.appendChild(el)}
 {const zu=$('blechZu');if(zu){const b=document.createElement('button');b.type='button';b.className='zuKnopf dockEin';b.id='blechEin';b.title='Einklappen';b.textContent='–';zu.before(b);b.style.marginLeft='auto';zu.style.marginLeft='0'}}
-let dockZustand={seite:'rechts',oben:null,zu:false};try{const g=JSON.parse(localStorage.getItem('seitenleiste')||'{}');if(g&&typeof g==='object')Object.assign(dockZustand,g)}catch{}
+// Standard wie eDrawings: kompaktes Messen-Feld unten links. Ältere gespeicherte Lage (vor v2, rechts oben) gilt nicht mehr.
+let dockZustand={v:2,seite:'links',oben:null,zu:false};try{const g=JSON.parse(localStorage.getItem('seitenleiste')||'{}');if(g&&typeof g==='object'){if(g.v!==2){delete g.seite;delete g.oben}Object.assign(dockZustand,g,{v:2})}}catch{}
 const DOCK_OBEN={rechts:184,links:56};
 function dockSpeichern(){try{localStorage.setItem('seitenleiste',JSON.stringify(dockZustand))}catch{}}
 function dockSichtbar(){return [...dock.children].filter(e=>e!==dockLasche&&!e.hidden)}
 function dockEinklappen(zu){dockZustand.zu=!!zu;dockSpeichern();dockAnwenden()}
 function dockAnwenden(){const z=dockZustand;if(z.seite!=='links')z.seite='rechts';dock.classList.toggle('links',z.seite==='links');dock.classList.toggle('zu',!!z.zu);
   const vh=view.clientHeight||600,min=DOCK_OBEN[z.seite];const oben=Math.round(Math.min(Math.max(Number.isFinite(z.oben)?z.oben:min,min),Math.max(min,vh-140)));
-  dock.style.top=oben+'px';dock.style.left=z.seite==='links'?'12px':'';dock.style.right=z.seite==='links'?'':'12px';
   const s=dockSichtbar();if(dock.hidden!==!s.length)dock.hidden=!s.length;
+  // Nur kompakte Felder (Messen, Schnitt): ohne gezogene Lage unten anliegen statt die ganze Höhe zu belegen
+  const kompakt=s.length>0&&s.every(e=>e.classList.contains('kompakt')||e.id==='schnittPanel');dock.classList.toggle('kompakt',kompakt);
+  dock.style.top=kompakt&&!z.zu&&!Number.isFinite(z.oben)?'auto':oben+'px';dock.style.left=z.seite==='links'?'12px':'';dock.style.right=z.seite==='links'?'':'12px';
   const haupt=s.find(e=>e.id==='messenPanel'||e.id==='blechPanel')||s[0];const name=haupt?.querySelector('.ptitel,.dhead')?.firstChild?.textContent?.trim()||'Seitenleiste';
   if(dockLasche.textContent!==name)dockLasche.textContent=name;freiraum()}
 function dockRechteck(){if(dock.hidden)return null;const r=dock.getBoundingClientRect(),v=view.getBoundingClientRect();return {x0:r.left-v.left,y0:r.top-v.top,x1:r.right-v.left,y1:r.bottom-v.top}}
@@ -70,9 +73,11 @@ function modellUnterDock(){const d=dockRechteck(),m=modellRechteck();return !!(d
 function freiraum(){if(!dockBereit)return;const w=view.clientWidth,h=view.clientHeight;let D=0;const d=dockRechteck();
   if(d&&w>0)D=Math.max(0,Math.min(dockZustand.seite==='links'?d.x1+12:w-d.x0+12,w*0.6));
   const alt=freiD;freiD=D;
-  if(D>0&&w>0&&h>0)camera.setViewOffset(w,h,dockZustand.seite==='links'?-D/2:D/2,0,w,h);else camera.clearViewOffset();
+  // Bildmitte um die Werkzeugleiste oben nach unten versetzt: hohe Teile stoßen nach dem Einpassen nicht oben an
+  if(w>0&&h>0)camera.setViewOffset(w,h,D>0?(dockZustand.seite==='links'?-D/2:D/2):0,-(SICHT_OBEN-SICHT_UNTEN)/2,w,h);else camera.clearViewOffset();
   camera.updateProjectionMatrix();needs=true;
-  if(model&&!anim&&!dockZug&&Math.abs(D-alt)>1&&modellUnterDock())fit()}
+  if(model&&!anim&&!dockZug&&Math.abs(D-alt)>1&&(modellUnterDock()||modellAusserhalb()))fit()}
+function modellAusserhalb(){const m=modellRechteck(),w=view.clientWidth,h=view.clientHeight;return !!(m&&(m.x0<-1||m.y0<-1||m.x1>w+1||m.y1>h+1))}
 let dockZug=null;
 dock.addEventListener('pointerdown',e=>{const kopf=e.target.closest('.ptitel,.dhead');if(!kopf||e.button!==0||e.target.closest('button,select,input,label,a'))return;
   const r=dock.getBoundingClientRect(),v=view.getBoundingClientRect();dockZug={dx:e.clientX-r.left,dy:e.clientY-r.top,v};dock.classList.add('zieht');try{kopf.setPointerCapture(e.pointerId)}catch{}e.preventDefault()});
@@ -91,6 +96,18 @@ function wuerfelSync(){if(!vr)return;const dir=camera.position.clone().sub(contr
   const q=camera.quaternion.clone().invert();const set=(id,v)=>{const p=v.clone().applyQuaternion(q);const el=$(id);if(!el)return;el.style.left=(50+p.x*46)+'%';el.style.top=(50-p.y*46)+'%'};
   set('kN',new THREE.Vector3(0,0,-1));set('kO',new THREE.Vector3(1,0,0));set('kS',new THREE.Vector3(0,0,1));set('kW',new THREE.Vector3(-1,0,0))}
 // Abstand fürs Einpassen; bei schmalem freiem Bereich (neben der Seitenleiste) zählt auch die freie Breite
+const SICHT_OBEN=62,SICHT_UNTEN=14; // Werkzeugleiste oben, Rand unten (px)
+// Einpassen wie eDrawings: Abstand so, dass der projizierte Hüllquader in die freie Fläche passt (unter der Werkzeugleiste, neben dem Feld)
+function einpassAbstand(c,d,up,s){let dist=sichtDistanz(s);const tar=c.clone();const w=view.clientWidth,h=view.clientHeight;if(!camera.isPerspectiveCamera||!w||!h||box.isEmpty())return {dist,tar};
+  const k=camera.clone();k.up.copy(up);const v=new THREE.Vector3(),aH=Math.max(80,h-SICHT_OBEN-SICHT_UNTEN),aW=Math.max(80,w-freiD-32),re=new THREE.Vector3(),ob=new THREE.Vector3();
+  // Mehrfach: Abstand so, dass der projizierte Hüllquader passt, und Ziel so verschoben, dass er mittig im freien Bereich liegt (Perspektive macht ihn sonst schief)
+  for(let i=0;i<6;i++){k.position.copy(tar).addScaledVector(d,dist);k.lookAt(tar);k.updateMatrixWorld();let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+    for(let j=0;j<8;j++){v.set(j&1?box.max.x:box.min.x,j&2?box.max.y:box.min.y,j&4?box.max.z:box.min.z).project(k);const x=(v.x+1)/2*w,y=(1-v.y)/2*h;x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y)}
+    v.copy(tar).project(k);const mx=(v.x+1)/2*w,my=(1-v.y)/2*h,dx=(x0+x1)/2-mx,dy=(y0+y1)/2-my;
+    const wpp=2*dist*Math.tan(k.fov*Math.PI/360)/h;re.setFromMatrixColumn(k.matrixWorld,0).normalize();ob.setFromMatrixColumn(k.matrixWorld,1).normalize();
+    tar.addScaledVector(re,dx*wpp).addScaledVector(ob,-dy*wpp);
+    const f=Math.max((y1-y0)/aH,(x1-x0)/aW)/0.92;if(Number.isFinite(f)&&Math.abs(f-1)>=0.01)dist=Math.max(dist*f,s*0.55);else if(Math.abs(dx)<1&&Math.abs(dy)<1)break}
+  return {dist,tar}}
 function sichtDistanz(s){const tan35=Math.tan(35*Math.PI/360);const h=view.clientHeight||1,fa=Math.min(1,Math.max(0.2,((view.clientWidth||h)-freiD)/h));return s*1.7*(tan35/(Math.tan(camera.fov*Math.PI/360)*fa))}
 function animSchritt(){const t=Math.min(1,(performance.now()-anim.t0)/anim.ms);const k=t*t*(3-2*t);
   const q=new THREE.Quaternion().setFromUnitVectors(anim.dirA,anim.dirB);const qi=new THREE.Quaternion().slerp(q,k);
@@ -131,14 +148,14 @@ function fit(dir){anim=null;if(!model)return;const s=box.getSize(new THREE.Vecto
   let d;if(dir)d=dir.clone();else{d=camera.position.clone().sub(controls.target);if(d.lengthSq()<1e-8)d=new THREE.Vector3(.8,.6,1)}
   d.normalize();camera.near=s/2000;camera.far=s*100;
   if(dir){camera.up.set(0,1,0);if(Math.abs(d.y)>.99)camera.up.set(0,0,-1)}
-  camera.position.copy(c).add(d.multiplyScalar(sichtDistanz(s)));camera.updateProjectionMatrix();controls.target.copy(c);controls.update();needs=true}
+  const ep=einpassAbstand(c,d,camera.up,s);camera.position.copy(ep.tar).add(d.multiplyScalar(ep.dist));camera.updateProjectionMatrix();controls.target.copy(ep.tar);controls.update();needs=true}
 function animiere(dir,up){if(!model)return;const s=box.getSize(new THREE.Vector3()).length()||1,c=box.getCenter(new THREE.Vector3());
   const d=dir.clone();if(d.lengthSq()<1e-8)d.set(.8,.6,1);d.normalize();const bUp=up.clone().normalize();
   camera.near=s/2000;camera.far=s*100;camera.updateProjectionMatrix();
-  const bPos=c.clone().add(d.multiplyScalar(sichtDistanz(s)));const aPos=camera.position.clone(),aTar=controls.target.clone();
-  const aOff=aPos.clone().sub(aTar),bOff=bPos.clone().sub(c);
+  const ep=einpassAbstand(c,d,bUp,s);const bPos=ep.tar.clone().add(d.clone().multiplyScalar(ep.dist));const aPos=camera.position.clone(),aTar=controls.target.clone();
+  const aOff=aPos.clone().sub(aTar),bOff=bPos.clone().sub(ep.tar);
   let dirA=aOff.clone();if(dirA.lengthSq()<1e-8)dirA=d.clone();dirA.normalize();const dirB=bOff.clone().normalize();
-  anim={t0:performance.now(),ms:420,aOff,bOff,aTar,bTar:c.clone(),aUp:camera.up.clone(),bUp,aLen:Math.max(aOff.length(),s*0.2),bLen:bOff.length(),dirA,dirB};needs=true}
+  anim={t0:performance.now(),ms:420,aOff,bOff,aTar,bTar:ep.tar.clone(),aUp:camera.up.clone(),bUp,aLen:Math.max(aOff.length(),s*0.2),bLen:bOff.length(),dirA,dirB};needs=true}
 function animiereAnsicht(name){const a=ANSICHT[name];if(a)animiere(new THREE.Vector3(...a.d),new THREE.Vector3(...a.up))}
 function naechsteAchse(v,sperre){let best=null,bd=-Infinity;for(const a of ACHSEN){if(sperre&&Math.abs(a.dot(sperre))>0.85)continue;const d=v.dot(a);if(d>bd){bd=d;best=a}}return (best||ACHSEN[0]).clone()}
 function upSenkrecht(dir,bevorzugt){const d=dir.clone().normalize();const p=(bevorzugt||camera.up).clone().addScaledVector(d,-d.dot(bevorzugt||camera.up));if(p.lengthSq()<1e-8)p.set(0,0,-1);p.normalize();
@@ -540,12 +557,12 @@ $('clearSel').onclick=()=>clearSel();
 // Messoptionen: Abstandsmethode und Projektion (Bildschirm = aktuelle Blickrichtung in Modellkoordinaten)
 // Bildschirmrichtungen in Modellkoordinaten: oben, rechts, blick (zum Betrachter hin)
 function sicht(){if(!model)return {};return {oben:camDir(new THREE.Vector3(0,1,0)),rechts:camDir(new THREE.Vector3(1,0,0)),blick:camDir(new THREE.Vector3(0,0,1))}}
-function messOpts(){const art=$('projektion')?.value||'keine';const pj={art};if(art==='bildschirm'&&model)pj.n=camDir(new THREE.Vector3(0,0,1));return {methode:$('methode')?.value||'auto',projektion:pj,richtung:$('massRichtung')?.value||'ausgerichtet',sicht:sicht()}}
+function messOpts(){const art=$('projektion')?.value||'keine';const pj={art};if(art==='bildschirm'&&model)pj.n=camDir(new THREE.Vector3(0,0,1));return {methode:$('methode')?.value||'auto',bogen:$('bogenAbstand')?.value||'mitte',projektion:pj,richtung:$('massRichtung')?.value||'ausgerichtet',sicht:sicht()}}
 function messGrafik(r){r.gfx.forEach(([a,b])=>{const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(a),V3(b)]),new THREE.LineBasicMaterial({color:0x1f8fd0,depthTest:false}));l.renderOrder=11;marks.add(l)});
   if(r.delta&&$('deltaZeigen')?.checked)deltaLinien(r.delta[0],r.delta[1]).forEach(d=>{const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(d.von),V3(d.bis)]),new THREE.LineBasicMaterial({color:d.farbe,depthTest:false}));l.renderOrder=11;l.userData.delta=d.achse;marks.add(l)})}
 async function neuMessen(){if(!sels.length)return;const s=sels.slice(),opts=messOpts();try{const r=await call('measure',{sels:s,opts});lastRes={r,sels:s,title:s.map(label).join(' + '),opts};
   marks.clear();s.forEach(x=>marks.add(hiObj(x,0x1f8fd0)));messGrafik(r);zeigeMessung(r);window.__lastMeasure=r;needs=true;return r}catch(err){$('mresult').innerHTML=`<div>Fehler</div><div>${err.message}</div>`}}
-function clearSel(){sels=[];reiheBezug=null;zeileHi.clear();if(vorschauLinie){vorschauLinie.removeFromParent();vorschauLinie=null}marks.clear();$('selinfo').textContent='';$('mresult').innerHTML='';window.__lastMeasure=null;needs=true}
+function clearSel(){sels=[];reiheBezug=null;zeileHi.clear();if(vorschauLinie){vorschauLinie.removeFromParent();vorschauLinie=null}marks.clear();$('selinfo').textContent='';$('mresult').innerHTML='';messLabels=[];ergebnisZeigen([]);try{drawDims()}catch{}window.__lastMeasure=null;needs=true}
 // ---------- Fläche zu Fläche (wie ZW3D „Instant Measure“) ----------
 // Q = nur Flächen fangen (bleibt gespeichert). Erste Fläche wählen, zweite überfahren → Vorschau des Hauptwerts am Cursor.
 // Umschalt+Klick misst gegen die erste Fläche (Bezug) weiter (Reihe). Esc löscht. Strg+C kopiert den Hauptwert.
@@ -614,12 +631,52 @@ if($('abmKnopf'))$('abmKnopf').onclick=()=>abmUmschalten();if($('abmGrund'))$('a
 async function offenPruefen(d0){try{await (window.__messBereit||Promise.resolve());const o=await call('offen',{});if(data!==d0)return;data.offen=o;showMass();showModel()}catch{}}
 let lastRes=null;
 function zeigeMessung(r){const namen=[...new Set(sels.map(teilName).filter(Boolean))];
-  kv($('mresult'),namen.length?[['Bauteil',namen.join(' · '),'t'],...r.rows]:r.rows);$('mresult')._linien=r.linien||{};zeileHi.clear();betonung()}
+  kv($('mresult'),namen.length?[['Bauteil',namen.join(' · '),'t'],...r.rows]:r.rows);$('mresult')._linien=r.linien||{};zeileHi.clear();betonung();
+  try{const e=edrwAuswertung(r,sels);messLabels=e.labels;ergebnisZeigen(e.zeilen)}catch(err){messLabels=[];ergebnisZeigen([])}needs=true}
+// ---------- Ergebnis wie eDrawings: Text im Feld „Ergebnisse“ und Werte direkt am Element im 3D ----------
+let messLabels=[];const LILA='#7b3fd0';
+const mitteP=(a,b)=>[(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2];
+const edrwFlaechen=()=>sels.length===2&&sels.every(x=>x.k==='face')&&!$('nurFlaechen')?.checked;
+function edrwAuswertung(r,ss){const z=[],L=[];const W=(n,v,k)=>n+': '+fmt(v,k);
+  if(ss.length===1){const s0=ss[0];
+    if(s0.k==='edge'){const ci=circleOf(s0),U=UQ(s0),p=TP(IM(s0),U.edges[s0.id].mid||U.edges[s0.id].pts[0]);
+      if(ci&&ci.voll){z.push(W('Durchmesser',2*ci.r,'L'),W('Radius',ci.r,'L'),W('Umfang',rowVal(r,'Kantenlänge')??2*Math.PI*ci.r,'L'))}
+      else if(ci){z.push(W('Radius',ci.r,'L'),W('Bogenlänge',rowVal(r,'Bogenlänge')??rowVal(r,'Kantenlänge'),'L'));const bw=rowVal(r,'Bogenwinkel');if(bw!=null)z.push(W('Bogenwinkel',bw,'W'))}
+      else z.push(W('Länge',rowVal(r,'Kantenlänge'),'L'));
+      L.push({p,zeilen:z.slice(0,ci?2:1)})}
+    else if(s0.k==='face'){const ri=rowVal(r,'Radius innen Ri'),rr=rowVal(r,'Radius R'),kd=rowVal(r,'Kugelradius R'),fl=rowVal(r,'Flächeninhalt');
+      if(ri!=null)z.push(W('Radius innen',ri,'L'),W('Radius außen',rowVal(r,'Radius außen Ra'),'L'),W('Biegewinkel',rowVal(r,'Biegewinkel'),'W'));
+      else if(rr!=null)z.push(W('Radius',rr,'L'),W('Durchmesser',2*rr,'L'));
+      else if(kd!=null)z.push(W('Kugelradius',kd,'L'));
+      const fa=r.rows.find(x=>x[0]==='Fase');if(fa)z.push('Fase: '+fa[1]);
+      if(fl!=null)z.push(W('Fläche',fl,'A'));const ci=circleOf(s0);const p=s0.p||(ci&&ci.c);if(p&&z.length)L.push({p,zeilen:z.slice(0,ri!=null||rr!=null?2:1)})}
+    else if(s0.k==='solid'){const v=rowVal(r,'Volumen');if(v!=null)z.push(W('Volumen',v,'V'))}
+    else{const q=pointOf(s0);if(q)z.push('Punkt: '+q.map(x=>nf(x,PREC)).join(' / '))}
+    return {zeilen:z,labels:L}}
+  if(ss.length!==2)return {zeilen:r.rows.filter(x=>x[2]&&x[2]!=='t'&&x[2]!=='P').slice(0,2).map(x=>W(x[0],x[1],x[2])),labels:[]};
+  const e=r.edrw,dl=(d)=>{z.push(W('Delta X',d[0],'L'),W('Delta Y',d[1],'L'),W('Delta Z',d[2],'L'))};
+  if(e&&e.parallel){z.push('Die zwei gewählten Elemente sind parallel.');if(e.normal!=null)z.push(W('Normaler Abstand',e.normal,'L'));z.push(W('Abstand',e.abstand,'L'));dl(e.delta);
+    if(e.normalPaar)L.push({p:mitteP(...e.normalPaar),zeilen:[W('Normaler Abst.',e.normal,'L')],farbe:LILA,linie:e.normalPaar});
+    if(e.normal==null||Math.abs(e.abstand-e.normal)>1e-6)L.push({p:mitteP(...e.abstandPaar),zeilen:[W('Abst.',e.abstand,'L')]});else if(!e.normalPaar)L.push({p:mitteP(...e.abstandPaar),zeilen:[W('Abst.',e.abstand,'L')]})}
+  else if(e){const ff=ss[0].k==='face'&&ss[1].k==='face';z.push(W(ff?'Mindestabstand':'Abstand',e.abstand,'L'));if(e.winkel!=null)z.push(W('Winkel',e.winkel,'W'));
+    const h=mainRow(r);if(h&&h[2]==='L'&&!/^Abstand min/.test(h[0])&&Math.abs(h[1]-e.abstand)>1e-9)z.push(W(h[0],h[1],'L'));dl(e.delta);
+    L.push({p:mitteP(...e.abstandPaar),zeilen:[W('Abst.',e.abstand,'L')]});if(e.winkel!=null&&e.abstand<1e-9&&r.gfx[0])L[0].zeilen=[W('Winkel',e.winkel,'W')]}
+  else{const h=mainRow(r);if(h)z.push(W(h[0],h[1],h[2]));const d=r.delta;if(d){dl([0,1,2].map(j=>Math.abs(d[1][j]-d[0][j])));L.push({p:mitteP(d[0],d[1]),zeilen:[W('Abst.',h&&h[2]==='L'?h[1]:Math.hypot(...[0,1,2].map(j=>d[1][j]-d[0][j])),'L')]})}}
+  return {zeilen:z,labels:ss.length===2&&!edrwFlaechen()?[]:L}}
+function ergebnisZeigen(zeilen){const el=$('ergebnis');if(!el)return;if(!zeilen.length){el.textContent='Kante, Fläche oder Punkt anklicken.';return}
+  el.innerHTML=zeilen.map((t,i)=>{const h=t.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));return /^Normaler/.test(t)?`<span class="lila">${h}</span>`:i===0?`<b>${h}</b>`:h}).join('\n')}
+function zeichneMesslabels(c){if(!messLabels.length||!model)return;c.save();c.font='600 12px Inter, system-ui, sans-serif';c.textBaseline='middle';
+  for(const l of messLabels){if(l.linie){const a=projL(l.linie[0]),b=projL(l.linie[1]);c.strokeStyle=l.farbe||'#1f8fd0';c.lineWidth=2;c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.stroke()}
+    const q=projL(l.p);if(q[2]>1)continue;const w=Math.max(...l.zeilen.map(t=>c.measureText(t).width))+14,h=l.zeilen.length*16+6;const x=q[0]+10,y=q[1]-h-6;
+    c.fillStyle='rgba(255,255,255,.95)';c.strokeStyle=l.farbe||'#2c333a';c.lineWidth=1.2;c.beginPath();if(c.roundRect)c.roundRect(x,y,w,h,4);else c.rect(x,y,w,h);c.fill();c.stroke();
+    c.beginPath();c.moveTo(q[0],q[1]);c.lineTo(x,y+h);c.stroke();c.fillStyle=l.farbe||'#1b2127';l.zeilen.forEach((t,i)=>c.fillText(t,x+7,y+3+8+i*16))}
+  c.restore()}
 async function select(s,add=false){if(sels.length>=2&&!add)clearSel();const clean={k:s.k,id:s.id,inst:s.inst,p:s.p};if(s.src)clean.src=s.src;sels.push(clean);marks.add(hiObj(clean,0x1f8fd0));
   $('selinfo').textContent=sels.map(label).join('  +  ');needs=true;
   try{const opts=messOpts();const r=await call('measure',{sels,opts});lastRes={r,sels:sels.slice(),title:sels.map(label).join(' + '),opts};zeigeMessung(r);
     messGrafik(r);
-    if(sels.length===2&&!add)keepDim();
+    // Zwei Flächen: wie eDrawings nur Werte an den Flächen (keine bleibende Bemaßung). Andere Paare und „Nur Flächen“ (Q, wie ZW3D): Bemaßung bleibt stehen
+    if(sels.length===2&&!add&&!edrwFlaechen())keepDim();
     window.__lastMeasure=r;needs=true;return r}catch(err){$('mresult').innerHTML=`<div>Fehler</div><div>${err.message}</div>`}}
 // ---------- Bemaßungen (bleiben im 3D stehen) ----------
 const dimGroup=new THREE.Group();dimGroup.renderOrder=20;let dims=[],dimNo=0;
@@ -630,7 +687,7 @@ let STIL={...BM.STIL_STANDARD,...JSON.parse(localStorage.getItem('massstil')||'{
 const projL=p=>{const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*view.clientWidth,(1-w.y)/2*view.clientHeight,w.z]};
 let dimHits=[],dimSel=null,dimDrag=null;
 function drawDims(){const c=overlay.getContext('2d');c.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);c.clearRect(0,0,overlay.width,overlay.height);dimHits=[];
-  if(!model)return;abmDims.forEach(d=>BM.zeichne(c,d,projL,STIL,'#0a8f5a'));if(!dims.length)return;dims.forEach(d=>{if(!d.typ)return;const h=BM.zeichne(c,d,projL,STIL,d.no===dimSel?'#e05a00':'#0a6fb0');if(h)dimHits.push({...h,no:d.no})})}
+  if(!model)return;abmDims.forEach(d=>BM.zeichne(c,d,projL,STIL,'#0a8f5a'));zeichneMesslabels(c);if(!dims.length)return;dims.forEach(d=>{if(!d.typ)return;const h=BM.zeichne(c,d,projL,STIL,d.no===dimSel?'#e05a00':'#0a6fb0');if(h)dimHits.push({...h,no:d.no})})}
 // Bemaßung aus der Auswahl bauen (Werte aus der B-Rep, Modellkoordinaten in mm)
 const IM=s=>data.inst[s.inst??0].m;const TP=(m,q)=>[m[0]*q[0]+m[1]*q[1]+m[2]*q[2]+m[3],m[4]*q[0]+m[5]*q[1]+m[6]*q[2]+m[7],m[8]*q[0]+m[9]*q[1]+m[10]*q[2]+m[11]];
 const TD=(m,q)=>BM.V.norm([m[0]*q[0]+m[1]*q[1]+m[2]*q[2],m[4]*q[0]+m[5]*q[1]+m[6]*q[2],m[8]*q[0]+m[9]*q[1]+m[10]*q[2]]);
@@ -793,7 +850,17 @@ let biegetabelle=null;try{biegetabelle=JSON.parse(localStorage.getItem('biegetab
 function showCsv(){const ws=[...new Set((biegetabelle?.rows||[]).map(r=>r.werkstoff).filter(Boolean))],sp=[...new Set((biegetabelle?.rows||[]).map(r=>r.spalte).filter(Boolean))];
   $('csvinfo').textContent=biegetabelle?`Eigene Biegetabelle aktiv: ${biegetabelle.name} (${biegetabelle.rows.length} Zeilen${sp.length?', Spalte '+sp.join('/'):''}${ws.length?', Werkstoffe: '+ws.join(', ')+' – es gilt der gewählte Werkstoff':''}) – hat Vorrang.`:'Keine eigene Biegetabelle geladen.';$('csvClear').hidden=!biegetabelle}
 showCsv();
-$('kmode').onchange=()=>{$('kf').disabled=$('kmode').value!=='manuell';if(data)calcSheet()};
+// K-Faktor: MS3D (Sickinger) startet „Trumpf-kompatibel“ (Biegeabzüge wie TruTops Boost an der TruBend), Hasi 3D mit DIN 6935. Die Wahl bleibt gespeichert.
+{const g=localStorage.getItem('kmodus');$('kmode').value=['din','trumpf','manuell'].includes(g)?g:(MARKE.id==='sickinger'?'trumpf':'din');$('kf').disabled=$('kmode').value!=='manuell'}
+$('kmode').onchange=()=>{$('kf').disabled=$('kmode').value!=='manuell';try{localStorage.setItem('kmodus',$('kmode').value)}catch{}if(data)calcSheet()};
+{const g=localStorage.getItem('flachLage');if(g==='original'||g==='trumpf')$('flachLage').value=g;$('flachLage').onchange=()=>{try{localStorage.setItem('flachLage',$('flachLage').value)}catch{}if(sheetCache)calcSheet()}}
+// Biegeabzüge aus einer Trumpf-GEO übernehmen (gilt für „Trumpf-kompatibel“, vor der eingebauten Tabelle)
+let geoTabelle=null;try{geoTabelle=JSON.parse(localStorage.getItem('geoTabelle')||'null')}catch{}
+function showGeo(){const el=$('geoInfo');if(!el)return;el.textContent=geoTabelle?`Trumpf-GEO übernommen: ${geoTabelle.name} – ${geoTabelle.rows.map(r=>`s ${nf(r.s,1)} / Ri ${nf(r.ri,2)} / ${nf(r.w,2)}° → BD ${nf(r.bd,4)}`).join(' · ')}`:'Eingebaute Trumpf-Werte: s 6 / Ri 6 bei 90° und 82,46° (TruBend, Gesenk W40). Weitere Dicken: Trumpf-GEO laden.'}
+showGeo();
+$('geoLaden').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const G=await import('./geo.js');const buf=new Uint8Array(await f.arrayBuffer());const txt=new TextDecoder('windows-1252').decode(buf);
+  const rows=G.geoBiegetabelle(G.parseGeo(txt));if(!rows.length)throw new Error('Keine Biegelinien in der GEO-Datei.');geoTabelle={name:f.name,rows};localStorage.setItem('geoTabelle',JSON.stringify(geoTabelle));showGeo();
+  if($('kmode').value!=='trumpf'){$('kmode').value='trumpf';$('kf').disabled=true}if(data)calcSheet()}catch(err){$('geoInfo').textContent='GEO nicht lesbar: '+err.message}e.target.value=''};
 $('mat2').onchange=()=>{$('mat').value=$('mat2').value;$('dens').value=$('mat2').value;showMass();if(sheetCache)calcSheet()};
 $('mat').addEventListener('change',()=>{if([...$('mat2').options].some(o=>o.value===$('mat').value))$('mat2').value=$('mat').value});
 $('csv').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const {parseBiegetabelle}=await import('./kfaktor.js');const rows=parseBiegetabelle(await f.text());biegetabelle={name:f.name,rows};localStorage.setItem('biegetabelle',JSON.stringify(biegetabelle));showCsv();if(data)calcSheet()}catch(err){$('csvinfo').textContent=err.message}e.target.value=''};
@@ -803,30 +870,53 @@ function schenkelTab(bends,n2){const rows=bends.flatMap(b=>(b.schenkel||[]).map(
   return rows.length?`<table class="schenkel"><tr><th>Nr.</th><th>Schenkel</th><th title="gerader Teil + R·tan(φ/2), außen">bis Biegep. außen</th><th title="gerader Teil + R·tan(φ/2), innen">bis Biegep. innen</th><th>gerade außen</th><th>gerade innen</th></tr>${rows.join('')}</table>`:''}
 async function calcSheet(){if(!data)return;const K=parseFloat(String($('kf').value).replace(',','.'));if(!(K>=0&&K<=1)){$('sheetwarn').textContent='K-Faktor muss zwischen 0 und 1 liegen.';return}
   const riW=parseFloat(String($('riWert').value).replace(',','.'));if($('riAn').checked&&!(riW>0)){$('sheetwarn').textContent='Angenommener Innenradius muss größer als 0 sein.';return}
-  const opts={modus:$('kmode').value,K,tabelle:biegetabelle?.rows||null,werkstoff:$('mat2').selectedOptions[0]?.textContent||'',beschriftung:!!$('dxfText')?.checked,basis:fest&&(sheetSolid??0)===fest.inst?fest.id:null,
+  const modus=$('kmode').value,tab=[...(modus==='trumpf'&&geoTabelle?geoTabelle.rows:[]),...(biegetabelle?.rows||[])];
+  const opts={modus,K,tabelle:tab.length?tab:null,lage:$('flachLage')?.value||'trumpf',name:baseName(),werkstoffGeo:($('mat2').selectedOptions[0]?.textContent||'').replace(/\s*\(.*$/,''),werkstoff:$('mat2').selectedOptions[0]?.textContent||'',beschriftung:!!$('dxfText')?.checked,basis:fest&&(sheetSolid??0)===fest.inst?fest.id:null,
     riAnnahme:$('riAn').checked?riW:null,riss:riss.filter(x=>x.inst===(sheetSolid??0)).map(x=>x.id)};
   faltEnde();const r=await call('sheet',{opts,inst:sheetSolid});sheetCache=r;window.__lastSheet=r;faltNetzCache=null;rissAnzeigen(r);
   $('faltRegler').disabled=$('faltPlay').disabled=!(r.ok&&r.faltung&&r.bends?.length);
-  if(!r.ok){$('expPdf').disabled=$('expXlsx').disabled=true;$('sheeterr').innerHTML=`<div class="err"><b>Keine Abwicklung</b><br>• ${r.msg}</div>`;$('sheetinfo').innerHTML='';$('bends').innerHTML='';$('flatprev').innerHTML='';$('dxf').disabled=true;$('sheetwarn').textContent=r.msg;return}
-  const rows=[['Teil',sheetSolid==null?'gesamtes Modell':(nodeOfBody(sheetSolid)?.name||'Körper '+(sheetSolid+1))],['Blechdicke (erkannt)',r.t,'L'],['K-Faktor',r.modus==='din'?(r.bends.some(b=>b.quelle==='Tabelle')?(r.bends.every(b=>b.quelle==='Tabelle')?'nach Biegetabelle':'nach Biegetabelle / DIN 6935 (je Biegung)'):'nach DIN 6935 (je Biegung)'):nf(K,2)],...(biegetabelle?[['Biegetabelle',biegetabelle.name]]:[]),['Biegungen',r.bends.length]];
-  if(r.flat)rows.push(['Zuschnitt Länge',Math.max(...r.flat.size),'L'],['Zuschnitt Breite',Math.min(...r.flat.size),'L']);
-  try{const q=await call('props',{ids:[sheetSolid??0]});const d=parseFloat($('mat2').value);rows.push(['Werkstoff',$('mat2').selectedOptions[0].textContent],['Masse',q.volume/1000*d,'M'])}catch{}
-  kv($('sheetinfo'),rows);
+  if(!r.ok){$('expPdf').disabled=$('expXlsx').disabled=true;$('geoSpeichern').disabled=true;$('dxfGrund').textContent='DXF gesperrt: '+r.msg;$('sheetmehr').innerHTML='';$('sheeterr').innerHTML=`<div class="err"><b>Keine Abwicklung</b><br>• ${r.msg}</div>`;$('sheetinfo').innerHTML='';$('bends').innerHTML='';$('flatprev').innerHTML='';$('dxf').disabled=true;$('sheetwarn').textContent=r.msg;return}
+  const kText=r.modus==='trumpf'?(r.bends.every(b=>b.quelle==='Trumpf')?'Trumpf-kompatibel (BD wie TruTops)':'Trumpf-kompatibel / DIN 6935 (je Biegung)'):r.modus==='din'?(r.bends.some(b=>b.quelle==='Tabelle')?(r.bends.every(b=>b.quelle==='Tabelle')?'nach Biegetabelle':'nach Biegetabelle / DIN 6935 (je Biegung)'):'nach DIN 6935 (je Biegung)'):nf(K,2);
+  // Kurz wie im Werkstattalltag: Dicke, Biegungen, Zuschnitt, Werkstoff, Masse. Alles Weitere unter „Details“.
+  const rows=[['Blechdicke',r.t,'L'],['Biegungen',r.bends.length]];if(r.flat)rows.push(['Zuschnitt L × B',`${nf(r.flat.size[0],2)} × ${nf(r.flat.size[1],2)} mm`]);
+  const mehr=[['Teil',sheetSolid==null?'gesamtes Modell':(nodeOfBody(sheetSolid)?.name||'Körper '+(sheetSolid+1))],['K-Faktor',kText],...(biegetabelle?[['Biegetabelle',biegetabelle.name]]:[]),...(r.modus==='trumpf'&&geoTabelle?[['Trumpf-GEO',geoTabelle.name]]:[])];
+  if(r.flat){mehr.push(['Zuschnitt Länge',Math.max(...r.flat.size),'L'],['Zuschnitt Breite',Math.min(...r.flat.size),'L']);if(r.flat.lage)mehr.push(['Lage',r.flat.lage.art==='trumpf'?(r.flat.lage.drehung?'wie Trumpf (90° gedreht)':'wie Trumpf'):'wie konstruiert'])}
+  try{const q=await call('props',{ids:[sheetSolid??0]});const d=parseFloat($('mat2').value);rows.push(['Werkstoff',$('mat2').selectedOptions[0].textContent.replace(/\s*\(.*$/,'')],['Masse',q.volume/1000*d,'M'])}catch{}
+  kv($('sheetinfo'),rows);kv($('sheetmehr'),mehr);
   const n2=v=>nf(v,2);
   $('bends').innerHTML=r.bends.length?`<table><tr><th>Nr.</th><th title="Innenradius">Ri</th><th>Winkel</th><th>Richtung</th><th title="Biegezugabe (neutrale Faser)">BZ</th><th title="Ausgleichswert nach DIN 6935">v</th><th title="Biegeverkürzung: Zuschnitt = Summe der Außenmaße − BD">BD</th><th title="K-Faktor und Quelle">K</th></tr>${r.bends.map(b=>`<tr${b.angenommen?' class="angenommen" title="Innenradius angenommen, nicht aus der Datei"':''}><td>${b.nr}</td><td>${n2(b.ri)}${b.angenommen?'*':''}</td><td>${nf(b.ang,1)}°</td><td>${b.dir==='nach oben'?'AUF':'AB'} <span class="m">(${b.dir})</span></td><td>${n2(b.ba)}</td><td>${b.v==null?'–':n2(b.v)}</td><td>${b.bd==null?'–':n2(b.bd)}</td><td title="${b.quelle}${b.tabelle?` · Spalte ${b.tabelle.spalte}${b.tabelle.werkstoff?' · '+b.tabelle.werkstoff:''}`:''}">${nf(b.K,3)}<span class="m"> ${b.quelle==='DIN 6935'?'DIN':b.quelle==='Tabelle'?'Tab.':'man.'}</span></td></tr>`).join('')}</table>${r.bends.some(b=>b.angenommen)?'<p class="warn">* Innenradius angenommen, nicht aus der Datei.</p>':''}${schenkelTab(r.bends,n2)}<p class="hint">Längen in mm. Schenkel bis Biegepunkt = gerader Teil + R·tan(Winkel/2); gerader Teil = ohne Biegung. BZ = Biegezugabe = Winkel·(Ri + K·s), K nach DIN 6935: K = (0,65 + 0,5·lg(Ri/s))/2 für Ri/s &lt; 5, sonst 0,5; v = BZ − 2·(Ri + s)·tan(Winkel/2), BD = −v (Zuschnitt = Summe der Außenmaße − BD). Biegelänge: ${r.bends.map(b=>n2(b.len)).join(' / ')} mm.</p>`:'<p class="hint">Keine zylindrischen Biegungen gefunden.</p>';
-  $('flatprev').innerHTML=r.flat?svg(r.flat):'';$('dxf').disabled=!r.flat||!!r.flat.incomplete;$('expPdf').disabled=$('expXlsx').disabled=!r.flat||!!r.flat.incomplete||!r.bends.length;$('dxf').title=r.flat?.incomplete?'DXF gesperrt: Abwicklung unvollständig oder fehlerhaft':'Abwicklung als DXF speichern';
+  $('flatprev').innerHTML=r.flat?svg(r.flat,true):'';$('dxf').disabled=!r.flat||!!r.flat.incomplete;$('geoSpeichern').disabled=!r.geo;$('dxfGrund').textContent=!r.flat?'':r.flat.incomplete?'DXF und GEO gesperrt: Abwicklung unvollständig – Gründe oben. Unter „Details“: Innenradius annehmen oder virtuellen Riss setzen.':r.geoFehler?'GEO nicht möglich: '+r.geoFehler:'';$('expPdf').disabled=$('expXlsx').disabled=!r.flat||!!r.flat.incomplete||!r.bends.length;$('dxf').title=r.flat?.incomplete?'DXF gesperrt: Abwicklung unvollständig oder fehlerhaft':'Abwicklung als DXF speichern';
   const warn=[...r.warn,'Hinweis: Abwicklung für Blechteile mit zylindrischen Biegungen (auch Biegung an Biegung, Laschen in mehrere Richtungen). Werte vor der Fertigung prüfen.'];$('sheeterr').innerHTML=r.fehler?.length?`<div class="err"><b>Abwicklung unvollständig – DXF gesperrt</b><br>${r.fehler.map(w=>'• '+w).join('<br>')}</div>`:'';$('sheetwarn').innerHTML=warn.filter(w=>!w.startsWith('ACHTUNG')).map(w=>'• '+w).join('<br>');return r}
 // Vorschau der Abwicklung: Kontur, Biegelinien (rot AUF / blau AB), Richtungspfeile mit Notiz „B1 AUF 90° Ri 2“, Risskanten violett
-function svg(f){const N0=biegeNotizen(f),fs0=Math.max(...f.size)/40,pad=Math.max(...f.size)*0.06,w=f.size[0]+2*pad,h=f.size[1]+2*pad;const X=p=>p[0]-f.min[0]+pad,Y=p=>f.max[1]-p[1]+pad;const tr=p=>`${X(p).toFixed(3)},${Y(p).toFixed(3)}`;const sw=Math.max(w,h)/400;
+function svg(f,bemasst){const N0=biegeNotizen(f),fs0=Math.max(...f.size)/40,pad=Math.max(...f.size)*0.06+(bemasst?fs0*5.2:0),w=f.size[0]+2*pad,h=f.size[1]+2*pad;const X=p=>p[0]-f.min[0]+pad,Y=p=>f.max[1]-p[1]+pad;const tr=p=>`${X(p).toFixed(3)},${Y(p).toFixed(3)}`;const sw=Math.max(w,h)/400;
   const N=N0,fs=fs0,farbe=n=>n.auf?'#d0342c':'#1f6fd1';
   const pfeile=N.map(n=>{const [a,b]=n.pfeil,d=n.richtung,k=n.laenge*0.35,qx=[-d[1],d[0]];const s1=[b[0]-d[0]*k+qx[0]*k*0.5,b[1]-d[1]*k+qx[1]*k*0.5],s2=[b[0]-d[0]*k-qx[0]*k*0.5,b[1]-d[1]*k-qx[1]*k*0.5];
     const tx=X(n.anker)-d[0]*fs*0.9,ty=Y(n.anker)+d[1]*fs*0.9;
     return `<g class="biegenotiz" data-nr="${n.nr}" data-richtung="${n.auf?'AUF':'AB'}" data-dx="${d[0].toFixed(6)}" data-dy="${d[1].toFixed(6)}"><line x1="${X(a).toFixed(3)}" y1="${Y(a).toFixed(3)}" x2="${X(b).toFixed(3)}" y2="${Y(b).toFixed(3)}" stroke="${farbe(n)}" stroke-width="${sw*1.6}"/><polygon points="${[b,s1,s2].map(tr).join(' ')}" fill="${farbe(n)}"/><text x="${tx.toFixed(3)}" y="${ty.toFixed(3)}" font-size="${fs.toFixed(3)}" fill="${farbe(n)}" text-anchor="middle" dominant-baseline="middle" transform="rotate(${(-n.winkel).toFixed(2)} ${tx.toFixed(3)} ${ty.toFixed(3)})" font-family="sans-serif">${n.text}</text></g>`}).join('');
-  return `<svg viewBox="0 0 ${w.toFixed(3)} ${h.toFixed(3)}" xmlns="http://www.w3.org/2000/svg">${f.contour.map(pl=>`<polyline points="${pl.map(tr).join(' ')}" fill="none" stroke="${f.incomplete?'#c62828':'#1d1d1f'}" stroke-width="${sw}"/>`).join('')}${(f.rissLinien||[]).map(pl=>`<polyline class="riss" points="${pl.map(tr).join(' ')}" fill="none" stroke="#9c27b0" stroke-width="${sw*2.2}"/>`).join('')}${f.bendLines.map((b,i)=>`<polyline points="${b.map(tr).join(' ')}" stroke="${N[i]&&!N[i].auf?'#1f6fd1':'#d0342c'}" stroke-width="${sw}" stroke-dasharray="${sw*6} ${sw*4}"/>`).join('')}${pfeile}</svg>`}
+  return `<svg viewBox="0 0 ${w.toFixed(3)} ${h.toFixed(3)}" xmlns="http://www.w3.org/2000/svg">${f.contour.map(pl=>`<polyline points="${pl.map(tr).join(' ')}" fill="none" stroke="${f.incomplete?'#c62828':'#1d1d1f'}" stroke-width="${sw}"/>`).join('')}${(f.rissLinien||[]).map(pl=>`<polyline class="riss" points="${pl.map(tr).join(' ')}" fill="none" stroke="#9c27b0" stroke-width="${sw*2.2}"/>`).join('')}${f.bendLines.map((b,i)=>`<polyline points="${b.map(tr).join(' ')}" stroke="${N[i]&&!N[i].auf?'#1f6fd1':'#d0342c'}" stroke-width="${sw}" stroke-dasharray="${sw*6} ${sw*4}"/>`).join('')}${pfeile}${bemasst?flachMasse(f,X,Y,fs,sw,pad):''}</svg>`}
+// Maße in der Abwicklung: Zuschnitt L × B (unten / links) und Lage der achsparallelen Biegelinien ab der linken bzw. unteren Kante
+function flachMasse(f,X,Y,fs,sw,pad){const C='#3b4650',n2=v=>nf(v,2),x0=X(f.min),x1=X(f.max),yU=Y(f.min),yO=Y(f.max),a=fs*2.2,pf=fs*0.6,T=fs*1.6,t2=fs*1.25;const o=[];
+  const pfeil=(x,y,dx,dy)=>`<polygon points="${x},${y} ${x-dx*pf-dy*pf*0.35},${y-dy*pf+dx*pf*0.35} ${x-dx*pf+dy*pf*0.35},${y-dy*pf-dx*pf*0.35}" fill="${C}"/>`;
+  const yb=yU+a;o.push(`<g class="mass" data-art="laenge" data-wert="${f.size[0].toFixed(4)}"><line x1="${x0}" y1="${yU+fs*0.3}" x2="${x0}" y2="${yb+fs*0.3}" stroke="${C}" stroke-width="${sw*0.6}"/><line x1="${x1}" y1="${yU+fs*0.3}" x2="${x1}" y2="${yb+fs*0.3}" stroke="${C}" stroke-width="${sw*0.6}"/><line x1="${x0}" y1="${yb}" x2="${x1}" y2="${yb}" stroke="${C}" stroke-width="${sw*0.8}"/>${pfeil(x0,yb,-1,0)}${pfeil(x1,yb,1,0)}<text x="${(x0+x1)/2}" y="${yb+T*1.05}" font-size="${T}" fill="${C}" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600">${n2(f.size[0])}</text></g>`);
+  const xl=x0-a;o.push(`<g class="mass" data-art="breite" data-wert="${f.size[1].toFixed(4)}"><line x1="${x0-fs*0.3}" y1="${yO}" x2="${xl-fs*0.3}" y2="${yO}" stroke="${C}" stroke-width="${sw*0.6}"/><line x1="${x0-fs*0.3}" y1="${yU}" x2="${xl-fs*0.3}" y2="${yU}" stroke="${C}" stroke-width="${sw*0.6}"/><line x1="${xl}" y1="${yO}" x2="${xl}" y2="${yU}" stroke="${C}" stroke-width="${sw*0.8}"/>${pfeil(xl,yO,0,-1)}${pfeil(xl,yU,0,1)}<text x="${xl-T*0.45}" y="${(yO+yU)/2}" font-size="${T}" fill="${C}" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" transform="rotate(-90 ${xl-T*0.45} ${(yO+yU)/2})">${n2(f.size[1])}</text></g>`);
+  const L=Math.max(...f.size);f.bendLines.forEach((b,i)=>{const dx=b[1][0]-b[0][0],dy=b[1][1]-b[0][1],l=Math.hypot(dx,dy)||1;
+    if(Math.abs(dy)/l<1e-4){const yv=b[0][1]-f.min[1],y=Y(b[0]),xr=x1+fs*0.5;o.push(`<g class="mass" data-art="biegelinie" data-nr="${i+1}" data-wert="${yv.toFixed(4)}"><line x1="${x1}" y1="${y}" x2="${xr+fs*0.4}" y2="${y}" stroke="${C}" stroke-width="${sw*0.5}" stroke-dasharray="${sw*2} ${sw*2}"/><text x="${xr+fs*0.5}" y="${y}" font-size="${t2}" fill="${C}" dominant-baseline="middle" font-family="Inter, sans-serif">${n2(yv)}</text></g>`)}
+    else if(Math.abs(dx)/l<1e-4){const xv=b[0][0]-f.min[0],x=X(b[0]),yt=yO-fs*0.5;o.push(`<g class="mass" data-art="biegelinie" data-nr="${i+1}" data-wert="${xv.toFixed(4)}"><line x1="${x}" y1="${yO}" x2="${x}" y2="${yt-fs*0.4}" stroke="${C}" stroke-width="${sw*0.5}" stroke-dasharray="${sw*2} ${sw*2}"/><text x="${x}" y="${yt-fs*0.5}" font-size="${t2}" fill="${C}" text-anchor="start" font-family="Inter, sans-serif" transform="rotate(-90 ${x} ${yt-fs*0.5})">${n2(xv)}</text></g>`)}});
+  return o.join('')}
 $('dxf').onclick=async()=>{if(!sheetCache?.dxf||sheetCache.flat?.incomplete)return;const name=(window.__lastLoad?.name||'teil').replace(/\.(step|stp)$/i,'')+'_Abwicklung.dxf';
   const inv=window.__TAURI_INTERNALS__?.invoke;
-  if(inv){try{const ok=await inv('save_text',{name,content:sheetCache.dxf});if(ok)$('status').textContent='DXF gespeichert: '+name}catch(e){$('status').textContent='Fehler beim Speichern: '+e}}
-  else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([sheetCache.dxf],{type:'application/dxf'}));a.download=name;a.click()}};
+  window.__lastExport={name,ext:'dxf',text:sheetCache.dxf};
+  if(inv){try{const ok=await inv('save_text',{name,content:sheetCache.dxf,filter:'DXF-Zeichnung',ext:'dxf'});$('status').textContent=ok?'DXF gespeichert: '+name:'DXF nicht gespeichert (abgebrochen).'}catch(e){$('status').textContent='DXF konnte nicht gespeichert werden: '+e}}
+  else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([sheetCache.dxf],{type:'application/dxf'}));a.download=name;a.click();$('status').textContent='DXF gespeichert: '+name}};
+// Aus dem Menü: Abwicklung bei Bedarf erst berechnen; ist sie gesperrt, steht der Grund in der Statuszeile statt eines stummen Klicks
+async function abwicklungExport(art){if(!data){$('status').textContent='Zuerst eine STEP-Datei öffnen.';return}tabTo('blech');if(!sheetCache)await calcSheet();const r=sheetCache;
+  if(!r?.ok||!r.flat){$('status').textContent=(art==='geo'?'GEO':'DXF')+' nicht möglich: '+(r?.msg||'keine Abwicklung');return}
+  if(r.flat.incomplete){$('status').textContent=(art==='geo'?'GEO':'DXF')+' gesperrt: Abwicklung unvollständig – '+(r.fehler||[]).join('; ');return}
+  $(art==='geo'?'geoSpeichern':'dxf').click()}
+// Abwicklung als Trumpf-GEO (TruTops): wie die GEO aus TruTops Boost, Ursprung links unten, Lage wie gewählt
+$('geoSpeichern').onclick=async()=>{if(!sheetCache?.geo||sheetCache.flat?.incomplete)return;const name=baseName()+'_Abwicklung.geo';const inv=window.__TAURI_INTERNALS__?.invoke;window.__lastExport={name,ext:'geo',text:sheetCache.geo};
+  if(inv){try{const ok=await inv('save_text',{name,content:sheetCache.geo,filter:'Trumpf-GEO',ext:'geo'});$('status').textContent=ok?'GEO gespeichert: '+name:'GEO nicht gespeichert (abgebrochen).'}catch(e){$('status').textContent='GEO konnte nicht gespeichert werden: '+e}}
+  else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([sheetCache.geo],{type:'application/octet-stream'}));a.download=name;a.click();$('status').textContent='GEO gespeichert: '+name}};
 
 // ---------- Biegetabelle exportieren (PDF / XLSX) ----------
 async function saveBytes(name,bytes,filter,ext,mime){window.__lastExport={name,bytes,ext};const inv=window.__TAURI_INTERNALS__?.invoke;
@@ -861,7 +951,7 @@ function drucken(){if(!model){$('status').textContent='Keine Datei zum Drucken';
   setTimeout(()=>{try{f.contentWindow.focus();f.contentWindow.print()}catch{$('status').textContent='Drucken ist in dieser Ansicht nicht verfügbar'}},60)}
 function oeffneExport(anker){const m=$('exportMenue');document.querySelectorAll('.menuliste').forEach(x=>{if(x!==m)x.hidden=true});m.hidden=false;const r=anker.getBoundingClientRect();m.style.position='fixed';m.style.left=Math.max(8,r.left)+'px';m.style.top=(r.bottom+4)+'px'}
 const aktion={stepFarben:()=>farbenUmschalten(),
-  oeffnen:()=>$('file').click(),screenshot:()=>screenshot(),exportPng:()=>$('dimPng').click(),exportPdf:()=>$('dimPdf').click(),dxf:()=>$('dxf').click(),expPdf:()=>$('expPdf').click(),expXlsx:()=>$('expXlsx').click(),
+  oeffnen:()=>$('file').click(),screenshot:()=>screenshot(),exportPng:()=>$('dimPng').click(),exportPdf:()=>$('dimPdf').click(),dxf:()=>abwicklungExport('dxf'),geo:()=>abwicklungExport('geo'),expPdf:()=>$('expPdf').click(),expXlsx:()=>$('expXlsx').click(),
   drucken,schliessen:dateiSchliessen,einpassen:()=>$('fit').click(),f9,f10,schnitt:()=>$('btnSchnitt').click(),messen:()=>tabTo('messen'),bemassung:()=>$('btnMass').click(),blech:()=>tabTo('blech'),
   baum:()=>$('baum').classList.contains('zu')?$('baumLasche').click():$('baumZu').click(),drehen:()=>$('btnDreh').click(),zurueck:()=>animiereAnsicht('iso'),verschieben:()=>selNode?act('move',selNode):($('status').textContent='Bitte zuerst ein Bauteil im Baum oder in der Ansicht wählen.'),hilfe:()=>{$('hilfeDlg').hidden=false},einstellungen:()=>{$('einstDlg').hidden=false},
 };
@@ -872,7 +962,8 @@ $('exportKnopf').onclick=e=>{e.stopPropagation();if($('exportMenue').hidden)oeff
 $('stilWahl').onchange=()=>setStil($('stilWahl').value);
 $('projektionWahl').onchange=()=>{camera.fov=$('projektionWahl').value==='orthogonal'?4:35;camera.updateProjectionMatrix();if(model)fit()};
 $('standardWahl').onchange=()=>{const v=$('standardWahl').value;if(v)animiereAnsicht(v);$('standardWahl').value=''};
-['methode','projektion','deltaZeigen','massRichtung'].forEach(id=>$(id)?.addEventListener('change',()=>neuMessen()));
+['methode','projektion','deltaZeigen','massRichtung','bogenAbstand'].forEach(id=>$(id)?.addEventListener('change',()=>neuMessen()));
+{const b=$('bogenAbstand');if(b){const g=localStorage.getItem('bogenAbstand');if(['mitte','min','max'].includes(g))b.value=g;b.addEventListener('change',()=>{try{localStorage.setItem('bogenAbstand',b.value)}catch{}})}}
 document.querySelectorAll('[data-werkzeug]').forEach(b=>b.onclick=()=>setWerkzeug(b.dataset.werkzeug));
 $('btnReset').onclick=()=>animiereAnsicht('iso');
 // Autodrehen ist ein ausdrücklicher Schalter; jeder Griff in die Ansicht (Maus oder Rad) schaltet es ab, damit danach nichts von selbst weiterläuft
@@ -880,13 +971,15 @@ function setAutodrehen(an){drehen=!!an;const b=$('btnDreh');if(b){b.classList.to
 $('btnDreh').onclick=()=>setAutodrehen(!drehen);
 renderer.domElement.addEventListener('pointerdown',()=>{if(drehen)setAutodrehen(false)},true);
 renderer.domElement.addEventListener('wheel',()=>{if(drehen)setAutodrehen(false)},{capture:true,passive:true});
-$('btnMessen').onclick=()=>tabTo('messen');
+// Messen ist ein Schalter wie in eDrawings: zweiter Klick schließt das Feld wieder (Start immer ohne offenes Werkzeugfeld)
+function werkzeugFelderZu(){$('messenPanel').hidden=true;$('blechPanel').hidden=true;$('btnMessen')?.classList.remove('on');$('btnBlech')?.classList.remove('on');triadeAktualisieren()}
+$('btnMessen').onclick=()=>{if(!$('messenPanel').hidden&&!dockZustand.zu)werkzeugFelderZu();else tabTo('messen')};
 $('btnSchnitt').onclick=()=>{const p=$('schnittPanel');p.hidden=!p.hidden;$('btnSchnitt').classList.toggle('on',!p.hidden)};
 $('btnMass').onclick=()=>{tabTo('messen');$('dimtyp')?.scrollIntoView({block:'nearest'})};
 $('btnBlech').onclick=()=>tabTo('blech');
 $('schnittZu').onclick=()=>{$('schnittPanel').hidden=true;$('btnSchnitt').classList.remove('on')};
 $('messenZu').onclick=()=>dockEinklappen(true);$('blechEin').onclick=()=>dockEinklappen(true);
-$('blechZu').onclick=()=>tabTo('messen');
+$('blechZu').onclick=()=>werkzeugFelderZu();
 $('baumZu').onclick=()=>{$('baum').classList.add('zu');$('baumLasche').hidden=false};
 $('baumLasche').onclick=()=>{$('baum').classList.remove('zu');$('baumLasche').hidden=true};
 $('dateiZu').onclick=dateiSchliessen;
@@ -919,7 +1012,7 @@ $('kring').addEventListener('pointermove',e=>{if(!ringDrag)return;const delta=ri
   camera.position.copy(controls.target).add(ringDrag.off.clone().applyAxisAngle(achse,delta));camera.up.copy(ringDrag.up).applyAxisAngle(achse,delta);camera.lookAt(controls.target);controls.update();needs=true});
 $('kring').addEventListener('pointerup',()=>{ringDrag=null});
 $('wuerfelHome').onclick=()=>animiereAnsicht('iso');
-document.querySelectorAll('.tab').forEach(t=>{const alt=t.onclick;t.onclick=ev=>{alt?.call(t,ev);$('messenPanel').classList.remove('zu');dockEinklappen(false)}});
+document.querySelectorAll('.tab').forEach(t=>{const alt=t.onclick;t.onclick=ev=>{alt?.call(t,ev);$('messenPanel').classList.remove('zu');dockEinklappen(false);triadeAktualisieren()}});
 
 // ---------- Komponente verschieben / drehen (Triade, nur Matrix) ----------
 let zug=null,zugSperre=false;
@@ -957,7 +1050,8 @@ function triadeAktualisieren(){const ids=zielIds();const panel=$('bewegenPanel')
   if(!model||!ids.length){if(triade)triade.visible=false;if(panel)panel.hidden=true;return}
   if(!triade)triade=baueTriade();if(triade.parent!==model)model.add(triade);
   if(!zug)triade.position.copy(mittelpunkt(ids));
-  triade.visible=true;triadeSkalieren();
+  // Im Messen ohne „Verschieben“ keine Triade: sie verdeckt sonst Maßtexte (wie eDrawings)
+  triade.visible=bewegenOffen||$('messenPanel').hidden;if(triade.visible)triadeSkalieren();
   if(panel){const namen=zielKnoten().map(n=>n.name);if($('bewegenName'))$('bewegenName').textContent=namen.join(', ')||'Bauteil';panel.hidden=!bewegenOffen}
   needs=true}
 function lies34(i){const e=bodies[i].matrix.elements;return [e[0],e[4],e[8],e[12],e[1],e[5],e[9],e[13],e[2],e[6],e[10],e[14]]}
@@ -1123,7 +1217,7 @@ window.__viewMenu=(x,y)=>viewMenu(x,y);window.__loadUrl=async u=>load(await (awa
 window.__loadBytes=(buf,name)=>load(buf,name);window.__call=call;
 window.__einzelteil={dialog:(a,id)=>einzelDialog(a,id==null?null:nodes.find(x=>x.id===id)),ausfuehren:(a,id,lage,schema)=>einzelAusfuehren(a,id==null?null:nodes.find(x=>x.id===id),lage,schema),alle:()=>alleEinzelteile(),teile:(id,lage)=>einzelTeile(nodes.find(x=>x.id===id),lage)};
 window.__steuerung=()=>({daempfung:controls.enableDamping,autoRotate:controls.autoRotate,autodrehen:drehen,ziel:controls.target.toArray(),pos:camera.position.toArray(),mitte:model?box.getCenter(new THREE.Vector3()).toArray():null});
-window.__app={huelle:a=>huelleRechnen(a),abmessungen:b=>abmRechnen(b),abm:()=>abm,abmDims:()=>abmDims.length,nurFlaechen:an=>{if(an!=null)nurFlaechenSetzen(an);return nurFl()},reihe:s=>reiheMessen(s),sels:()=>sels.map(x=>({k:x.k,id:x.id,inst:x.inst})),schwerpunkt:()=>{$('schwerpunktZeigen').checked=true;return schwerpunktZeigen()},protokollDaten:()=>protokollDatenSammeln(),faltSetzen,faltEnde,faltNetz:()=>faltNetzHolen(),rissSetzen,riss:()=>riss,huellObj:()=>huellObj&&!!huellObj.parent,hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position.toArray(),fitIso:()=>fit(views.iso),dimLabels:()=>dimHits.map(h=>[[h.x,h.y,0],h.no]),exportPng,exportPdf,editDim:no=>editDim(dims.find(d=>d.no===no)),stil:()=>STIL,dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
+window.__app={messLabels:()=>messLabels.map(l=>({zeilen:l.zeilen.slice(),farbe:l.farbe||null,linie:!!l.linie,pos:projL(l.p)})),ergebnis:()=>$("ergebnis")?.innerText||"",huelle:a=>huelleRechnen(a),abmessungen:b=>abmRechnen(b),abm:()=>abm,abmDims:()=>abmDims.length,nurFlaechen:an=>{if(an!=null)nurFlaechenSetzen(an);return nurFl()},reihe:s=>reiheMessen(s),sels:()=>sels.map(x=>({k:x.k,id:x.id,inst:x.inst})),schwerpunkt:()=>{$('schwerpunktZeigen').checked=true;return schwerpunktZeigen()},protokollDaten:()=>protokollDatenSammeln(),faltSetzen,faltEnde,faltNetz:()=>faltNetzHolen(),rissSetzen,riss:()=>riss,huellObj:()=>huellObj&&!!huellObj.parent,hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position.toArray(),fitIso:()=>fit(views.iso),dimLabels:()=>dimHits.map(h=>[[h.x,h.y,0],h.no]),exportPng,exportPdf,editDim:no=>editDim(dims.find(d=>d.no===no)),stil:()=>STIL,dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
   screenOf:p=>{const r=renderer.domElement.getBoundingClientRect();const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*r.width+r.left,(1-w.y)/2*r.height+r.top]},
   ausrichtung:()=>{const d=camera.position.clone().sub(controls.target).normalize();return {blick:Math.max(...ACHSEN.map(a=>Math.abs(d.dot(a)))),oben:Math.max(...ACHSEN.map(a=>Math.abs(camera.up.dot(a)))),dir:d.toArray(),up:camera.up.toArray()}},
   schief:()=>{if(!model)return;const c=box.getCenter(new THREE.Vector3()),s=box.getSize(new THREE.Vector3()).length()||1;camera.position.copy(c).add(new THREE.Vector3(.35,.15,1).normalize().multiplyScalar(s*1.7));camera.up.set(.45,.75,.4).normalize();controls.target.copy(c);camera.lookAt(c);controls.update();anim=null;needs=true},

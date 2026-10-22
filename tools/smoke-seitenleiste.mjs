@@ -29,10 +29,13 @@ async function pruefe(p, was, shot) {
   console.log('  ok ', was, JSON.stringify({ frei: Math.round(d.frei), seite: d.zustand.seite, zu: d.zustand.zu }));
   return d;
 }
+const shot0 = true;
 for (const [w, h, tag] of [[1500, 900, 'gross'], [1100, 700, 'klein']]) {
   const p = await seite(w, h);
   await p.evaluate(() => localStorage.removeItem('seitenleiste'));await p.reload();await p.waitForFunction(() => window.__loadUrl && window.__dock);
   await laden(p, 'testbaugruppe.step');
+  // Start wie eDrawings: kein Werkzeugfeld offen, Modell frei
+  { const d0 = await p.evaluate(() => window.__dock()); if (d0.dock || !(await p.locator('#messenPanel').isHidden())) fail('Nach dem Laden ist ein Werkzeugfeld offen ' + JSON.stringify(d0)); if (shot0) await p.locator('#view').screenshot({ path: `${dir}/${marke}-start-${tag}.png` }); }
   await p.locator('#btnMessen').click();
   await pruefe(p, tag + ' Messen', tag === 'gross' ? 'messen' : 'messen-klein');
   // Einpassen nach dem Öffnen nutzt die freie Fläche
@@ -45,25 +48,26 @@ for (const [w, h, tag] of [[1500, 900, 'gross'], [1100, 700, 'klein']]) {
   await pruefe(p, tag + ' Schnitt + Eigenschaften + Verschieben', tag === 'gross' ? 'alle-felder' : null);
   await p.locator('#btnSchnitt').click();await p.locator('#propsClose').click();await p.locator('#bewegenZu').click();
   // Einklappen: nur noch eine schmale Lasche, Modell bekommt die Fläche zurück
-  await p.locator('#btnMessen').click();await p.locator('#messenZu').click();
+  if (await p.locator('#messenPanel').isHidden()) await p.locator('#btnMessen').click();await p.locator('#messenZu').click();
   const zu = await pruefe(p, tag + ' eingeklappt', tag === 'gross' ? 'eingeklappt' : null);
   if (!zu.zustand.zu || zu.frei > 80) fail('Einklappen wirkt nicht: ' + JSON.stringify(zu));
   await p.locator('#dockLasche').click();
   const auf = await pruefe(p, tag + ' ausgeklappt');
   if (auf.zustand.zu || auf.frei < 200) fail('Ausklappen wirkt nicht');
   if (tag === 'gross') {
-    // an der Titelleiste nach links ziehen: rastet links ein, Zustand bleibt nach Neuladen
+    // Standard links unten; an der Titelleiste nach rechts ziehen: rastet rechts ein, Lage bleibt nach Neuladen, das Feld selbst ist nach dem Start zu
     const t = await p.locator('#messenPanel .ptitel').boundingBox();
     await p.mouse.move(t.x + 40, t.y + t.height / 2);await p.mouse.down();
-    for (let i = 1; i <= 8; i++) await p.mouse.move(t.x + 40 - i * 120, t.y + t.height / 2 + i * 10);
+    for (let i = 1; i <= 8; i++) await p.mouse.move(t.x + 40 + i * 140, t.y + t.height / 2 - i * 10);
     await p.mouse.up();
-    const l = await pruefe(p, 'links angedockt', 'links');
-    if (l.zustand.seite !== 'links') fail('Ziehen nach links rastet nicht ein: ' + JSON.stringify(l.zustand));
+    const l = await pruefe(p, 'rechts angedockt', 'rechts');
+    if (l.zustand.seite !== 'rechts') fail('Ziehen nach rechts rastet nicht ein: ' + JSON.stringify(l.zustand));
     await p.locator('#messenZu').click();
     await p.reload();await p.waitForFunction(() => window.__loadUrl && window.__dock);await laden(p, 'testbaugruppe.step');
     const n = await p.evaluate(() => window.__dock());
-    if (n.zustand.seite !== 'links' || !n.zustand.zu) fail('Zustand nach Neuladen verloren: ' + JSON.stringify(n.zustand));
-    await p.locator('#dockLasche').click();await pruefe(p, 'nach Neuladen links, ausgeklappt');
+    if (n.zustand.seite !== 'rechts') fail('Lage nach Neuladen verloren: ' + JSON.stringify(n.zustand));
+    if (n.dock || !(await p.locator('#messenPanel').isHidden())) fail('Nach dem Start ist ein Werkzeugfeld offen');
+    await p.locator('#btnMessen').click();await pruefe(p, 'nach Neuladen rechts, Messen geöffnet');
     await p.evaluate(() => localStorage.removeItem('seitenleiste'));
   }
   await p.close();

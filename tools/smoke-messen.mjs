@@ -4,6 +4,7 @@ for(const d of ['public','dist'])if(fs.existsSync(d))fs.copyFileSync('testdaten/
 const b=await chromium.launch({executablePath:process.env.CHROME||'/usr/bin/google-chrome',args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const p=await b.newPage({viewport:{width:1500,height:900}});const errs=[];p.on('pageerror',e=>errs.push(e.message));
 await p.goto(process.env.URL||'http://localhost:4173/');
+await p.evaluate(()=>{document.querySelectorAll('#messenErweitert,#blechDetails').forEach(d=>d.open=true);if(document.getElementById('messenPanel').hidden)document.getElementById('btnMessen').click()}); // Start ohne offenes Feld: für diesen Test Messen öffnen, „Erweitert“/„Details“ aufklappen
 const fail=m=>{throw new Error(m)};
 await p.evaluate(()=>window.__loadUrl('./messteil.step'));
 await p.waitForFunction(()=>window.__lastLoad&&window.__lastLoad.bodies>0,null,{timeout:60000});await p.waitForTimeout(800); // Einpassen ist animiert: erst danach Raster absuchen
@@ -13,7 +14,8 @@ const found=await p.evaluate(()=>{const o={};for(let y=150;y<800;y+=6)for(let x=
 console.log('fangen',JSON.stringify(Object.keys(found)));for(const k of ['vertex','mid','center','edge','face'])if(!found[k])fail('Fangart fehlt: '+k);
 await p.mouse.move(...found.center);await p.waitForTimeout(250);const tip=await p.textContent('#snaptip');console.log('hover',tip);if(!/^Kreismittelpunkt( · |$)/.test(tip||''))fail('Hover-Vorschau fehlt'); // Tipp nennt seit Faz 2 auch das Teil
 await p.screenshot({path:'docs/messen-fangen.png'});
-await p.mouse.move(1400,450);await p.waitForTimeout(150);if(await p.evaluate(()=>window.__app.hoverCount())!==0||await p.isVisible('#snaptip'))fail('Hover-Marker bleibt nach Verlassen stehen');
+await p.mouse.move(100,450); // links im Baum: außerhalb der 3D-Ansicht
+await p.waitForTimeout(150);if(await p.evaluate(()=>window.__app.hoverCount())!==0||await p.isVisible('#snaptip'))fail('Hover-Marker bleibt nach Verlassen stehen');
 await p.mouse.move(...found.center);await p.waitForTimeout(150);await p.mouse.move(600,860);await p.waitForTimeout(150);if(await p.evaluate(()=>window.__app.hoverCount())!==0)fail('Hover-Marker bleibt neben dem Objekt stehen');console.log('hover-verlassen ok');
 // Bemaßungen
 const ids=await p.evaluate(()=>{const U=window.__app.data().uniq[0];const c=U.edges.map((e,i)=>[e,i]).filter(([e])=>e.type==='Kreis'&&e.c[2]>19.9&&e.pts.length>40);return c.map(x=>x[1])});

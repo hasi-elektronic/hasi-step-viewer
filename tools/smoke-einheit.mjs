@@ -4,6 +4,7 @@ for(const d of ['public','dist'])if(fs.existsSync(d))fs.copyFileSync('testdaten/
 const b=await chromium.launch({executablePath:process.env.CHROME||'/usr/bin/google-chrome',args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const p=await b.newPage({viewport:{width:1500,height:900}});const errs=[];p.on('pageerror',e=>errs.push(e.message));
 await p.goto(process.env.URL||'http://localhost:4173/');
+await p.evaluate(()=>{document.querySelectorAll('#messenErweitert,#blechDetails').forEach(d=>d.open=true);if(document.getElementById('messenPanel').hidden)document.getElementById('btnMessen').click()}); // Start ohne offenes Feld: für diesen Test Messen öffnen, „Erweitert“/„Details“ aufklappen
 await p.evaluate(()=>window.__loadUrl('./testblech-cm.step'));
 const st=await p.textContent('#status');console.log('status',st);if(!st.includes('Datei: cm → Anzeige: mm'))throw new Error('Statusleiste ohne Einheiten-Info');
 const mi=await p.textContent('#modelinfo');console.log('modell',mi);if(!/108,000 mm/.test(mi)||/ cm/.test(mi))throw new Error('Bounding-Box nicht in mm');

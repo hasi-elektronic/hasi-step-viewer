@@ -499,10 +499,13 @@ export function createBrep(ocIn){
     if(ha&&hb&&Math.abs(V.dot(ha.d,hb.d))>=COS_PARALLEL){const w=V.sub(hb.c,ha.c);const d=V.len(V.sub(w,V.mul(ha.d,V.dot(w,ha.d))));rows.push(['Lochabstand Mitte–Mitte',d,'L'])}
     // Gewählte Abstandsmethode bestimmt Messlinie, ΔX/ΔY/ΔZ-Linien und Bemaßung. Fehlt sie (z. B. Rand–Mitte bei einem Punkt), gilt die nächstliegende.
     // „Automatisch“: Fläche zu Fläche → Hauptwert des Falls (Lotpaar), sonst kürzester Abstand.
-    let w=auto?(paare.auto?'auto':'min'):opts.methode;if(!paare[w])w=w==='rand-mitte'?(isP(a)?'mitte':'min'):w==='mitte-rand'?(isP(b)?'mitte':'min'):'min';if(!paare[w])w='min';
-    const ri=richtungZeilen(rows,paare[w],opts);const name=ri?ri.name:(auto&&ff?ff.name:methodenZeile(w));gfx.push(paare[w]);projZeilen(rows,paare[w],sels,opts);
+    // Bogen-/Kreismessungen (wie eDrawings): ist ein Element rund (Bogen, Kreis, Zylinder), gilt bei „Automatisch“ die gewählte Art Mitte zu Mitte / Min. / Max.
+    // Mitte zu Mitte mit nur einem runden Element = Mittelpunkt des Bogens zum anderen Element (Mitte–Rand bzw. Rand–Mitte), wie eDrawings
+    const rund=x=>x.k==='edge'&&!!holeAxis(x),ra=rund(a),rb=rund(b);let bg=opts.bogen;if(bg==='mitte'&&!(ra&&rb))bg=ra?'mitte-rand':'rand-mitte';
+    const bgAn=!!(auto&&bg&&bg!=='auto'&&(ra||rb)&&paare[bg]);let w=auto?(bgAn?bg:(paare.auto?'auto':'min')):opts.methode;if(!paare[w])w=w==='rand-mitte'?(isP(a)?'mitte':'min'):w==='mitte-rand'?(isP(b)?'mitte':'min'):'min';if(!paare[w])w='min';
+    const ri=richtungZeilen(rows,paare[w],opts);const name=ri?ri.name:(auto&&!bgAn&&ff?ff.name:methodenZeile(w));gfx.push(paare[w]);projZeilen(rows,paare[w],sels,opts);
     // Genau eine Zeile ist der Hauptwert (fett, Bemaßungstext): bei Fläche zu Fläche der Fall-Hauptwert
-    if(ff){rows.forEach(r=>{if(r[3])r.length=3});const h=rows.find(r=>r[0]===(auto&&!ri?ff.name:name));if(h)h[3]='!'}
+    if(ff){rows.forEach(r=>{if(r[3])r.length=3});const h=rows.find(r=>r[0]===(auto&&!bgAn&&!ri?ff.name:name));if(h)h[3]='!'}
     const out={rows,gfx,label:rows.find(r=>r[0]===name)||rows[0],delta:paare[w],wahl:name,richtung:ri};
     if(ff)out.ff={fall:ff.fall,name:ff.name,versetzt:!!ff.versetzt,winkelMass:auto&&!ri?ff.winkelMass:undefined,paar:ff.paar,wert:ff.wert};
     // Für das Hervorheben im 3D beim Überfahren einer Ergebniszeile: Strecke je Zeile

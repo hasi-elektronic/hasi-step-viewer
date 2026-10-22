@@ -3,7 +3,7 @@ import { chromium } from 'playwright-core';import fs from 'fs';import {execSync}
 for(const d of ['public','dist'])if(fs.existsSync(d))fs.copyFileSync('testdaten/wanne.step',d+'/wanne.step');
 const b=await chromium.launch({executablePath:process.env.CHROME||'/usr/bin/google-chrome',args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const p=await b.newPage({viewport:{width:1500,height:900},acceptDownloads:true});const errs=[];p.on('pageerror',e=>errs.push(e.message));
-await p.goto(process.env.URL||'http://localhost:4173/');const fail=m=>{throw new Error(m)};
+await p.goto(process.env.URL||'http://localhost:4173/');await p.evaluate(()=>{document.querySelectorAll('#messenErweitert,#blechDetails').forEach(d=>d.open=true);if(document.getElementById('messenPanel').hidden)document.getElementById('btnMessen').click()});;const fail=m=>{throw new Error(m)};
 await p.evaluate(()=>window.__loadUrl('./wanne.step'));await p.evaluate(()=>window.__app.tab('blech'));await p.waitForFunction(()=>window.__lastSheet);await p.waitForTimeout(300);
 if(await p.isDisabled('#expPdf')||await p.isDisabled('#expXlsx'))fail('Export-Knöpfe gesperrt');
 let dl=p.waitForEvent('download');await p.click('#expPdf');let d=await dl;let f='/tmp/hasi-export/'+d.suggestedFilename();await d.saveAs(f);

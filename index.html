@@ -10,6 +10,7 @@
 <button type="button" data-aktion="exportPng">Bemaßung als PNG</button>
 <button type="button" data-aktion="exportPdf">Bemaßung als PDF</button>
 <button type="button" data-aktion="dxf">Abwicklung als DXF</button>
+<button type="button" data-aktion="geo">Abwicklung als GEO (Trumpf)</button>
 <button type="button" data-aktion="expPdf">Biegetabelle als PDF</button>
 <button type="button" data-aktion="expXlsx">Biegetabelle als Excel</button>
 <button type="button" data-aktion="drucken">Drucken …</button>
@@ -95,23 +96,27 @@
 <div id="schnittPanel" class="schweb hell" hidden><div class="ptitel">Schnitt <button type="button" class="zuKnopf" id="schnittZu" title="Einklappen">×</button></div>
 <div class="seg"><span>Ebene</span><select id="axis" title="Schnittebene wählen"><option value="">Aus</option><option>X</option><option>Y</option><option>Z</option></select>
 <input id="cut" type="range" min="0" max="1000" value="500" disabled title="Schnittposition verschieben"></div></div>
-<div id="messenPanel" class="schweb dunkel"><div class="ptitel">Messen <button type="button" class="tab on" data-tab="messen">Messen</button><button type="button" class="zuKnopf" id="messenZu" title="Einklappen">–</button></div>
+<div id="messenPanel" class="schweb dunkel kompakt" hidden><div class="ptitel">Messen <button type="button" class="tab on" data-tab="messen">Messen</button><button type="button" class="zuKnopf" id="messenZu" title="Einklappen">–</button></div>
 <div class="pbody"><section id="tab-messen">
 <div class="ahead">Einheiten</div>
 <div class="row"><label for="einheitLaenge">Länge</label> <select id="einheitLaenge" title="Längen einheit" disabled><option>Millimeter</option></select></div>
 <div class="row"><label for="einheitWinkel">Winkel</label> <select id="einheitWinkel" title="Winkel einheit" disabled><option>Grad</option></select></div>
+<div class="row"><label for="bogenAbstand">Bogen-/Kreismessungen</label></div>
+<div class="row"><select id="bogenAbstand" title="Abstand, sobald ein Bogen, Kreis oder Zylinder beteiligt ist"><option value="mitte" selected>Abstand Mitte zu Mitte</option><option value="min">Mindestabstand</option><option value="max">Maximalabstand</option></select></div>
+<div class="ahead">Ergebnisse</div>
+<div id="ergebnis" class="ergebnis" aria-live="polite">Kante, Fläche oder Punkt anklicken.</div>
+<div id="selinfo" class="sel"></div>
+<div id="mresult" class="kv"></div>
+<div class="row"><button class="btn" id="keepDim" title="Als Bemaßung behalten">Bemaßung</button> <button class="btn" id="copySel" title="Kopieren">Kopieren</button> <button class="btn" id="clearSel" title="Auswahl löschen">Löschen</button></div>
+<details id="messenErweitert"><summary>Erweitert</summary>
+<p class="hint klein">Wert anklicken = kopieren (1. Klick voller Wert, 2. Klick gerundet) · Strg+C kopiert den Hauptwert · Überfahren zeigt die Strecke im 3D.</p>
 <div class="row"><label for="methode">Abstandsmethode</label> <select id="methode" title="Welcher Abstand als Messlinie und Bemaßung gilt (Rand = Element selbst, Mitte = Mittelpunkt, Achse oder Schwerpunkt)"><option value="auto" selected>Automatisch (wie ZW3D)</option><option value="min">Rand–Rand (min.)</option><option value="rand-mitte">Rand–Mitte</option><option value="mitte-rand">Mitte–Rand</option><option value="mitte">Mitte–Mitte</option><option value="max">Max.</option><option value="unendlich">Gerade/Ebene unendlich verlängert</option></select></div>
 <div class="row"><label for="massRichtung">Maßrichtung</label> <select id="massRichtung" title="Ausgerichtet = wahre Länge, Vertikal = Höhe entlang der Hochachse (bei „Projiziert auf: Bildschirm“ senkrecht im Bild), Horizontal = waagerechter Abstand, X/Y/Z = Modellachsen, Senkrecht zur Ansicht = Länge wie gesehen. Gilt auch für die nächste Bemaßung."><option value="ausgerichtet" selected>Ausgerichtet (wahre Länge)</option></select></div>
 <div class="row"><label for="projektion">Projiziert auf</label> <select id="projektion" title="Abstand zusätzlich in eine Ebene projizieren (Anteil in der Ebene und senkrecht dazu)"><option value="keine" selected>Keine</option><option value="bildschirm">Bildschirm</option><option value="xy">Ebene XY</option><option value="xz">Ebene XZ</option><option value="yz">Ebene YZ</option><option value="flaeche">Gewählte ebene Fläche</option></select></div>
 <div class="row"><label title="ΔX rot, ΔY grün, ΔZ blau als Teilstrecken der Messlinie"><input type="checkbox" id="deltaZeigen" checked> ΔX/ΔY/ΔZ in 3D zeigen</label></div>
-<div class="ahead">Ergebnisse</div>
-<div id="selinfo" class="sel"></div>
-<div id="mresult" class="kv"></div>
-<p class="hint klein">Wert anklicken = kopieren (1. Klick voller Wert, 2. Klick gerundet) · Strg+C kopiert den Hauptwert · Überfahren zeigt die Strecke im 3D.</p>
 <div class="ahead">Fangen</div>
 <div class="snaps"><label title="Ecke"><input type="checkbox" id="snapV" checked> <span class="sym sym-v"></span>Ecke</label><label title="Kantenmitte"><input type="checkbox" id="snapM" checked> <span class="sym sym-m"></span>Kantenmitte</label><label title="Kreismittelpunkt"><input type="checkbox" id="snapC" checked> <span class="sym sym-c"></span>Kreismittelpunkt</label><label title="Kante"><input type="checkbox" id="snapE" checked> <span class="sym sym-e"></span>Kante</label><label title="Fläche"><input type="checkbox" id="snapF" checked> <span class="sym sym-f"></span>Fläche</label><label title="Achse"><input type="checkbox" id="snapA"> <span class="sym sym-a"></span>Achse</label></div>
 <div class="row"><label title="Nur Flächen fangen – Fläche zu Fläche messen wie in ZW3D (Taste Q). Zweite Fläche überfahren zeigt den Wert vorab, Umschalt+Klick misst gegen die erste Fläche weiter."><input type="checkbox" id="nurFlaechen"> Nur Flächen (Q) – Fläche zu Fläche</label></div>
-<div class="row"><button class="btn" id="keepDim" title="Als Bemaßung behalten">Bemaßung</button> <button class="btn" id="copySel" title="Kopieren">Kopieren</button> <button class="btn" id="clearSel" title="Auswahl löschen">Löschen</button></div>
 <div class="ahead">Bemaßungen <span id="dimcount" class="m"></span></div>
 <div id="dimlist"></div>
 <div class="row"><select id="dimtyp" title="Bemaßungsart für die aktuelle Auswahl"></select> <button class="btn" id="dimSet" title="Aktuelle Auswahl mit der gewählten Art bemaßen">Bemaßen</button></div>
@@ -145,11 +150,21 @@
 <p class="hint">Fläche zu Fläche (wie ZW3D): Q drücken, erste Fläche anklicken, zweite überfahren (Wert erscheint am Cursor) und anklicken. Parallele Flächen: Abstand senkrecht; Zylinder: Abstand zur Achse. Umschalt+Klick misst gegen die erste Fläche weiter. D zeigt die Abmessungen.</p>
 <p class="hint">Element anklicken (Rundung/Bogen: Radius und Bogenlänge sofort). Zweites Element anklicken: Abstand, Winkel, Lochabstand – wird als Bemaßung im 3D behalten. Weitere Arten über „Bemaßen“. Maus in „Auswählen“: Mitte ziehen = drehen, Rechts oder Umschalt+Mitte ziehen = schwenken, Rad = Zoom zum Cursor. Strg/Umschalt + Klick: weitere Kanten für die Gesamtlänge. Leertaste setzt die Auswahl zurück. F9 richtet eine schiefe Ansicht auf die nächste Standardansicht aus.</p>
 </details>
+</details>
 </section></div></div>
 <div id="blechPanel" class="schweb hell" hidden><div class="ptitel">Blech <button type="button" class="tab" data-tab="blech">Blech</button><button type="button" class="zuKnopf" id="blechZu" title="Schließen">×</button></div>
 <div class="pbody"><section id="tab-blech" hidden>
-<div class="row"><span>K-Faktor</span><select id="kmode" title="Wie der K-Faktor bestimmt wird"><option value="din">Automatisch (DIN 6935)</option><option value="manuell">Manuell</option></select><input id="kf" type="number" step="0.01" min="0" max="1" value="0.50" disabled title="K-Faktor (Lage der neutralen Faser, 0 … 1)"></div>
+<div id="flatprev"></div>
+<div id="sheeterr"></div><div id="sheetinfo" class="kv"></div>
+<div class="row"><button class="btn primary" id="dxf" disabled title="Abwicklung als DXF-Datei speichern">Abwicklung als DXF speichern</button> <button class="btn" id="geoSpeichern" disabled title="Abwicklung als Trumpf-GEO (TruTops) speichern: Außen- und Innenkonturen mit echten Bögen, Biegelinien mit Richtung und Winkel">Abwicklung als GEO speichern</button></div>
+<div id="dxfGrund" class="hint"></div>
+<div class="row"><span>K-Faktor</span><select id="kmode" title="Wie der K-Faktor bestimmt wird"><option value="din">DIN 6935</option><option value="trumpf">Trumpf-kompatibel</option><option value="manuell">Manuell</option></select><input id="kf" type="number" step="0.01" min="0" max="1" value="0.50" disabled title="K-Faktor (Lage der neutralen Faser, 0 … 1)"></div>
 <div class="row"><span>Werkstoff</span><select id="mat2" title="Werkstoff (Dichte für die Masse)"><option value="7.85">Stahl (7,85 g/cm³)</option><option value="7.90">Edelstahl (7,90 g/cm³)</option><option value="2.70">Aluminium (2,70 g/cm³)</option><option value="8.96">Kupfer (8,96 g/cm³)</option></select></div>
+<details id="blechDetails"><summary>Details</summary>
+<div id="sheetmehr" class="kv"></div>
+<div class="row"><span>Lage</span><select id="flachLage" title="Lage der Abwicklung in DXF und GEO"><option value="trumpf" selected>wie Trumpf (lange Seite senkrecht, Ursprung links unten)</option><option value="original">wie konstruiert</option></select></div>
+<div class="row"><label class="btn" title="Biegeabzüge (BD) aus einer Trumpf-GEO (TruTops Boost) übernehmen – gilt für „Trumpf-kompatibel“">Trumpf-GEO laden …<input id="geoLaden" type="file" accept=".geo,.GEO" hidden></label></div>
+<div id="geoInfo" class="hint"></div>
 <div class="row"><label class="btn" title="Eigene Biegetabelle als CSV laden (Spalten: s; ri; Winkel; v, BD oder K; optional Werkstoff)">Biegetabelle laden …<input id="csv" type="file" accept=".csv,.txt" hidden></label><button class="btn" id="csvClear" title="Eigene Biegetabelle entfernen" hidden>Entfernen</button><button class="btn" id="calcSheet">Berechnen</button></div>
 <div id="csvinfo" class="hint"></div>
 <div class="row"><span>Feste Fläche</span> <span id="festInfo" class="m">automatisch (größte Blechfläche)</span></div>
@@ -158,24 +173,22 @@
 <div class="row"><label title="Kanten ohne Biegeradius mit diesem Innenradius abwickeln (der Radius steht nicht in der Datei)"><input type="checkbox" id="riAn"> Innenradius annehmen</label> <input id="riWert" type="number" step="0.1" min="0.1" value="2" style="width:5em" title="Angenommener Innenradius in mm"> <span class="m">mm</span></div>
 <div class="row"><span>Virtueller Riss</span> <span id="rissInfo" class="m">keiner</span></div>
 <div class="row"><button class="btn" id="rissSetzen" title="Geschlossene Ecke auftrennen: zuerst die Eckkante in der 3D-Ansicht wählen">Riss an gewählter Kante</button> <button class="btn" id="rissLoeschen" hidden title="Alle Risse entfernen">Risse löschen</button></div>
-<div id="sheeterr"></div><div id="sheetinfo" class="kv"></div>
 <div id="bends"></div>
-<div id="flatprev"></div>
 <div class="ahead">Falten / Entfalten</div>
 <div class="row"><input type="range" id="faltRegler" min="0" max="100" value="0" step="1" style="flex:1" title="0 % = gefaltet (3D-Teil), 100 % = flach (Abwicklung)" disabled> <span id="faltWert" class="m">0 %</span></div>
 <div class="row"><button class="btn" id="faltPlay" title="Teil in der 3D-Ansicht entfalten und wieder falten" disabled>Animation abspielen</button> <button class="btn" id="faltAus" hidden title="Animation beenden und das Teil wieder zeigen">Teil wieder zeigen</button></div>
-<button class="btn primary" id="dxf" disabled title="Abwicklung als DXF-Datei speichern">Abwicklung als DXF speichern</button>
 <div class="row"><label title="Layer BESCHRIFTUNG mit „B1 AUF 90° Ri 2“ je Biegelinie (für den Laser meist aus)"><input type="checkbox" id="dxfText"> Biegenotizen im DXF (Layer BESCHRIFTUNG)</label></div>
 <p class="hint">DXF 1:1 in mm: Bohrungen als Kreis, Konturen als geschlossene Polylinie mit echten Bögen. Layer KONTUR, BIEGELINIEN_AUF, BIEGELINIEN_AB; aufgetrennte Kanten (virtueller Riss) zusätzlich auf Layer RISS (nicht plotten).</p>
 <div class="row"><button class="btn" id="expPdf" disabled title="Biegetabelle als PDF speichern">Biegetabelle als PDF</button> <button class="btn" id="expXlsx" disabled title="Biegetabelle als Excel-Datei (XLSX) speichern">Biegetabelle als Excel (XLSX)</button></div>
 <div id="sheetwarn" class="warn"></div>
+</details>
 </section></div></div>
 </div>
 </main>
 <footer id="boden">
 <button type="button" id="btnReset" title="Zurücksetzen – Ansicht auf Isometrie zurückstellen"><svg class="ik duo" viewBox="0 0 24 24" aria-hidden="true"><path class="fl" d="M13.6 8 18.97 11.1 13.6 14.2 8.23 11.1 Z"/><path d="M13.6 8 18.97 11.1 18.97 17.3 13.6 20.4 8.23 17.3 8.23 11.1 Z"/><path d="M8.23 11.1 13.6 14.2 18.97 11.1 M13.6 14.2 13.6 20.4"/><path d="M13 3.6A10 10 0 0 0 3.4 13"/><path d="M1.4 10.6 3.4 13.4 6 11.2"/></svg><span>Zurücksetzen</span></button>
 <button type="button" id="btnDreh" aria-pressed="false" title="Autodrehen – Teil langsam um die Hochachse drehen (ein/aus). Ein Klick in die Ansicht hält es an."><svg class="ik duo" viewBox="0 0 24 24" aria-hidden="true"><path class="fl" d="M12 5 17.37 8.1 12 11.2 6.63 8.1 Z"/><path d="M12 5 17.37 8.1 17.37 14.3 12 17.4 6.63 14.3 6.63 8.1 Z"/><path d="M6.63 8.1 12 11.2 17.37 8.1 M12 11.2 12 17.4"/><path class="ac" d="M1.6 13.6A10.4 4.2 0 0 0 20.8 16"/><path class="ac" d="M17.4 18.4 21.2 15.8 17.6 13.9"/><path class="ac thin" d="M22.4 13.2A10.4 4.2 0 0 0 18.4 10.2M5.6 10.2A10.4 4.2 0 0 0 1.6 13.2"/></svg><span>Autodrehen</span></button>
-<button type="button" id="btnMessen" class="on" title="Messen – schnell messen, wird nicht gespeichert"><svg class="ik duo" viewBox="0 0 24 24" aria-hidden="true"><g transform="rotate(-45 12 12)"><rect class="fl" x="1" y="7.8" width="22" height="8.4" rx="1.5"/><rect x="1" y="7.8" width="22" height="8.4" rx="1.5"/><path class="ac" d="M5 7.8v3.8M8.6 7.8v2.4M12.2 7.8v3.8M15.8 7.8v2.4M19.4 7.8v3.8"/></g></svg><span>Messen</span></button>
+<button type="button" id="btnMessen" title="Messen – schnell messen, wird nicht gespeichert"><svg class="ik duo" viewBox="0 0 24 24" aria-hidden="true"><g transform="rotate(-45 12 12)"><rect class="fl" x="1" y="7.8" width="22" height="8.4" rx="1.5"/><rect x="1" y="7.8" width="22" height="8.4" rx="1.5"/><path class="ac" d="M5 7.8v3.8M8.6 7.8v2.4M12.2 7.8v3.8M15.8 7.8v2.4M19.4 7.8v3.8"/></g></svg><span>Messen</span></button>
 <button type="button" id="btnSchnitt" title="Schnitt – Schnittebene durch das Teil legen"><svg class="ik duo" viewBox="0 0 24 24" aria-hidden="true"><path class="fl strong" d="M12 8.5 19.1 12.6 12 16.7 4.9 12.6 Z"/><path d="M4.9 12.6 12 16.7 19.1 12.6 19.1 16.7 12 20.8 4.9 16.7 Z"/><path d="M12 16.7 12 20.8"/><path class="thin dash" d="M4.9 12.6 4.9 8.5 12 4.4 19.1 8.5 19.1 12.6 M4.9 8.5 12 12.6 19.1 8.5 M12 12.6 12 16.7"/></svg><span>Schnitt</span></button>
 <button type="button" id="btnMass" title="Bemaßung – Maße setzen, speichern und exportieren"><svg class="ik duo" viewBox="0 0 24 24" aria-hidden="true"><rect class="fl" x="3" y="14.8" width="18" height="5.8" rx="1.2"/><rect x="3" y="14.8" width="18" height="5.8" rx="1.2"/><path d="M3.4 12.6V3.6M20.6 12.6V3.6"/><path class="ac" d="M7.5 8h9"/><path class="acf" d="M4 8 9 5v6zM20 8 15 5v6z"/></svg><span>Bemaßung</span></button>
 <button type="button" id="btnBlech" title="Blech – Abwicklung, Biegetabelle und DXF"><svg class="ik duo" viewBox="0 0 24 24" aria-hidden="true"><path class="fl" d="M10.2 1 10.2 6.71 10.24 7.26 10.38 7.84 10.59 8.43 10.88 9.01 11.23 9.54 11.64 10.03 12.07 10.43 12.53 10.74 18.57 14.23 11.65 18.22 5.62 14.73 5.16 14.42 4.73 14.02 4.32 13.53 3.97 13 3.68 12.42 3.47 11.83 3.33 11.25 3.29 10.7 3.29 4.99 Z"/><path d="M10.2 1 10.2 6.71 10.24 7.26 10.38 7.84 10.59 8.43 10.88 9.01 11.23 9.54 11.64 10.03 12.07 10.43 12.53 10.74 18.57 14.23 11.65 18.22 5.62 14.73 5.16 14.42 4.73 14.02 4.32 13.53 3.97 13 3.68 12.42 3.47 11.83 3.33 11.25 3.29 10.7 3.29 4.99 Z"/><path class="ac dash2" d="M10.88 9.01 3.97 13"/></svg><span>Blech</span></button>
@@ -186,6 +199,7 @@
 <button type="button" data-aktion="exportPng">Bemaßung als PNG</button>
 <button type="button" data-aktion="exportPdf">Bemaßung als PDF</button>
 <button type="button" data-aktion="dxf">Abwicklung als DXF</button>
+<button type="button" data-aktion="geo">Abwicklung als GEO (Trumpf)</button>
 <button type="button" data-aktion="expPdf">Biegetabelle als PDF</button>
 <button type="button" data-aktion="expXlsx">Biegetabelle als Excel</button>
 </div>

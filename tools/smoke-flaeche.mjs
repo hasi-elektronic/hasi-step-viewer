@@ -21,6 +21,7 @@ if(nativ){const exe=process.env.HASI_KERN||'kern/build/hasi-kern',tmp=fs.mkdtemp
 await ctx.addInitScript(()=>{localStorage.removeItem('nurFlaechen')});
 const p=await ctx.newPage();p.on('pageerror',e=>errs.push(e.message));
 await p.goto(`http://localhost:${port}/`);await p.waitForFunction(()=>window.__app&&(window.__loadUrl||window.__oeffnePfad));
+await p.evaluate(()=>{document.querySelectorAll('#messenErweitert,#blechDetails').forEach(d=>d.open=true);if(document.getElementById('messenPanel').hidden)document.getElementById('btnMessen').click()}); // Start ohne offenes Feld: für diesen Test Messen öffnen, „Erweitert“/„Details“ aufklappen
 if(marke==='ms3d'){const t=await p.title();if(t!=='MS3D')fail('Titel MS3D erwartet, ist '+t);ok('Marke MS3D')}
 const bild=async n=>{if(shot){await p.waitForTimeout(250);await p.screenshot({path:path.join(shot,n+'.png')});console.log('  bild '+path.join(shot,n+'.png'))}};
 async function laden(t){await p.evaluate(()=>{window.__lastLoad=null});
