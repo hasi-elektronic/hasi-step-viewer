@@ -85,6 +85,18 @@ Testsuite: `tools/test-messen.mjs` (läuft in CI). Sie prüft 58 Sollmaße am Me
 
 ![Fangen](docs/messen-fangen.png) ![Bemaßungen](docs/messen-bemassungen.png) ![Blech-Rundung](docs/messen-blech-rundung.png)
 
+## Messen wie eDrawings
+
+- **Start:** kein Werkzeugfeld offen, das Modell wird in die freie Fläche unter der Werkzeugleiste eingepasst (projizierter Hüllquader, mittig). Ein offenes Messen-Feld wird nicht wiederhergestellt.
+- **Messen-Feld kompakt unten links** (höchstens 280 px breit): Einheiten, Bogen-/Kreismessungen (Abstand Mitte zu Mitte, Mindestabstand, Maximalabstand), Ergebnisse. Abstandsmethode, Maßrichtung, Projiziert auf, Fangen, Bemaßungen und alles Weitere liegen unter „Erweitert“ (zugeklappt). „Messen“ in der unteren Leiste öffnet und schließt das Feld.
+- **Ein Klick auf eine Kante** zeigt den Wert direkt an der Kante, z. B. „Länge: 356,793 mm“; Bogen: Radius und Bogenlänge; Kreis: Durchmesser. Derselbe Wert steht unter „Ergebnisse“.
+- **Zwei Flächen:** parallel → „Die zwei gewählten Elemente sind parallel.“, Normaler Abstand (lila, mit Lotlinie im 3D), Abstand (kürzester Abstand) und Delta X/Y/Z der kürzesten Strecke; nicht parallel → Mindestabstand und Winkel. Es bleibt keine Bemaßung stehen (wie eDrawings); andere Paare und „Nur Flächen“ (Q, wie ZW3D) bemaßen wie bisher.
+- Im Messen wird die Verschieben-Triade nur gezeigt, wenn „Verschieben“ aktiv ist – sie verdeckt sonst Maßtexte.
+
+Geprüft durch `tools/test-edrw.mjs` (CI, B-Rep) und `tools/smoke-edrw.mjs` (headless, beide Marken, Bilder in `docs/edrw/`).
+
+![Start](docs/edrw/hasi/nachher-start.png) ![Zwei Flächen](docs/edrw/hasi/5-zwei-flaechen.png) ![Blech](docs/edrw/hasi/nachher-blech.png)
+
 ## K-Faktor und Biegetabelle
 
 Im Blech-Panel wird der K-Faktor standardmäßig automatisch je Biegung aus dem Verhältnis Innenradius zu Blechdicke berechnet.
@@ -100,6 +112,15 @@ Umsetzung: `src/kfaktor.js`. Werkstoffe (Dichte für die Masse): Stahl 7,85, Ede
 **Eigene Biegetabelle (CSV):** Spalten `s;ri;Winkel;v` oder `s;ri;Winkel;K` (Trennzeichen `;`, `,` oder Tab, Dezimalkomma erlaubt, Winkel optional). Passende Zeilen (s ±1 %, ri ±2 %, Winkel ±1°) haben Vorrang vor DIN 6935. Beispiel: `testdaten/biegetabelle-beispiel.csv` (Beispielwerte, keine Herstellerangaben).
 
 ![Biegetabelle](docs/blech-biegetabelle.png)
+
+**K-Faktor „Trumpf-kompatibel“ (Standard in MS3D):** TruTops Boost rechnet nicht mit einem festen K-Faktor, sondern mit Biegeabzügen (BD) je Dicke, Radius und Winkel aus der Werkzeugdatenbank. Eine Trumpf-GEO desselben Teils zeigte für s 6 / Ri 6 (Gesenk EV W40, Oberwerkzeug R1): BD 11,1996 bei 90° (gleichwertig K 0,358) und BD 9,70327 bei 82,46° (gleichwertig K 0,312). DIN 6935 gibt K 0,325 für beide – ein einziger K-Faktor kann Trumpf daher nicht treffen, es braucht eine Tabelle je Winkel.
+
+- Eingebaut sind diese Werte (`TRUMPF_TABELLE` in `src/kfaktor.js`). Zwischen zwei Winkeln wird der gleichwertige K-Faktor linear interpoliert, außerhalb gilt der nächste mit Hinweis.
+- **Trumpf-GEO laden** (Blech → Details) übernimmt die BD-Werte aller Biegelinien einer GEO aus TruTops Boost (Dicke, DESIGN_BEND_RADIUS, Winkel, Biegeabzug) und hat Vorrang.
+- Ohne Trumpf-Wert (andere Dicke oder anderer Radius) gilt DIN 6935 mit Hinweis.
+- Mit diesen Werten stimmte der Zuschnitt des Kundenteils auf 0,0001 mm mit Trumpf überein (DIN 6935: −0,63 / +0,45 mm).
+- Hasi 3D startet weiter mit DIN 6935; die Wahl bleibt gespeichert.
+
 
 ## Abwicklung
 
@@ -122,6 +143,14 @@ Testteile (selbst erzeugt mit `tools/make-abwicklung-teile.py`, CadQuery):
 - Kuppel
 
 Geprüft durch `tools/test-abwicklung.mjs` (CI, Sollmaße) und `tools/smoke-abwicklung.mjs` (headless).
+
+**Blech-Feld:** oben die Abwicklung mit Maßen (Zuschnitt Länge × Breite, Lage der achsparallelen Biegelinien ab der unteren bzw. linken Kante), darunter Blechdicke, Biegungen, Zuschnitt, Werkstoff und Masse. Biegetabelle, Schenkel, Formeln und Einstellungen liegen unter „Details“.
+
+**Freiform-Stirnflächen:** schräg geschnittene Biegungsenden liegen in manchen Dateien als B-Spline-Fläche mit Dicke-Kante vor. Sie gehören zum Rand, nicht zur Blechseite, und sperren die Abwicklung nicht mehr (Hinweis statt Fehler). Andere nicht abwickelbare Flächen sperren weiter.
+
+**Lage wie Trumpf:** Standard ist „wie Trumpf“: die lange Seite senkrecht (Y), +90° gedreht, Ursprung links unten. „wie konstruiert“ lässt die Lage der festen Fläche.
+
+**Abwicklung als GEO speichern** (Trumpf GEO 1.03 wie TruTops Boost, `src/geo.js`): Außenkontur und Innenkonturen aus Linien, echten Bögen und Kreisen, Biegelinien mit Öffnungswinkel (− = AB, + = AUF), Radius und Biegeabzug, Schnittlänge. DXF und GEO werden über den Speichern-Dialog geschrieben; fehlt die Endung, wird `.dxf` bzw. `.geo` angehängt. Geprüft durch `tools/test-trumpf-geo.mjs` (CI): Schreiben, neu Einlesen, Ausdehnung, Konturen, Biegelinien, Fläche, Schnittlänge, ezdxf-Audit.
 
 ![Wanne](docs/abwicklung-wanne.png) ![Abwicklung Wanne](docs/abwicklung-wanne-flach.png) ![Warnung](docs/abwicklung-warnung.png)
 
