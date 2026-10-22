@@ -22,6 +22,8 @@ const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamp
 controls.mouseButtons={LEFT:null,MIDDLE:THREE.MOUSE.ROTATE,RIGHT:THREE.MOUSE.PAN};controls.zoomToCursor=true;
 renderer.domElement.addEventListener('mousedown',e=>{if(e.button===1)e.preventDefault()});
 const overlay=document.createElement('canvas');overlay.id='dimoverlay';overlay.style.cssText='position:absolute;left:0;top:0;pointer-events:none';view.appendChild(overlay);
+// Overlay auf der CPU: GPU-Canvas ließ nach clearRect alte Messwerte stehen (Chromium)
+overlay.getContext('2d',{willReadFrequently:true});
 const plane=new THREE.Plane(new THREE.Vector3(1,0,0),0);
 let model=null,box=new THREE.Box3(),needs=true,data=null,bodies=[],edgeObjs=[],baseMat=null,marks=new THREE.Group(),hoverObj=new THREE.Group();
 let ersteZeichnung=0,anim=null,drehen=false,mausUnten=false,werkzeug='wahl',triade=null,wahlMark=null;
@@ -99,14 +101,11 @@ function wuerfelSync(){if(!vr)return;const dir=camera.position.clone().sub(contr
 const SICHT_OBEN=62,SICHT_UNTEN=14; // Werkzeugleiste oben, Rand unten (px)
 // Einpassen wie eDrawings: Abstand so, dass der projizierte Hüllquader in die freie Fläche passt (unter der Werkzeugleiste, neben dem Feld)
 function einpassAbstand(c,d,up,s){let dist=sichtDistanz(s);const tar=c.clone();const w=view.clientWidth,h=view.clientHeight;if(!camera.isPerspectiveCamera||!w||!h||box.isEmpty())return {dist,tar};
-  const k=camera.clone();k.up.copy(up);const v=new THREE.Vector3(),aH=Math.max(80,h-SICHT_OBEN-SICHT_UNTEN),aW=Math.max(80,w-freiD-32),re=new THREE.Vector3(),ob=new THREE.Vector3();
-  // Mehrfach: Abstand so, dass der projizierte Hüllquader passt, und Ziel so verschoben, dass er mittig im freien Bereich liegt (Perspektive macht ihn sonst schief)
-  for(let i=0;i<6;i++){k.position.copy(tar).addScaledVector(d,dist);k.lookAt(tar);k.updateMatrixWorld();let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
-    for(let j=0;j<8;j++){v.set(j&1?box.max.x:box.min.x,j&2?box.max.y:box.min.y,j&4?box.max.z:box.min.z).project(k);const x=(v.x+1)/2*w,y=(1-v.y)/2*h;x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y)}
-    v.copy(tar).project(k);const mx=(v.x+1)/2*w,my=(1-v.y)/2*h,dx=(x0+x1)/2-mx,dy=(y0+y1)/2-my;
-    const wpp=2*dist*Math.tan(k.fov*Math.PI/360)/h;re.setFromMatrixColumn(k.matrixWorld,0).normalize();ob.setFromMatrixColumn(k.matrixWorld,1).normalize();
-    tar.addScaledVector(re,dx*wpp).addScaledVector(ob,-dy*wpp);
-    const f=Math.max((y1-y0)/aH,(x1-x0)/aW)/0.92;if(Number.isFinite(f)&&Math.abs(f-1)>=0.01)dist=Math.max(dist*f,s*0.55);else if(Math.abs(dx)<1&&Math.abs(dy)<1)break}
+  const k=camera.clone();k.up.copy(up);const v=new THREE.Vector3(),aH=Math.max(80,h-SICHT_OBEN-SICHT_UNTEN),aW=Math.max(80,w-freiD-32);
+  // Drehpunkt bleibt die Modellmitte; der Abstand wird so gewählt, dass der projizierte Hüllquader symmetrisch um sie in die freie Fläche passt
+  for(let i=0;i<6;i++){k.position.copy(tar).addScaledVector(d,dist);k.lookAt(tar);k.updateMatrixWorld();v.copy(tar).project(k);const mx=(v.x+1)/2*w,my=(1-v.y)/2*h;let hx=0,hy=0;
+    for(let j=0;j<8;j++){v.set(j&1?box.max.x:box.min.x,j&2?box.max.y:box.min.y,j&4?box.max.z:box.min.z).project(k);hx=Math.max(hx,Math.abs((v.x+1)/2*w-mx));hy=Math.max(hy,Math.abs((1-v.y)/2*h-my))}
+    const f=Math.max(2*hy/aH,2*hx/aW)/0.94;if(!Number.isFinite(f)||Math.abs(f-1)<0.01)break;dist=Math.max(dist*f,s*0.55)}
   return {dist,tar}}
 function sichtDistanz(s){const tan35=Math.tan(35*Math.PI/360);const h=view.clientHeight||1,fa=Math.min(1,Math.max(0.2,((view.clientWidth||h)-freiD)/h));return s*1.7*(tan35/(Math.tan(camera.fov*Math.PI/360)*fa))}
 function animSchritt(){const t=Math.min(1,(performance.now()-anim.t0)/anim.ms);const k=t*t*(3-2*t);
@@ -560,7 +559,7 @@ function sicht(){if(!model)return {};return {oben:camDir(new THREE.Vector3(0,1,0
 function messOpts(){const art=$('projektion')?.value||'keine';const pj={art};if(art==='bildschirm'&&model)pj.n=camDir(new THREE.Vector3(0,0,1));return {methode:$('methode')?.value||'auto',bogen:$('bogenAbstand')?.value||'mitte',projektion:pj,richtung:$('massRichtung')?.value||'ausgerichtet',sicht:sicht()}}
 function messGrafik(r){r.gfx.forEach(([a,b])=>{const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(a),V3(b)]),new THREE.LineBasicMaterial({color:0x1f8fd0,depthTest:false}));l.renderOrder=11;marks.add(l)});
   if(r.delta&&$('deltaZeigen')?.checked)deltaLinien(r.delta[0],r.delta[1]).forEach(d=>{const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(d.von),V3(d.bis)]),new THREE.LineBasicMaterial({color:d.farbe,depthTest:false}));l.renderOrder=11;l.userData.delta=d.achse;marks.add(l)})}
-async function neuMessen(){if(!sels.length)return;const s=sels.slice(),opts=messOpts();try{const r=await call('measure',{sels:s,opts});lastRes={r,sels:s,title:s.map(label).join(' + '),opts};
+async function neuMessen(){if(!sels.length)return;const s=sels.slice(),opts=messOpts();try{const r=await call('measure',{sels:s,opts});if(s.length!==sels.length||s.some((x,i)=>x!==sels[i]))return;lastRes={r,sels:s,title:s.map(label).join(' + '),opts};
   marks.clear();s.forEach(x=>marks.add(hiObj(x,0x1f8fd0)));messGrafik(r);zeigeMessung(r);window.__lastMeasure=r;needs=true;return r}catch(err){$('mresult').innerHTML=`<div>Fehler</div><div>${err.message}</div>`}}
 function clearSel(){sels=[];reiheBezug=null;zeileHi.clear();if(vorschauLinie){vorschauLinie.removeFromParent();vorschauLinie=null}marks.clear();$('selinfo').textContent='';$('mresult').innerHTML='';messLabels=[];ergebnisZeigen([]);try{drawDims()}catch{}window.__lastMeasure=null;needs=true}
 // ---------- Fläche zu Fläche (wie ZW3D „Instant Measure“) ----------
@@ -673,7 +672,7 @@ function zeichneMesslabels(c){if(!messLabels.length||!model)return;c.save();c.fo
   c.restore()}
 async function select(s,add=false){if(sels.length>=2&&!add)clearSel();const clean={k:s.k,id:s.id,inst:s.inst,p:s.p};if(s.src)clean.src=s.src;sels.push(clean);marks.add(hiObj(clean,0x1f8fd0));
   $('selinfo').textContent=sels.map(label).join('  +  ');needs=true;
-  try{const opts=messOpts();const r=await call('measure',{sels,opts});lastRes={r,sels:sels.slice(),title:sels.map(label).join(' + '),opts};zeigeMessung(r);
+  try{const opts=messOpts();const r=await call('measure',{sels:sels.slice(),opts});if(!sels.includes(clean))return;lastRes={r,sels:sels.slice(),title:sels.map(label).join(' + '),opts};zeigeMessung(r);
     messGrafik(r);
     // Zwei Flächen: wie eDrawings nur Werte an den Flächen (keine bleibende Bemaßung). Andere Paare und „Nur Flächen“ (Q, wie ZW3D): Bemaßung bleibt stehen
     if(sels.length===2&&!add&&!edrwFlaechen())keepDim();
