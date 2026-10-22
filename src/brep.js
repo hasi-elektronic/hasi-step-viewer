@@ -1,4 +1,5 @@
 import {biegung} from './kfaktor.js';
+import {abwicklungLage,geoSchreiben} from './geo.js';
 import {faltePunkt} from './falten.js';
 import {methodenZeile,projiziere,normalAbstand,PROJ_NORMALE,RICHTUNGEN,richtungsVektor,COS_PARALLEL,SIN_PARALLEL,ebeneEbene,lotPaar,aufEbene,aufAchse,ebeneAchse,achseAchse,innenWinkel} from './messen-hilfen.js';
 // B-Rep-Kern: Einlesen, Topologie, Messen, Blech. Läuft im Worker (Browser) und in Node (Tests).
@@ -509,6 +510,14 @@ export function createBrep(ocIn){
     if(paare['rand-mitte'])out.linien['Abstand Rand–Mitte']=paare['rand-mitte'];if(paare['mitte-rand'])out.linien['Abstand Mitte–Rand']=paare['mitte-rand'];if(paare.unendlich)out.linien['Abstand unendlich verlängert']=paare.unendlich;
     if(ff&&ff.paar)out.linien[ff.name]=ff.paar;if(ff&&ff.fall==='A')out.linien['Paralleler Abstand']=ff.paar;if(ff&&ff.max)out.linien['Mantelabstand max.']=ff.max.paar;
     if(name&&!out.linien[name])out.linien[name]=paare[w];
+    // Ergebnis wie eDrawings: zwei Flächen → „parallel“ mit Normaler Abstand (Lot) und Abstand (kürzester Abstand) samt Delta X/Y/Z
+    // der kürzesten Strecke; nicht parallel → Mindestabstand und Winkel. Andere Paare: Abstand (min.) mit Delta.
+    {const dd=[0,1,2].map(j=>Math.abs(md.p2[j]-md.p1[j]));const ed={abstand:md.d,abstandPaar:[md.p1,md.p2],delta:dd};
+      const winkelZ=rows.find(r=>/^Winkel (Fläche|Kante)–(Fläche|Kante)$/.test(r[0]));
+      if(a.k==='face'&&b.k==='face'&&ff&&ff.fall==='A'){ed.parallel=true;ed.normal=ff.wert;ed.normalPaar=ff.paar}
+      else if(a.k==='face'&&b.k==='face'){ed.parallel=false;if(winkelZ)ed.winkel=winkelZ[1]}
+      else if(winkelZ)ed.winkel=winkelZ[1];
+      out.edrw=ed}
     return out};
   const meshVA=u=>{const U=M.uniq[u];if(U.mva)return U.mva;const p=U.p,ix=U.i;let v=0,A=0,cx=0,cy=0,cz=0;
     for(let t=0;t<ix.length;t+=3){const a=ix[t]*3,b=ix[t+1]*3,c=ix[t+2]*3;const ax=p[a],ay=p[a+1],az=p[a+2],bx=p[b],by=p[b+1],bz=p[b+2],qx=p[c],qy=p[c+1],qz=p[c+2];
@@ -791,6 +800,12 @@ export function createBrep(ocIn){
         if(Math.abs(rr-r)<1e-6*Math.max(1,r)){if(e.circle.ang>TW-1e-6)bogen={c,r,voll:true};
           else{const w=p=>Math.atan2(p[1]-c[1],p[0]-c[0]);const as=w(pts[0]),ae=w(pts.at(-1)),am=w(m.f(e.mid));const ccw=ccwW(as,am)<ccwW(as,ae);
             bogen={c,r,voll:false,ccw,a0:ccw?as:ae,a1:ccw?ae:as};bogen.sweep=ccwW(bogen.a0,bogen.a1)}}}
+      // Freiform-/B-Spline-Kanten (z. B. an schräg geschnittenen Biegungsenden), die in der Ebene ein Kreisbogen sind → echter Bogen wie in der Trumpf-GEO
+      if(!bogen&&!e.line&&pts.length>=5){const a=pts[0],b=pts[pts.length>>1],z=pts.at(-1);const d=2*(a[0]*(b[1]-z[1])+b[0]*(z[1]-a[1])+z[0]*(a[1]-b[1]));
+        if(Math.abs(d)>1e-9){const q=x=>x[0]*x[0]+x[1]*x[1];const c=[(q(a)*(b[1]-z[1])+q(b)*(z[1]-a[1])+q(z)*(a[1]-b[1]))/d,(q(a)*(z[0]-b[0])+q(b)*(a[0]-z[0])+q(z)*(b[0]-a[0]))/d];
+          const r=Math.hypot(a[0]-c[0],a[1]-c[1]);const sehne=Math.hypot(z[0]-a[0],z[1]-a[1]);
+          if(r<1e4&&sehne>1e-6&&pts.every(p=>Math.abs(Math.hypot(p[0]-c[0],p[1]-c[1])-r)<=1e-3)){const w=p=>Math.atan2(p[1]-c[1],p[0]-c[0]);const as=w(a),ae=w(z),am=w(b);const ccw=ccwW(as,am)<ccwW(as,ae);
+            const sw=ccwW(ccw?as:ae,ccw?ae:as);if(sw<TW-1e-6){bogen={c,r,voll:false,ccw,a0:ccw?as:ae,a1:ccw?ae:as,sweep:sw,angepasst:true};pts[0]=[c[0]+r*Math.cos(as),c[1]+r*Math.sin(as)];pts[pts.length-1]=[c[0]+r*Math.cos(ae),c[1]+r*Math.sin(ae)]}}}}
       const teile=clips.has(fi)?clipPts(fi,pts):[pts];
       if(teile.length===1&&teile[0]===pts){lines.push(pts);kanten.push({pts,bogen});return [pts]}
       teile.forEach(T=>{lines.push(T);kanten.push({pts:T,bogen:null})});return teile};
@@ -806,7 +821,17 @@ export function createBrep(ocIn){
     res.flat={contour:lines,kanten,bendLines,rissLinien,bendInfo:res.bends.map(b=>({nr:b.nr,dir:b.dir,ang:b.ang,ri:b.ri,seite:b.seite,angenommen:!!b.angenommen})),min:mn,max:mx,size:[mx[0]-mn[0],mx[1]-mn[1]]};
     res.faltung={basis:FB,bends:fbends,kette:Object.fromEntries(kette),fehler:faltFehler};
     // ---- Prüfungen ----
-    const free=F.filter(f=>!f.plane&&!f.cyl);if(free.length)res.fehler.push(`Das Teil enthält ${free.length} nicht abwickelbare Fläche(n) (${[...new Set(free.map(f=>f.type))].join(', ')}).`);
+    // Freiformflächen: Stirnflächen (Dicke t, z. B. schräg geschnittene Biegungsenden oder Eckfreischnitte) bilden keine Blechseite und
+    // liegen nicht in der Abwicklung – die Kontur kommt von der Kante zur Hautfläche (wie Trumpf/ZW3D). Nur Freiformflächen der Blechseite sperren.
+    const gegen=new Set();F.forEach((g,gi)=>{if(skin.has(gi))return;
+      if(g.plane&&isSkinPlane(g)&&[...skin].some(si=>F[si].plane&&V.dot(F[si].plane.n,g.plane.n)<-1+1e-6&&Math.abs(Math.abs(V.dot(V.sub(g.plane.o,F[si].plane.o),g.plane.n))-t)<1e-3))gegen.add(gi);
+      else if(g.cyl&&[...skin].some(si=>F[si].cyl&&coaxial(F[si].cyl,g.cyl)&&Math.abs(Math.abs(F[si].cyl.r-g.cyl.r)-t)<1e-3))gegen.add(gi)});
+    const stirn=fi=>{const ks=E.filter(e=>e.faces.includes(fi));const nb=ks.map(e=>e.faces.find(x=>x!==fi));
+      const quer=ks.some(e=>e.line&&Math.abs(V.len(V.sub(e.pts.at(-1),e.pts[0]))-t)<1e-3*Math.max(1,t));
+      return F[fi].type==='Freiform'&&quer&&nb.some(x=>skin.has(x))&&nb.some(x=>gegen.has(x)||(!skin.has(x)&&(F[x].plane||F[x].cyl||F[x].type==='Freiform')))&&!nb.every(x=>skin.has(x))};
+    const free=F.map((f,i)=>[f,i]).filter(([f])=>!f.plane&&!f.cyl);const freiStirn=free.filter(([,i])=>stirn(i)),freiHaut=free.filter(([,i])=>!stirn(i));
+    if(freiHaut.length)res.fehler.push(`Das Teil enthält ${freiHaut.length} nicht abwickelbare Fläche(n) (${[...new Set(freiHaut.map(([f])=>f.type))].join(', ')}).`);
+    if(freiStirn.length){res.stirnFrei=freiStirn.length;res.warn.push(`${freiStirn.length} Freiform-Stirnfläche(n) (Dicke ${(+t.toFixed(3)).toLocaleString('de-DE')} mm, z. B. schräg geschnittene Biegungsenden) – nicht Teil der Blechseite, Kontur aus der Kante zur Blechseite.`)}
     // Zyklen im Flächengraphen: Kanten zwischen zwei Hautflächen, die nicht im Abwicklungsbaum liegen, müssen in 2D
     // aus beiden Flächen auf dieselbe Stelle fallen – sonst ist die Ecke geschlossen (Eckfreischnitt fehlt). Gerissene Kanten zählen nicht.
     let closed=0;E.forEach((e,ei)=>{if(!rissKanten.has(ei)&&offen(ei))closed++});
@@ -826,6 +851,8 @@ export function createBrep(ocIn){
     res.flat.incomplete=res.fehler.length>0;
     if(res.flat.incomplete)res.warn.unshift('ACHTUNG: Abwicklung unvollständig oder fehlerhaft – DXF-Export gesperrt.');
     res.skinArea=[...skin].reduce((s,i)=>s+F[i].area,0);
+    // Lage wie Trumpf (lange Seite in Y), nur auf Wunsch (App: Standard „wie Trumpf“); Prüfungen oben laufen in der berechneten Lage
+    if(opts.lage==='trumpf'){const inc=res.flat.incomplete;res.flat=abwicklungLage(res.flat,'trumpf');res.flat.incomplete=inc}
     M._blech={inst,maps,skin:[...skin],faltung:res.faltung};
     return res};
   // Netz der Blechhaut für die Falt-Animation: je Dreiecksecke die 2D-Lage in der Abwicklung (letzte M.sheet-Rechnung)
@@ -860,6 +887,8 @@ export function createBrep(ocIn){
       else{const g=gerade(pts);for(let i=0;i<g.length-1;i++)v.push({p:g[i],bulge:0})}}
     if(!zu){const l=segs.at(-1);v.push({p:l.rev?l.k.pts[0]:l.k.pts.at(-1),bulge:0})}
     return v};
+  // Trumpf-GEO der Abwicklung (src/geo.js); meta: {name, werkstoff, dicke, bends}
+  M.geo=(flat,meta={})=>{const r=geoSchreiben(flat,M.konturSchleifen(flat),meta);M.letzteGeo=r.stat;return r.text};
   M.dxf=(flat,opts={})=>{if(typeof opts!=='object'||!opts)opts={};const L=[];const g=(c,v)=>L.push(String(c),String(v));
     let h=0x100;const H=()=>(h++).toString(16).toUpperCase();const f4=v=>(Math.abs(v)<5e-5?0:v).toFixed(4);
     const X=p=>f4(p[0]-flat.min[0]),Y=p=>f4(p[1]-flat.min[1]);
