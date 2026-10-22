@@ -351,13 +351,22 @@ jobs:
           fi
       - name: GEO speichern unter Windows (Schreibweg der App, cargo test)
         if: runner.os == 'Windows' && matrix.marke == 'hasi'
-        shell: bash
+        shell: pwsh  # nicht bash: dort verdeckt Gits /usr/bin/link den MSVC-Linker
         run: |
-          set -euo pipefail
-          node tools/geo-erzeugen.mjs testdaten/haube-6mm.step "$RUNNER_TEMP/geo"
-          mkdir -p "$RUNNER_TEMP/geo/rust"
-          (cd src-tauri && HASI_TEST_SAVE_INHALT="$RUNNER_TEMP/geo/haube-6mm_Abwicklung.geo.inhalt" HASI_TEST_SAVE_ZIEL="$RUNNER_TEMP/geo/rust/haube-6mm_Abwicklung" cargo test --locked text_speichern -- --nocapture && HASI_TEST_SAVE_INHALT="$RUNNER_TEMP/geo/haube-6mm_Abwicklung.geo.inhalt" HASI_TEST_SAVE_ZIEL="$RUNNER_TEMP/geo/rust/haube-6mm_Abwicklung" cargo test --locked geo_aus_der_oberflaeche_speichern -- --nocapture)
-          node tools/geo-pruefen.mjs "$RUNNER_TEMP/geo/rust/haube-6mm_Abwicklung.geo" "$RUNNER_TEMP/geo/haube-6mm_Abwicklung.geo.soll.json"
+          $geo = Join-Path $env:RUNNER_TEMP 'geo'
+          node tools/geo-erzeugen.mjs testdaten/haube-6mm.step $geo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force (Join-Path $geo 'rust') | Out-Null
+          $env:HASI_TEST_SAVE_INHALT = Join-Path $geo 'haube-6mm_Abwicklung.geo.inhalt'
+          $env:HASI_TEST_SAVE_ZIEL = Join-Path $geo 'rust\haube-6mm_Abwicklung'
+          Push-Location src-tauri
+          cargo test --locked text_speichern -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked geo_aus_der_oberflaeche_speichern -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          node tools/geo-pruefen.mjs (Join-Path $geo 'rust\haube-6mm_Abwicklung.geo') (Join-Path $geo 'haube-6mm_Abwicklung.geo.soll.json')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Kern im Installer prüfen
         shell: bash
         env:
