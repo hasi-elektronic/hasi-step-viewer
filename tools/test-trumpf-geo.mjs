@@ -2,7 +2,7 @@
 // haube-6mm.step (tools/make-haube-teil.py): s 6, Ri 6, Biegungen 90° und 82,46°, Außenmaße 80 + 200 + 70, Ausklinkung mit Spline-Kontur.
 import assert from 'assert';import fs from 'fs';import os from 'os';import path from 'path';import {execFileSync} from 'child_process';
 import {loadOC} from './oc-node.mjs';import {createBrep} from './kern-loader.mjs';
-import {parseGeo,geoKennzahlen,geoBiegetabelle,abwicklungLage} from '../src/geo.js';import {trumpfWert,biegung} from '../src/kfaktor.js';
+import {parseGeo,geoKennzahlen,geoBiegetabelle,abwicklungLage,bogenZerlegen} from '../src/geo.js';import {geoDateiPruefen} from './geo-pruefen.mjs';import {trumpfWert,biegung} from '../src/kfaktor.js';
 const B=createBrep(await loadOC());const PI=Math.PI;
 B.load(new Uint8Array(fs.readFileSync('testdaten/haube-6mm.step')),'haube-6mm.step');
 console.log('Freiform-Stirnflächen sperren die Abwicklung nicht:');
@@ -57,4 +57,14 @@ const kr=x=>B.konturSchleifen(x).filter(s=>s.kreis).map(s=>[s.kreis.c[0]-x.min[0
 {const A=kr(breit),D=kr(drehe),H=breit.size[1];const erw=A.map(p=>[H-p[1],p[0]]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
   assert(erw.every((p,i)=>Math.hypot(p[0]-D[i][0],p[1]-D[i][1])<1e-9),'Bohrungen nach Drehung');console.log(`  ok  ${breit.size.map(v=>v.toFixed(2)).join(' × ')} → ${drehe.size.map(v=>v.toFixed(2)).join(' × ')}, ${D.length} Bohrungen (x, y) → (B − y, x)`)}
 assert.equal(abwicklungLage(drehe,'trumpf').lage.drehung,0,'Hochformat bleibt');assert.equal(abwicklungLage(o,'original').size[0],o.size[0]);
+console.log('Freistich-Ecken als echte Bögen, TruTops-Aufbau der Datei:');
+// abgewickelter Kreis über einer Biegezone: Krümmung ändert sich stetig (Ellipse a 5 / b 3, Viertel) → wenige Bögen, max. 0,01 mm
+{const P=[];for(let i=0;i<=24;i++){const t=i/24*Math.PI/2;P.push([5*Math.cos(t),3*Math.sin(t)])}
+  const z=bogenZerlegen(P);assert(z&&z.every(x=>x.bogen),'Ellipse nicht in Bögen');assert(z.length>=2&&z.length<=8,'Bögen: '+z.length);
+  assert.deepEqual(z[0].pts[0],P[0]);assert.deepEqual(z.at(-1).pts.at(-1),P.at(-1));for(let i=1;i<z.length;i++)assert.deepEqual(z[i].pts[0],z[i-1].pts.at(-1));
+  for(const {pts,bogen:b} of z)for(const q of pts)assert(Math.abs(Math.hypot(q[0]-b.c[0],q[1]-b.c[1])-b.r)<=0.01+1e-12);
+  assert.equal(bogenZerlegen([[0,0],[1,0],[2,0],[3,0],[4,0]]),null,'Gerade bleibt Linie');
+  console.log(`  ok  Viertelellipse 5 × 3 (25 Punkte) → ${z.length} Bögen (R ${z.map(x=>x.bogen.r.toFixed(2)).join(' / ')}), Abweichung ≤ 0,01 mm; Gerade bleibt Linie`)}
+{const k=geoDateiPruefen(Buffer.from(geo,'latin1'),null);assert.equal(k.biegungen,2);
+  console.log(`  ok  Datei: CRLF, #~11 mit 20 Zeilen wie TruTops, ${k.konturen} Konturen, ${k.elemente} Elemente, ${k.bytes} Bytes`)}
 console.log('OK: Trumpf-kompatibel und GEO');

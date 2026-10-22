@@ -72,7 +72,8 @@ Test: `testdaten/testblech-cm.step` (selbst erzeugt mit `tools/make-testblech-cm
 Alle Werte werden exakt aus der B-Rep (OCCT) berechnet, nicht aus dem Dreiecksnetz, und immer in mm angezeigt.
 
 - **Fangen** mit Hover-Vorschau und Fangsymbol: Ecke (Quadrat), Kantenmitte (Dreieck), Kreismittelpunkt (Kreis mit Kreuz), Kante, Fläche, Achse (gestrichelt; Zylinderflächen).
-- **Ein Element:** Kantenlänge, Kantenmitte, Ø und R, Bogenwinkel, Bogenlänge, Flächeninhalt, Umfang (gesamt und außen). Rundungen und Bögen zeigen Radius und Bogenlänge hervorgehoben.
+- **Ein Element:** Kantenlänge, Kantenmitte, Ø und R, Bogenwinkel, Bogenlänge, Umfang (gesamt und außen). Rundungen und Bögen zeigen Radius und Bogenlänge hervorgehoben.
+- **Fläche anklicken (nur mm):** ebene Fläche → **Länge × Breite** in der Flächenebene (an der längsten Kante ausgerichtet), **Blechdicke** (Abstand zur gegenüberliegenden parallelen Fläche desselben Körpers, wenn erkennbar) und **Gesamthöhe** des Körpers senkrecht zur Fläche; Zylinder → **Durchmesser Ø**, **Radius R** und **Länge** entlang der Achse. Flächeninhalt (mm²), Volumen und Oberfläche erscheinen nur mit Messen › Erweitert › „Flächeninhalt, Volumen und Oberfläche anzeigen“ (Standard aus); die Masse im Blech-/Masse-Bereich bleibt.
 - **Blech-Rundung (Ein-Klick):** Radius innen und außen, Biegewinkel, Blechdicke, Bogenlänge innen und außen, Schenkellänge innen und außen (gerader Anteil + R·tan(φ/2), bis zum virtuellen Knickpunkt), Außenmaß über die Biegung (Summe der äußeren Schenkellängen).
 - **Zwei Elemente:** Abstand min., max. und Mitte–Mitte, jeweils mit ΔX/ΔY/ΔZ, Winkel Kante–Kante, Fläche–Fläche und Kante–Fläche, paralleler Abstand, Lochabstand Mitte–Mitte.
   - Der maximale Abstand wird über die Randkanten berechnet. Geraden werden über ihre Endpunkte ausgewertet, Kreise analytisch, andere Kurven per Abtastung mit Goldener-Schnitt-Verfeinerung.
@@ -158,6 +159,8 @@ Geprüft durch `tools/test-abwicklung.mjs` (CI, Sollmaße) und `tools/smoke-abwi
 **Lage wie Trumpf:** Standard ist „wie Trumpf“: die lange Seite senkrecht (Y), +90° gedreht, Ursprung links unten. „wie konstruiert“ lässt die Lage der festen Fläche.
 
 **Abwicklung als GEO speichern** (Trumpf GEO 1.03 wie TruTops Boost, `src/geo.js`): Außenkontur und Innenkonturen aus Linien, echten Bögen und Kreisen, Biegelinien mit Öffnungswinkel (− = AB, + = AUF), Radius und Biegeabzug, Schnittlänge. DXF und GEO werden über den Speichern-Dialog geschrieben; fehlt die Endung, wird `.dxf` bzw. `.geo` angehängt. Geprüft durch `tools/test-trumpf-geo.mjs` (CI): Schreiben, neu Einlesen, Ausdehnung, Konturen, Biegelinien, Fläche, Schnittlänge, ezdxf-Audit.
+
+Speichern (Desktop): Rust schreibt die GEO als ANSI (Windows-1252) mit CRLF, prüft danach die Dateigröße auf der Platte und meldet „GEO gespeichert: … (n Bytes)“; ein leerer Inhalt legt keine Datei an, sondern meldet es. Der Abschnitt #~11 hat dieselben 20 Zeilen wie die GEO aus TruTops (vorher fehlte eine Leerzeile, ein zeilengenauer Leser fand dann keine Geometrie). Freistich-Ecken, die über eine Biegezone laufen, werden als echte Bögen (≤ 0,01 mm Abweichung) statt als Polylinie geschrieben – in DXF und GEO. CI: `tools/smoke-geo-speichern.mjs` (Klick in der Oberfläche) → `cargo test geo_aus_der_oberflaeche_speichern` (Schreibweg der App, auch unter Windows) → `tools/geo-pruefen.mjs` (Konturen, Biegungen, Ausdehnung).
 
 ![Wanne](docs/abwicklung-wanne.png) ![Abwicklung Wanne](docs/abwicklung-wanne-flach.png) ![Warnung](docs/abwicklung-warnung.png)
 

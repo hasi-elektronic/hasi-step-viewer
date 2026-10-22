@@ -139,6 +139,10 @@ let PREC=(()=>{const v=parseInt(localStorage.getItem('genauigkeit'));return v>=0
 const nf=(v,d=3)=>v.toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d});
 function fmt(v,k){if(k==='L')return nf(v,PREC)+' mm';if(k==='A')return nf(v,PREC)+' mm²';if(k==='V')return nf(v,PREC)+' mm³';
   if(k==='W')return nf(v,Math.max(PREC,1))+' °';if(k==='P')return v.map(x=>nf(x,PREC)).join(' / ')+' mm';if(k==='M')return v>=1000?nf(v/1000)+' kg':nf(v,1)+' g';return String(v)}
+// Flächeninhalt, Volumen und Oberfläche nur unter Messen › Erweitert (Standard aus): angezeigt werden Maße in mm
+const FLAECHEN_ZEILEN=new Set(['Flächeninhalt','Volumen','Oberfläche','Volumen (≈, Netz)','Oberfläche (≈, Netz)']);
+const flaecheAn=()=>!!document.getElementById('flaecheZeigen')?.checked;
+const ohneFlaeche=rows=>flaecheAn()?rows:rows.filter(r=>!FLAECHEN_ZEILEN.has(r[0]));
 const kv=(el,rows)=>{el._rows=rows;el.innerHTML=rows.map(([a,b,k,x],i)=>`<div${x?' class="big"':''}>${a}</div><div data-i="${i}" class="${x?'big ':''}wert" title="Klicken: kopieren (1. Klick voller Wert, 2. Klick gerundet)">${k&&k!=='t'?fmt(b,k):b}</div>`).join('')};
 
 // ---------- Ansicht ----------
@@ -390,15 +394,15 @@ const closeCtx=()=>document.getElementById('ctx')?.remove();addEventListener('po
   closeCtx();$('props').hidden=true;$('einstDlg').hidden=true;$('hilfeDlg').hidden=true;menueZu();if(offen)e.hasiDialogZu=true}});
 async function showProps(n){const sicht=n.all.filter(i=>bodies[i]?.visible);const ids=sicht.length?sicht:n.all;const q=await call('props',{ids});const d=parseFloat($('dens').value)||0;const s=V3(q.bbox.max).sub(V3(q.bbox.min));
   $('propsTitle').textContent='Eigenschaften: '+n.name;const aus=n.all.length-sicht.length;
-  kv($('propsBody'),[['Typ',isAsm(n)?'Baugruppe':'Teil'],['Körper',q.bodies],...(sicht.length&&aus?[['Ausgeblendet (nicht gerechnet)',aus+' Körper']]:[]),...(!sicht.length?[['Hinweis','Teil ist ausgeblendet – Werte des ausgeblendeten Teils']]:[]),['Volumen',q.volume,'V'],['Oberfläche',q.area,'A'],['Dichte',nf(d,2)+' g/cm³'],['Masse',q.volume/1000*d,'M'],['Bounding-Box X',s.x,'L'],['Bounding-Box Y',s.y,'L'],['Bounding-Box Z',s.z,'L']]);
+  kv($('propsBody'),ohneFlaeche([['Typ',isAsm(n)?'Baugruppe':'Teil'],['Körper',q.bodies],...(sicht.length&&aus?[['Ausgeblendet (nicht gerechnet)',aus+' Körper']]:[]),...(!sicht.length?[['Hinweis','Teil ist ausgeblendet – Werte des ausgeblendeten Teils']]:[]),['Volumen',q.volume,'V'],['Oberfläche',q.area,'A'],['Dichte',nf(d,2)+' g/cm³'],['Masse',q.volume/1000*d,'M'],['Bounding-Box X',s.x,'L'],['Bounding-Box Y',s.y,'L'],['Bounding-Box Z',s.z,'L']]));
   $('props').hidden=false;window.__lastProps=q;return q}
 $('propsClose').onclick=()=>$('props').hidden=true;
 const tabTo=n=>document.querySelector(`.tab[data-tab="${n}"]`).click();
 function showModel(){const m=data.model,s=isFinite(m.bbox.min[0])?V3(m.bbox.max).sub(V3(m.bbox.min)):new THREE.Vector3();
-  kv($('modelinfo'),[...offenHinweis(),['Einheit der Datei',U.name],['Anzeige','Millimeter'],...(m.ausgeblendet?[['Ausgeblendet (nicht gerechnet)',m.ausgeblendet+' Körper']]:[]),['Körper',m.solids],['Flächen',m.faces],['Kanten',m.edges],['Bounding-Box X',s.x,'L'],['Bounding-Box Y',s.y,'L'],['Bounding-Box Z',s.z,'L'],[m.approx?'Volumen (≈, Netz)':'Volumen',m.volume,'V'],[m.approx?'Oberfläche (≈, Netz)':'Oberfläche',m.area,'A'],['Schwerpunkt',m.centroid,'P'],...(m.unique&&m.unique!==m.solids?[['Einzelteile (Unikate)',m.unique]]:[])]);showMass()}
+  kv($('modelinfo'),ohneFlaeche([...offenHinweis(),['Einheit der Datei',U.name],['Anzeige','Millimeter'],...(m.ausgeblendet?[['Ausgeblendet (nicht gerechnet)',m.ausgeblendet+' Körper']]:[]),['Körper',m.solids],['Flächen',m.faces],['Kanten',m.edges],['Bounding-Box X',s.x,'L'],['Bounding-Box Y',s.y,'L'],['Bounding-Box Z',s.z,'L'],[m.approx?'Volumen (≈, Netz)':'Volumen',m.volume,'V'],[m.approx?'Oberfläche (≈, Netz)':'Oberfläche',m.area,'A'],['Schwerpunkt',m.centroid,'P'],...(m.unique&&m.unique!==m.solids?[['Einzelteile (Unikate)',m.unique]]:[])]));showMass()}
 const V3=a=>new THREE.Vector3(...a);
 const offenHinweis=()=>data?.offen?.offen?[['Hinweis',`Körper nicht geschlossen (${data.offen.anzahl} ${data.offen.anzahl===1?'Teil':'Teile'}) – Volumen nicht verlässlich`,'t','!']]:[];
-function showMass(){if(!data)return;const d=parseFloat($('dens').value)||0;kv($('massinfo'),[...offenHinweis(),['Volumen',data.model.volume,'V'],['Dichte',nf(d,2)+' g/cm³'],['Masse',data.model.volume/1000*d,'M']]);$('massinfo').classList.toggle('warnung',!!data.offen?.offen)}
+function showMass(){if(!data)return;const d=parseFloat($('dens').value)||0;kv($('massinfo'),ohneFlaeche([...offenHinweis(),['Volumen',data.model.volume,'V'],['Dichte',nf(d,2)+' g/cm³'],['Masse',data.model.volume/1000*d,'M']]));$('massinfo').classList.toggle('warnung',!!data.offen?.offen)}
 $('mat').onchange=()=>{if($('mat').value!=='custom')$('dens').value=$('mat').value;showMass()};
 // ---------- Hüllquader, Rohmaß, Schwerpunkt, Messprotokoll ----------
 let huelle=null,huellObj=null,spObj=null;
@@ -637,7 +641,7 @@ if($('abmKnopf'))$('abmKnopf').onclick=()=>abmUmschalten();if($('abmGrund'))$('a
 async function offenPruefen(d0){try{await (window.__messBereit||Promise.resolve());const o=await call('offen',{});if(data!==d0)return;data.offen=o;showMass();showModel()}catch{}}
 let lastRes=null;
 function zeigeMessung(r){const namen=[...new Set(sels.map(teilName).filter(Boolean))];
-  kv($('mresult'),namen.length?[['Bauteil',namen.join(' · '),'t'],...r.rows]:r.rows);$('mresult')._linien=r.linien||{};zeileHi.clear();betonung();
+  kv($('mresult'),ohneFlaeche(namen.length?[['Bauteil',namen.join(' · '),'t'],...r.rows]:r.rows));$('mresult')._linien=r.linien||{};zeileHi.clear();betonung();
   try{const e=edrwAuswertung(r,sels);messLabels=e.labels;ergebnisZeigen(e.zeilen)}catch(err){messLabels=[];ergebnisZeigen([])}needs=true}
 function linLabelsNachBemassung(){try{if(lastRes)messLabels=messLabels.concat(linLabels(lastRes.r,lastRes.sels))}catch{}needs=true}
 // ---------- Ergebnis wie eDrawings: Text im Feld „Ergebnisse“ und Werte direkt am Element im 3D ----------
@@ -683,12 +687,16 @@ function edrwAuswertung(r,ss){const z=[],L=[];const W=(n,v,k)=>n+': '+fmt(v,k);
       else z.push(W('Länge',rowVal(r,'Kantenlänge'),'L'));
       L.push({p,zeilen:z.slice(0,ci?2:1)})}
     else if(s0.k==='face'){const ri=rowVal(r,'Radius innen Ri'),rr=rowVal(r,'Radius R'),kd=rowVal(r,'Kugelradius R'),fl=rowVal(r,'Flächeninhalt');
-      if(ri!=null)z.push(W('Radius innen',ri,'L'),W('Radius außen',rowVal(r,'Radius außen Ra'),'L'),W('Biegewinkel',rowVal(r,'Biegewinkel'),'W'));
-      else if(rr!=null)z.push(W('Radius',rr,'L'),W('Durchmesser',2*rr,'L'));
+      const la=rowVal(r,'Länge'),br=rowVal(r,'Breite'),bd=rowVal(r,'Blechdicke'),gh=rowVal(r,'Gesamthöhe');let lab=null;
+      if(ri!=null){z.push(W('Radius innen',ri,'L'),W('Radius außen',rowVal(r,'Radius außen Ra'),'L'),W('Biegewinkel',rowVal(r,'Biegewinkel'),'W'));if(la!=null)z.push(W('Länge',la,'L'))}
+      else if(rr!=null){z.push(W('Durchmesser Ø',2*rr,'L'),W('Radius R',rr,'L'));if(la!=null)z.push(W('Länge',la,'L'));lab=[`Ø ${fmt(2*rr,'L')}`,...(la!=null?[W('Länge',la,'L')]:[])]}
       else if(kd!=null)z.push(W('Kugelradius',kd,'L'));
+      else if(la!=null&&br!=null){z.push(W('Länge',la,'L'),W('Breite',br,'L'));if(bd!=null)z.push(W('Blechdicke',bd,'L'));if(gh!=null)z.push(W('Gesamthöhe',gh,'L'));
+        lab=[`Länge × Breite: ${nf(la,PREC)} × ${nf(br,PREC)} mm`,...(bd!=null?[W('Blechdicke',bd,'L')]:[])]}
       const fa=r.rows.find(x=>x[0]==='Fase');if(fa)z.push('Fase: '+fa[1]);
-      if(fl!=null)z.push(W('Fläche',fl,'A'));const ci=circleOf(s0);const p=s0.p||(ci&&ci.c);if(p&&z.length)L.push({p,zeilen:z.slice(0,ri!=null||rr!=null?2:1)})}
-    else if(s0.k==='solid'){const v=rowVal(r,'Volumen');if(v!=null)z.push(W('Volumen',v,'V'))}
+      if(fl!=null&&flaecheAn())z.push(W('Flächeninhalt',fl,'A'));const ci=circleOf(s0);const p=s0.p||(ci&&ci.c);
+      if(p&&z.length)L.push({p,zeilen:lab||z.slice(0,ri!=null?2:1)})}
+    else if(s0.k==='solid'){const v=rowVal(r,'Volumen');if(v!=null&&flaecheAn())z.push(W('Volumen',v,'V'))}
     else{const q=pointOf(s0);if(q)z.push('Punkt: '+q.map(x=>nf(x,PREC)).join(' / '))}
     return {zeilen:z,labels:L}}
   if(ss.length!==2)return {zeilen:r.rows.filter(x=>x[2]&&x[2]!=='t'&&x[2]!=='P').slice(0,2).map(x=>W(x[0],x[1],x[2])),labels:[]};
@@ -704,12 +712,18 @@ function edrwAuswertung(r,ss){const z=[],L=[];const W=(n,v,k)=>n+': '+fmt(v,k);
   return {zeilen:z,labels:ss.length===2&&!edrwFlaechen()?[]:L}}
 function ergebnisZeigen(zeilen){const el=$('ergebnis');if(!el)return;if(!zeilen.length){el.textContent='Kante, Fläche oder Punkt anklicken.';return}
   el.innerHTML=zeilen.map((t,i)=>{const h=t.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));return /^Normaler/.test(t)?`<span class="lila">${h}</span>`:i===0?`<b>${h}</b>`:h}).join('\n')}
-function zeichneMesslabels(c){if(!messLabels.length||!model)return;c.save();c.font='600 12px Inter, system-ui, sans-serif';c.textBaseline='middle';
-  for(const l of messLabels){if(l.linie){const a=projL(l.linie[0]),b=projL(l.linie[1]);c.strokeStyle=l.farbe||'#1f8fd0';c.lineWidth=2;c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.stroke()}
-    const q=projL(l.p);if(q[2]>1)continue;const w=Math.max(...l.zeilen.map(t=>c.measureText(t).width))+14,h=l.zeilen.length*16+6;const x=q[0]+10,y=q[1]-h-6;
+// Kästen der Messwerte nicht übereinander (ΔX/ΔY/ΔZ an kurzen oder fast deckungsgleichen Teilstrecken): überlappende Kästen
+// rücken nach oben weg, die Führungslinie zeigt weiter auf ihren Punkt.
+function labelsAnordnen(K){const fest=[];const schneidet=(a,b)=>a.x<b.x+b.w+3&&b.x<a.x+a.w+3&&a.y<b.y+b.h+3&&b.y<a.y+a.h+3;
+  for(const k of [...K].sort((a,b)=>b.q[1]-a.q[1])){for(let n=0;n<40;n++){const t=fest.find(f=>schneidet(k,f));if(!t)break;k.y=t.y-k.h-4}fest.push(k)}return K}
+let messLabelKaesten=[];
+function zeichneMesslabels(c){messLabelKaesten=[];if(!messLabels.length||!model)return;c.save();c.font='600 12px Inter, system-ui, sans-serif';c.textBaseline='middle';
+  const K=[];for(const l of messLabels){if(l.linie){const a=projL(l.linie[0]),b=projL(l.linie[1]);c.strokeStyle=l.farbe||'#1f8fd0';c.lineWidth=2;c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.stroke()}
+    const q=projL(l.p);if(q[2]>1)continue;const w=Math.max(...l.zeilen.map(t=>c.measureText(t).width))+14,h=l.zeilen.length*16+6;K.push({l,q,x:q[0]+10,y:q[1]-h-6,w,h})}
+  for(const {l,q,x,y,w,h} of labelsAnordnen(K)){
     c.fillStyle='rgba(255,255,255,.95)';c.strokeStyle=l.farbe||'#2c333a';c.lineWidth=1.2;c.beginPath();if(c.roundRect)c.roundRect(x,y,w,h,4);else c.rect(x,y,w,h);c.fill();c.stroke();
     c.beginPath();c.moveTo(q[0],q[1]);c.lineTo(x,y+h);c.stroke();c.fillStyle=l.farbe||'#1b2127';l.zeilen.forEach((t,i)=>c.fillText(t,x+7,y+3+8+i*16))}
-  c.restore()}
+  messLabelKaesten=K.map(k=>({zeilen:k.l.zeilen.slice(),x:k.x,y:k.y,w:k.w,h:k.h}));c.restore()}
 async function select(s,add=false){if(sels.length>=2&&!add)clearSel();const clean={k:s.k,id:s.id,inst:s.inst,p:s.p};if(s.src)clean.src=s.src;sels.push(clean);marks.add(hiObj(clean,0x1f8fd0));
   $('selinfo').textContent=sels.map(label).join('  +  ');needs=true;
   try{const opts=messOpts();const r=await call('measure',{sels:sels.slice(),opts});if(!sels.includes(clean))return;lastRes={r,sels:sels.slice(),title:sels.map(label).join(' + '),opts};zeigeMessung(r);
@@ -838,7 +852,9 @@ $('dimSpeichern').onclick=async()=>{if(!dims.length){$('status').textContent='Ke
   await saveBytes(baseName()+'.hasi3d.json',new TextEncoder().encode(bemassungenText()),'Bemaßungen (JSON)','json','application/json')};
 $('dimLaden').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{await bemassungenEinlesen(await f.text())}catch(err){$('status').textContent=err.message}};
 $('dimCopyAll').onclick=()=>copyText(dims.map(dimText).join('\n\n'));
-$('prec').value=String(PREC);$('prec').onchange=()=>{PREC=+$('prec').value;localStorage.setItem('genauigkeit',PREC);renderDims();if(lastRes)kv($('mresult'),lastRes.r.rows);if(data){showModel?.();showMass?.()}if(sheetCache)calcSheet()};
+if($('flaecheZeigen')){$('flaecheZeigen').checked=localStorage.getItem('flaecheZeigen')==='1';
+  $('flaecheZeigen').onchange=()=>{localStorage.setItem('flaecheZeigen',flaecheAn()?'1':'0');if(data){showModel?.()}if(lastRes)zeigeMessung(lastRes.r)}}
+$('prec').value=String(PREC);$('prec').onchange=()=>{PREC=+$('prec').value;localStorage.setItem('genauigkeit',PREC);renderDims();if(lastRes)kv($('mresult'),ohneFlaeche(lastRes.r.rows));if(data){showModel?.();showMass?.()}if(sheetCache)calcSheet()};
 
 // ---------- Tabs / Blech ----------
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===t));
@@ -943,20 +959,27 @@ function flachMasse(f,X,Y,fs,sw,pad){const C='#3b4650',n2=v=>nf(v,2),x0=X(f.min)
     if(Math.abs(dy)/l<1e-4){const yv=b[0][1]-f.min[1],y=Y(b[0]),xr=x1+fs*0.5;o.push(`<g class="mass" data-art="biegelinie" data-nr="${i+1}" data-wert="${yv.toFixed(4)}"><line x1="${x1}" y1="${y}" x2="${xr+fs*0.4}" y2="${y}" stroke="${C}" stroke-width="${sw*0.5}" stroke-dasharray="${sw*2} ${sw*2}"/><text x="${xr+fs*0.5}" y="${y}" font-size="${t2}" fill="${C}" dominant-baseline="middle" font-family="Inter, sans-serif">${n2(yv)}</text></g>`)}
     else if(Math.abs(dx)/l<1e-4){const xv=b[0][0]-f.min[0],x=X(b[0]),yt=yO-fs*0.5;o.push(`<g class="mass" data-art="biegelinie" data-nr="${i+1}" data-wert="${xv.toFixed(4)}"><line x1="${x}" y1="${yO}" x2="${x}" y2="${yt-fs*0.4}" stroke="${C}" stroke-width="${sw*0.5}" stroke-dasharray="${sw*2} ${sw*2}"/><text x="${x}" y="${yt-fs*0.5}" font-size="${t2}" fill="${C}" text-anchor="start" font-family="Inter, sans-serif" transform="rotate(-90 ${x} ${yt-fs*0.5})">${n2(xv)}</text></g>`)}});
   return o.join('')}
-$('dxf').onclick=async()=>{if(!sheetCache?.dxf||sheetCache.flat?.incomplete)return;const name=(window.__lastLoad?.name||'teil').replace(/\.(step|stp)$/i,'')+'_Abwicklung.dxf';
-  const inv=window.__TAURI_INTERNALS__?.invoke;
-  window.__lastExport={name,ext:'dxf',text:sheetCache.dxf};
-  if(inv){try{const ok=await inv('save_text',{name,content:sheetCache.dxf,filter:'DXF-Zeichnung',ext:'dxf'});$('status').textContent=ok?'DXF gespeichert: '+name:'DXF nicht gespeichert (abgebrochen).'}catch(e){$('status').textContent='DXF konnte nicht gespeichert werden: '+e}}
-  else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([sheetCache.dxf],{type:'application/dxf'}));a.download=name;a.click();$('status').textContent='DXF gespeichert: '+name}};
+// Abwicklung als Text speichern (DXF, GEO). Desktop: Rust schreibt (GEO als ANSI/CRLF), prüft die Größe auf der Platte
+// und meldet die Bytes zurück; leerer Inhalt wird nie als Datei angelegt.
+async function textSpeichern(art,name,text,filter,ext,mime){
+  if(typeof text!=='string'||!text.length){$('status').textContent=art+' ist leer – nichts gespeichert. Abwicklung neu berechnen.';return false}
+  window.__lastExport={name,ext,text};const inv=window.__TAURI_INTERNALS__?.invoke;
+  if(inv){try{const n=await inv('save_text',{name,content:text,filter,ext});
+      if(n==null||n===false){$('status').textContent=art+' nicht gespeichert (abgebrochen).';return false}
+      if(typeof n==='number'&&n<=0)throw new Error('Datei ist leer');
+      $('status').textContent=art+' gespeichert: '+name+(typeof n==='number'?' ('+n.toLocaleString('de-DE')+' Bytes)':'');return true}
+    catch(e){$('status').textContent=art+' konnte nicht gespeichert werden: '+(e?.message||e);return false}}
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:mime}));a.download=name;a.click();$('status').textContent=art+' gespeichert: '+name;return true}
+$('dxf').onclick=async()=>{if(!sheetCache?.dxf||sheetCache.flat?.incomplete)return;
+  await textSpeichern('DXF',baseName()+'_Abwicklung.dxf',sheetCache.dxf,'DXF-Zeichnung','dxf','application/dxf')};
 // Aus dem Menü: Abwicklung bei Bedarf erst berechnen; ist sie gesperrt, steht der Grund in der Statuszeile statt eines stummen Klicks
 async function abwicklungExport(art){if(!data){$('status').textContent='Zuerst eine STEP-Datei öffnen.';return}tabTo('blech');if(!sheetCache)await calcSheet();const r=sheetCache;
   if(!r?.ok||!r.flat){$('status').textContent=(art==='geo'?'GEO':'DXF')+' nicht möglich: '+(r?.msg||'keine Abwicklung');return}
   if(r.flat.incomplete){$('status').textContent=(art==='geo'?'GEO':'DXF')+' gesperrt: Abwicklung unvollständig – '+(r.fehler||[]).join('; ');return}
   $(art==='geo'?'geoSpeichern':'dxf').click()}
 // Abwicklung als Trumpf-GEO (TruTops): wie die GEO aus TruTops Boost, Ursprung links unten, Lage wie gewählt
-$('geoSpeichern').onclick=async()=>{if(!sheetCache?.geo||sheetCache.flat?.incomplete)return;const name=baseName()+'_Abwicklung.geo';const inv=window.__TAURI_INTERNALS__?.invoke;window.__lastExport={name,ext:'geo',text:sheetCache.geo};
-  if(inv){try{const ok=await inv('save_text',{name,content:sheetCache.geo,filter:'Trumpf-GEO',ext:'geo'});$('status').textContent=ok?'GEO gespeichert: '+name:'GEO nicht gespeichert (abgebrochen).'}catch(e){$('status').textContent='GEO konnte nicht gespeichert werden: '+e}}
-  else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([sheetCache.geo],{type:'application/octet-stream'}));a.download=name;a.click();$('status').textContent='GEO gespeichert: '+name}};
+$('geoSpeichern').onclick=async()=>{const r=sheetCache;if(!r?.flat||r.flat.incomplete)return;
+  await textSpeichern('GEO',baseName()+'_Abwicklung.geo',r.geo,'Trumpf-GEO','geo','application/octet-stream')};
 
 // ---------- Biegetabelle exportieren (PDF / XLSX) ----------
 async function saveBytes(name,bytes,filter,ext,mime){window.__lastExport={name,bytes,ext};const inv=window.__TAURI_INTERNALS__?.invoke;
@@ -1258,7 +1281,7 @@ window.__viewMenu=(x,y)=>viewMenu(x,y);window.__loadUrl=async u=>load(await (awa
 window.__loadBytes=(buf,name)=>load(buf,name);window.__call=call;
 window.__einzelteil={dialog:(a,id)=>einzelDialog(a,id==null?null:nodes.find(x=>x.id===id)),ausfuehren:(a,id,lage,schema)=>einzelAusfuehren(a,id==null?null:nodes.find(x=>x.id===id),lage,schema),alle:()=>alleEinzelteile(),teile:(id,lage)=>einzelTeile(nodes.find(x=>x.id===id),lage)};
 window.__steuerung=()=>({daempfung:controls.enableDamping,autoRotate:controls.autoRotate,autodrehen:drehen,ziel:controls.target.toArray(),pos:camera.position.toArray(),mitte:model?box.getCenter(new THREE.Vector3()).toArray():null});
-window.__app={messLabels:()=>messLabels.map(l=>({zeilen:l.zeilen.slice(),farbe:l.farbe||null,linie:!!l.linie,pos:projL(l.p)})),ergebnis:()=>$("ergebnis")?.innerText||"",huelle:a=>huelleRechnen(a),abmessungen:b=>abmRechnen(b),abm:()=>abm,abmDims:()=>abmDims.length,abmTexte:()=>abmDims.map(d=>BM.massText(d,{...STIL,stellen:PREC})[0]),dimTexte:()=>dims.filter(d=>d.typ).map(d=>({no:d.no,typ:d.typ,linArt:d.linArt,wert:d.wert,text:BM.massText(d,{...STIL,stellen:PREC})[0]})),linWahl:w=>{if(w)linWahlSetzen(w);return linWahl},gesamt:()=>gesamtHoehe(),hoverChip:()=>$('hover').textContent,nurFlaechen:an=>{if(an!=null)nurFlaechenSetzen(an);return nurFl()},reihe:s=>reiheMessen(s),sels:()=>sels.map(x=>({k:x.k,id:x.id,inst:x.inst})),schwerpunkt:()=>{$('schwerpunktZeigen').checked=true;return schwerpunktZeigen()},protokollDaten:()=>protokollDatenSammeln(),faltSetzen,faltEnde,faltNetz:()=>faltNetzHolen(),rissSetzen,riss:()=>riss,huellObj:()=>huellObj&&!!huellObj.parent,hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position.toArray(),fitIso:()=>fit(views.iso),dimLabels:()=>dimHits.map(h=>[[h.x,h.y,0],h.no]),exportPng,exportPdf,editDim:no=>editDim(dims.find(d=>d.no===no)),stil:()=>STIL,dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
+window.__app={messLabelKaesten:()=>messLabelKaesten,messLabels:()=>messLabels.map(l=>({zeilen:l.zeilen.slice(),farbe:l.farbe||null,linie:!!l.linie,pos:projL(l.p)})),ergebnis:()=>$("ergebnis")?.innerText||"",huelle:a=>huelleRechnen(a),abmessungen:b=>abmRechnen(b),abm:()=>abm,abmDims:()=>abmDims.length,abmTexte:()=>abmDims.map(d=>BM.massText(d,{...STIL,stellen:PREC})[0]),dimTexte:()=>dims.filter(d=>d.typ).map(d=>({no:d.no,typ:d.typ,linArt:d.linArt,wert:d.wert,text:BM.massText(d,{...STIL,stellen:PREC})[0]})),linWahl:w=>{if(w)linWahlSetzen(w);return linWahl},gesamt:()=>gesamtHoehe(),hoverChip:()=>$('hover').textContent,nurFlaechen:an=>{if(an!=null)nurFlaechenSetzen(an);return nurFl()},reihe:s=>reiheMessen(s),sels:()=>sels.map(x=>({k:x.k,id:x.id,inst:x.inst})),schwerpunkt:()=>{$('schwerpunktZeigen').checked=true;return schwerpunktZeigen()},protokollDaten:()=>protokollDatenSammeln(),faltSetzen,faltEnde,faltNetz:()=>faltNetzHolen(),rissSetzen,riss:()=>riss,huellObj:()=>huellObj&&!!huellObj.parent,hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position.toArray(),fitIso:()=>fit(views.iso),dimLabels:()=>dimHits.map(h=>[[h.x,h.y,0],h.no]),exportPng,exportPdf,editDim:no=>editDim(dims.find(d=>d.no===no)),stil:()=>STIL,dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
   screenOf:p=>{const r=renderer.domElement.getBoundingClientRect();const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*r.width+r.left,(1-w.y)/2*r.height+r.top]},
   ausrichtung:()=>{const d=camera.position.clone().sub(controls.target).normalize();return {blick:Math.max(...ACHSEN.map(a=>Math.abs(d.dot(a)))),oben:Math.max(...ACHSEN.map(a=>Math.abs(camera.up.dot(a)))),dir:d.toArray(),up:camera.up.toArray()}},
   schief:()=>{if(!model)return;const c=box.getCenter(new THREE.Vector3()),s=box.getSize(new THREE.Vector3()).length()||1;camera.position.copy(c).add(new THREE.Vector3(.35,.15,1).normalize().multiplyScalar(s*1.7));camera.up.set(.45,.75,.4).normalize();controls.target.copy(c);camera.lookAt(c);controls.update();anim=null;needs=true},

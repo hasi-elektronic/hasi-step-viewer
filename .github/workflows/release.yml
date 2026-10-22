@@ -27,6 +27,7 @@ jobs:
       - run: node tools/test-trumpf-geo.mjs  # Trumpf-kompatibel, Freiform-Stirnflächen, GEO-Export (synthetisches Teil)
       - run: node tools/test-edrw.mjs  # Messen wie eDrawings: parallel / Normaler Abstand / Delta, Bogen Mitte–Min.–Max.
       - run: node tools/test-beschriftung.mjs  # jedes Maß nennt, was es misst; Gesamthöhe und Höhe Fläche–Fläche (synthetisch)
+      - run: node tools/test-flaechenmasse.mjs  # Fläche anklicken → Länge × Breite, Blechdicke, Gesamthöhe; Zylinder Ø, R, Länge (mm)
       - run: sudo apt-get install -y poppler-utils unzip
       - run: node tools/test-export.mjs
       - run: node tools/test-baum.mjs
@@ -61,6 +62,7 @@ jobs:
           SHOTDIR=docs/flaeche/hasi node tools/smoke-flaeche.mjs
           SHOTDIR=docs/edrw/hasi node tools/smoke-edrw.mjs
           SHOTDIR=docs/edrw/hasi node tools/smoke-hoehe-beschriftung.mjs
+          SHOTDIR=docs/edrw/hasi node tools/smoke-flaeche-mm.mjs
           SHOTDIR=docs/seitenleiste node tools/smoke-seitenleiste.mjs
           node tools/smoke-einzelteil.mjs
           node tools/smoke-baugruppe.mjs
@@ -98,6 +100,7 @@ jobs:
           PORT=4174 MARKE=ms3d SHOTDIR=docs/flaeche/ms3d node tools/smoke-flaeche.mjs
           PORT=4174 SHOTDIR=docs/edrw/ms3d node tools/smoke-edrw.mjs
           PORT=4174 SHOTDIR=docs/edrw/ms3d node tools/smoke-hoehe-beschriftung.mjs
+          PORT=4174 SHOTDIR=docs/edrw/ms3d node tools/smoke-flaeche-mm.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: werkzeugleiste
@@ -183,6 +186,7 @@ jobs:
           node tools/test-trumpf-geo.mjs
           node tools/test-edrw.mjs
           node tools/test-beschriftung.mjs
+          node tools/test-flaechenmasse.mjs
           node tools/test-export.mjs
           node tools/test-baum.mjs
           node tools/test-baugruppe-messen.mjs
@@ -211,12 +215,22 @@ jobs:
           npm run preview >/tmp/vite-farbe.log 2>&1 &
           for i in $(seq 1 40); do curl -sf -o /dev/null http://localhost:4173/ && break; sleep 1; done
           SHOTDIR=docs/farbe/hasi node tools/smoke-farbe.mjs
+          OUT="$RUNNER_TEMP/geo" node tools/smoke-geo-speichern.mjs  # GEO über den Speicherweg der App (Menü und Blech-Reiter)
           KERN=native SHOTDIR=docs/farbe/flaeche-hasi node tools/smoke-flaeche.mjs
           MARKE=sickinger npm run build
           npm run preview -- --port 4174 --strictPort >/tmp/vite-farbe2.log 2>&1 &
           for i in $(seq 1 40); do curl -sf -o /dev/null http://localhost:4174/ && break; sleep 1; done
           PORT=4174 SHOTDIR=docs/farbe/ms3d node tools/smoke-farbe.mjs
+          PORT=4174 OUT="$RUNNER_TEMP/geo-ms3d" node tools/smoke-geo-speichern.mjs
           PORT=4174 MARKE=ms3d KERN=native SHOTDIR=docs/farbe/flaeche-ms3d node tools/smoke-flaeche.mjs
+      - name: GEO aus der Oberfläche mit dem Rust-Schreibweg der App speichern und neu einlesen
+        run: |
+          set -euo pipefail
+          for m in geo geo-ms3d; do
+            mkdir -p "$RUNNER_TEMP/$m/rust"
+            (cd src-tauri && HASI_TEST_SAVE_INHALT="$RUNNER_TEMP/$m/haube-6mm_Abwicklung.geo.inhalt" HASI_TEST_SAVE_ZIEL="$RUNNER_TEMP/$m/rust/haube-6mm_Abwicklung" cargo test --locked geo_aus_der_oberflaeche_speichern -- --nocapture)
+            node tools/geo-pruefen.mjs "$RUNNER_TEMP/$m/rust/haube-6mm_Abwicklung.geo" "$RUNNER_TEMP/$m/haube-6mm_Abwicklung.geo.soll.json"
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: farbe
@@ -335,6 +349,15 @@ jobs:
           if [ "$MARKE" = "sickinger" ]; then grep -q '<title>MS3D</title>' dist/index.html
           else grep -q '<title>Hasi 3D</title>' dist/index.html && ! grep -q 'Sickinger' dist/index.html
           fi
+      - name: GEO speichern unter Windows (Schreibweg der App, cargo test)
+        if: runner.os == 'Windows' && matrix.marke == 'hasi'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tools/geo-erzeugen.mjs testdaten/haube-6mm.step "$RUNNER_TEMP/geo"
+          mkdir -p "$RUNNER_TEMP/geo/rust"
+          (cd src-tauri && HASI_TEST_SAVE_INHALT="$RUNNER_TEMP/geo/haube-6mm_Abwicklung.geo.inhalt" HASI_TEST_SAVE_ZIEL="$RUNNER_TEMP/geo/rust/haube-6mm_Abwicklung" cargo test --locked text_speichern -- --nocapture && HASI_TEST_SAVE_INHALT="$RUNNER_TEMP/geo/haube-6mm_Abwicklung.geo.inhalt" HASI_TEST_SAVE_ZIEL="$RUNNER_TEMP/geo/rust/haube-6mm_Abwicklung" cargo test --locked geo_aus_der_oberflaeche_speichern -- --nocapture)
+          node tools/geo-pruefen.mjs "$RUNNER_TEMP/geo/rust/haube-6mm_Abwicklung.geo" "$RUNNER_TEMP/geo/haube-6mm_Abwicklung.geo.soll.json"
       - name: Kern im Installer prüfen
         shell: bash
         env:

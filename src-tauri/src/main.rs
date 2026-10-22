@@ -897,7 +897,50 @@ fn mit_endung(p: std::path::PathBuf, ext: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(s)
 }
 
+/// Text als Dateibytes: GEO für TruTops als ANSI (Windows-1252) mit CRLF, alles andere UTF-8 wie geliefert.
+fn text_daten(content: &str, ext: &str) -> Vec<u8> {
+    if !ext.eq_ignore_ascii_case("geo") {
+        return content.as_bytes().to_vec();
+    }
+    let crlf = content.replace("\r\n", "\n").replace('\n', "\r\n");
+    crlf.chars().map(|c| ansi_byte(c).unwrap_or(b'?')).collect()
+}
+
+/// Ein Zeichen in Windows-1252; None, wenn es dort nicht vorkommt.
+fn ansi_byte(c: char) -> Option<u8> {
+    let u = c as u32;
+    if u < 0x80 || (0xA0..=0xFF).contains(&u) {
+        return Some(u as u8);
+    }
+    const SONDER: [(char, u8); 27] = [
+        ('€', 0x80), ('‚', 0x82), ('ƒ', 0x83), ('„', 0x84), ('…', 0x85), ('†', 0x86), ('‡', 0x87), ('ˆ', 0x88), ('‰', 0x89),
+        ('Š', 0x8A), ('‹', 0x8B), ('Œ', 0x8C), ('Ž', 0x8E), ('‘', 0x91), ('’', 0x92), ('“', 0x93), ('”', 0x94), ('•', 0x95),
+        ('–', 0x96), ('—', 0x97), ('˜', 0x98), ('™', 0x99), ('š', 0x9A), ('›', 0x9B), ('œ', 0x9C), ('ž', 0x9E), ('Ÿ', 0x9F),
+    ];
+    SONDER.iter().find(|(z, _)| *z == c).map(|(_, b)| *b)
+}
+
+/// Schreibt die Datei vollständig (flush + sync) und prüft danach die Größe auf der Platte.
+/// Leerer Inhalt oder eine kürzere Datei sind ein Fehler statt einer stillen leeren Datei.
+fn datei_schreiben(p: &std::path::Path, daten: &[u8]) -> Result<u64, String> {
+    use std::io::Write;
+    if daten.is_empty() {
+        return Err("Inhalt ist leer – nichts gespeichert".into());
+    }
+    let fehler = |e: std::io::Error| format!("Datei konnte nicht geschrieben werden ({}): {e}", p.display());
+    let mut f = std::fs::File::create(p).map_err(fehler)?;
+    f.write_all(daten).map_err(fehler)?;
+    f.sync_all().map_err(fehler)?;
+    drop(f);
+    let n = std::fs::metadata(p).map_err(fehler)?.len();
+    if n != daten.len() as u64 {
+        return Err(format!("Datei unvollständig geschrieben ({}): {n} von {} Bytes", p.display(), daten.len()));
+    }
+    Ok(n)
+}
+
 /// Speichert Text (DXF-Abwicklung, Trumpf-GEO) über den Speichern-Dialog des Systems.
+/// Ergebnis: geschriebene Bytes, None bei Abbruch.
 #[tauri::command]
 async fn save_text(
     app: tauri::AppHandle,
@@ -905,10 +948,15 @@ async fn save_text(
     content: String,
     filter: Option<String>,
     ext: Option<String>,
-) -> Result<bool, String> {
+) -> Result<Option<u64>, String> {
     use tauri_plugin_dialog::DialogExt;
     let ext = ext.unwrap_or_else(|| "dxf".to_string());
     let filter = filter.unwrap_or_else(|| "DXF-Zeichnung".to_string());
+    // vor dem Dialog: leerer Inhalt wird gar nicht erst als Datei angelegt
+    let daten = text_daten(&content, &ext);
+    if daten.is_empty() {
+        return Err(format!("{} ist leer – nichts gespeichert", ext.to_uppercase()));
+    }
     let pfad = app
         .dialog()
         .file()
@@ -920,17 +968,15 @@ async fn save_text(
         Some(p) => {
             let p = p.into_path().map_err(|e| format!("Ungültiger Pfad: {e}"))?;
             let p = mit_endung(p, &ext);
-            std::fs::write(&p, content.as_bytes())
-                .map_err(|e| format!("Datei konnte nicht geschrieben werden ({}): {e}", p.display()))?;
-            Ok(true)
+            datei_schreiben(&p, &daten).map(Some)
         }
-        None => Ok(false),
+        None => Ok(None),
     }
 }
 
 /// Speichert Binärdaten (Biegetabelle als PDF oder XLSX) über den Speichern-Dialog des Systems.
 #[tauri::command]
-async fn save_bytes(app: tauri::AppHandle, name: String, data: Vec<u8>, filter: String, ext: String) -> Result<bool, String> {
+async fn save_bytes(app: tauri::AppHandle, name: String, data: Vec<u8>, filter: String, ext: String) -> Result<Option<u64>, String> {
     use tauri_plugin_dialog::DialogExt;
     let pfad = app
         .dialog()
@@ -943,10 +989,9 @@ async fn save_bytes(app: tauri::AppHandle, name: String, data: Vec<u8>, filter: 
         Some(p) => {
             let p = p.into_path().map_err(|e| format!("Ungültiger Pfad: {e}"))?;
             let p = mit_endung(p, &ext);
-            std::fs::write(&p, data).map_err(|e| format!("Datei konnte nicht geschrieben werden: {e}"))?;
-            Ok(true)
+            datei_schreiben(&p, &data).map(Some)
         }
-        None => Ok(false),
+        None => Ok(None),
     }
 }
 
@@ -1013,6 +1058,43 @@ fn mac_menu(app: &mut tauri::App) -> tauri::Result<()> {
 
 #[cfg(test)]
 mod pruefen {
+    #[test]
+    fn text_speichern_geo_ansi_und_vollstaendig() {
+        let d = std::env::temp_dir().join(format!("hasi-test-speichern-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        // GEO: CRLF, ANSI (ä → 0xE4, € → 0x80, unbekannt → ?), Größe auf der Platte = Inhalt
+        let b = text_daten("#~1\nÄ€\u{4e2d}\r\n#~EOF\n", "geo");
+        assert_eq!(b, b"#~1\r\n\xC4\x80?\r\n#~EOF\r\n".to_vec());
+        let p = d.join("t.geo");
+        assert_eq!(datei_schreiben(&p, &b).unwrap(), b.len() as u64);
+        assert_eq!(std::fs::read(&p).unwrap(), b);
+        // DXF bleibt unverändert, leerer Inhalt ist ein Fehler statt einer leeren Datei
+        assert_eq!(text_daten("0\nSECTION\n", "dxf"), b"0\nSECTION\n".to_vec());
+        assert!(datei_schreiben(&d.join("leer.geo"), &text_daten("", "geo")).is_err());
+        assert!(!d.join("leer.geo").exists());
+        assert_eq!(mit_endung(d.join("ohne"), "geo"), d.join("ohne.geo"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Echter Speicherweg: den GEO-Inhalt, den die Oberfläche beim Klick an save_text übergibt
+    /// (tools/smoke-geo-speichern.mjs), mit derselben Funktion schreiben wie die App. Danach liest
+    /// tools/test-geo-datei.mjs die Datei neu ein (Konturen, Biegungen, Ausdehnung).
+    #[test]
+    fn geo_aus_der_oberflaeche_speichern() {
+        let (Ok(quelle), Ok(ziel)) = (std::env::var("HASI_TEST_SAVE_INHALT"), std::env::var("HASI_TEST_SAVE_ZIEL")) else {
+            eprintln!("HASI_TEST_SAVE_INHALT/HASI_TEST_SAVE_ZIEL nicht gesetzt – übersprungen");
+            return;
+        };
+        let inhalt = std::fs::read_to_string(&quelle).unwrap();
+        assert!(inhalt.len() > 1000 && inhalt.contains("#~31") && inhalt.contains("#~EOF"), "Inhalt aus der Oberfläche unvollständig");
+        let daten = text_daten(&inhalt, "geo");
+        let p = mit_endung(std::path::PathBuf::from(&ziel), "geo");
+        let n = datei_schreiben(&p, &daten).unwrap();
+        assert_eq!(n, daten.len() as u64);
+        assert_eq!(std::fs::read(&p).unwrap(), daten);
+        eprintln!("GEO geschrieben: {} ({n} Bytes)", p.display());
+    }
+
     #[test]
     fn aufraeumen_fenster_und_ende() {
         let basis = std::env::temp_dir().join(format!("hasi-test-aufr-{}", std::process::id()));

@@ -67,6 +67,26 @@ export function abwicklungLage(flat,lage='trumpf'){if(!flat||lage!=='trumpf'||!(
 /** Abwicklung als Trumpf-GEO (Aufbau wie TruTops Boost 1.03): Außenkontur und Innenkonturen mit echten Bögen (ARC) und Kreisen (CIR),
  *  Biegelinien mit Winkel (GEO: Öffnungswinkel, Vorzeichen − = AB, + = AUF), Radius und Biegeverkürzung. Ursprung links unten (0,0).
  *  schleifen: Ergebnis von konturSchleifen(flat). meta: {name, werkstoff, dicke, datum, bends:[{ang, ri, bd, dir}]}. CRLF, Codepage 1252 (nur ASCII-Namen). */
+/** Gekrümmte Polylinie (z. B. Freistich-Ecke, die über eine Biegezone läuft) in echte Kreisbögen zerlegen, wie TruTops:
+ *  größte Stücke, deren Punkte höchstens tol (mm) vom Kreis durch Anfang, Mitte und Ende abweichen. Gerade Reste bleiben Linien.
+ *  Ergebnis: [{pts, bogen|null}] mit gemeinsamen Endpunkten, oder null, wenn kein Bogen gefunden wurde. */
+export function bogenZerlegen(P,tol=0.01){if(!P||P.length<4)return null;const TW=2*Math.PI,ccwW=(a,b)=>((b-a)%TW+TW)%TW;
+  const k3=(a,b,z)=>{const d=2*(a[0]*(b[1]-z[1])+b[0]*(z[1]-a[1])+z[0]*(a[1]-b[1]));if(Math.abs(d)<1e-12)return null;const q=x=>x[0]*x[0]+x[1]*x[1];
+    const c=[(q(a)*(b[1]-z[1])+q(b)*(z[1]-a[1])+q(z)*(a[1]-b[1]))/d,(q(a)*(z[0]-b[0])+q(b)*(a[0]-z[0])+q(z)*(b[0]-a[0]))/d];return {c,r:Math.hypot(a[0]-c[0],a[1]-c[1])}};
+  const bogen=(i,j)=>{const T=P.slice(i,j+1);const k=k3(T[0],T[T.length>>1],T.at(-1));if(!k||k.r>1e4)return null;
+    if(!T.every(p=>Math.abs(Math.hypot(p[0]-k.c[0],p[1]-k.c[1])-k.r)<=tol))return null;
+    const w=p=>Math.atan2(p[1]-k.c[1],p[0]-k.c[0]);const as=w(T[0]),ae=w(T.at(-1)),ccw=ccwW(as,w(T[T.length>>1]))<ccwW(as,ae);
+    // Punkte müssen der Reihe nach auf dem Bogen liegen (kein Hin und Her)
+    let v=0;for(let n=1;n<T.length;n++){const d=ccw?ccwW(as,w(T[n])):ccwW(w(T[n]),as);if(d+1e-9<v)return null;v=d}
+    const a0=ccw?as:ae,a1=ccw?ae:as,sweep=ccwW(a0,a1);if(!(sweep>1e-6&&sweep<TW-1e-3))return null;
+    // gerade genug für eine Linie? Dann keine Bögen (Sehnenhöhe unter tol)
+    if(k.r*(1-Math.cos(sweep/2))<=tol)return null;
+    return {pts:T,bogen:{c:k.c,r:k.r,voll:false,ccw,a0,a1,sweep,angepasst:true}}};
+  const out=[];let i=0,arcs=0,lin=null;
+  while(i<P.length-1){let st=null;for(let j=P.length-1;j>=i+2&&!st;j--)st=bogen(i,j);
+    if(st){if(lin){out.push({pts:lin,bogen:null});lin=null}out.push(st);arcs++;i+=st.pts.length-1;continue}
+    if(!lin)lin=[P[i]];lin.push(P[i+1]);i++}
+  if(lin)out.push({pts:lin,bogen:null});return arcs?out:null}
 export function geoSchreiben(flat,schleifen,meta={}){
   const ox=flat.min[0],oy=flat.min[1];const P=[],key=new Map();const tol=1e-6;
   const pt=p=>{const x=p[0]-ox,y=p[1]-oy;const k=Math.round(x/tol)+':'+Math.round(y/tol);let i=key.get(k);if(i)return i;P.push([x,y]);i=P.length;key.set(k,i);return i};
@@ -107,7 +127,7 @@ export function geoSchreiben(flat,schleifen,meta={}){
   const asc=t=>String(t??'').normalize('NFKD').replace(/[^\x20-\x7e]/g,'').replace(/[\r\n]/g,' ');
   const nn=n=>n.toFixed(9);
   z('#~1','1.03','2',datum,`${nn(0)} ${nn(0)} ${nn(0)}`,`${f9(W)} ${f9(H)} ${nn(0)}`,f9(netto),'1','0.001000000','0','1','##~~');
-  z('#~11',asc(meta.name||'Abwicklung'),'','','','',asc(meta.werkstoff||''),(+meta.dicke||0).toFixed(17).replace(/^(\d+\.\d{17}).*$/,'$1'),'','','0','0','0','0','0','0','0','0','0','','##~~','#~END');
+  z('#~11',asc(meta.name||'Abwicklung'),'','','','',asc(meta.werkstoff||''),(+meta.dicke||0).toFixed(17).replace(/^(\d+\.\d{17}).*$/,'$1'),'','','','0','0','0','0','0','0','0','0','0','','##~~','#~END');
   z('#~3','','LASER','',`${nn(0)} ${nn(0)} ${nn(1)}`,`${nn(1)} ${nn(0)} ${nn(0)} ${nn(0)}`,`${nn(0)} ${nn(1)} ${nn(0)} ${nn(0)}`,`${nn(0)} ${nn(0)} ${nn(1)} ${nn(0)}`,`${nn(0)} ${nn(0)} ${nn(0)} ${nn(1)}`,
     `${nn(0)} ${nn(0)} ${nn(0)}`,`${f9(W)} ${f9(H)} ${nn(0)}`,`${f9(sp[0])} ${f9(sp[1])} ${nn(0)}`,f9(netto),String(kont.length),'0','0','0','0','##~~');
   z('#~30','ANSI_CODEPAGE@1252',`BEND_COUNT@${bends.length}`,`FORM_COUNT@0`,`IDENT@${asc(meta.name||'Abwicklung')}`,`INFO_1@Part Contains ${bends.length} bend(s)`,

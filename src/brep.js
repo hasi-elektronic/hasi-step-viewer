@@ -1,5 +1,5 @@
 import {biegung} from './kfaktor.js';
-import {abwicklungLage,geoSchreiben} from './geo.js';
+import {abwicklungLage,geoSchreiben,bogenZerlegen} from './geo.js';
 import {faltePunkt} from './falten.js';
 import {methodenZeile,projiziere,normalAbstand,PROJ_NORMALE,RICHTUNGEN,richtungsVektor,COS_PARALLEL,SIN_PARALLEL,ebeneEbene,lotPaar,aufEbene,aufAchse,ebeneAchse,achseAchse,innenWinkel} from './messen-hilfen.js';
 // B-Rep-Kern: Einlesen, Topologie, Messen, Blech. Läuft im Worker (Browser) und in Node (Tests).
@@ -347,10 +347,38 @@ export function createBrep(ocIn){
     // Fasenwinkel = Winkel zwischen Fase und der Fläche mit dem längeren Schenkel
     const gleich=Math.abs(a-b)<1e-6;const text=gleich?`${deZahl(a)} × ${deZahl(winkel,2)}°`:`${deZahl(a)} × ${deZahl(b)} (${deZahl(winkel,2)}°)`;
     return {a,b,winkel,breite,text,ecke:X,p1:P1,p2:P2}};
+  // Maße einer angeklickten Fläche in mm (Hamdi 22.10.): eben → Länge × Breite in der Flächenebene, ausgerichtet an der längsten
+  // geraden Kante, Blechdicke = Abstand zur nächsten gegenüberliegenden parallelen Fläche desselben Körpers (wenn sie sich überdecken
+  // und der Abstand klein gegen die Breite ist), Gesamthöhe des Körpers senkrecht zur Fläche; Zylinder → Ø, R und Länge entlang der Achse.
+  M.flaechenMasse=(u,fi)=>{const U=M.uniq[u],F=U.faces,f=F[fi];if(!f)return null;
+    const randPunkte=g=>{const P=[];U.edges.forEach(e=>{if(!e.faces?.includes(g))return;(e.pts||[]).forEach(p=>P.push(p));
+      if(e.circle&&e.circle.ang>2*Math.PI-1e-6){const c=e.circle,n=V.norm(c.n);P.ausKreis=P.ausKreis||[];P.ausKreis.push({c:c.c,n,r:c.r})}});return P};
+    const spanne=(P,d)=>{let lo=Infinity,hi=-Infinity;for(const p of P){const x=V.dot(p,d);if(x<lo)lo=x;if(x>hi)hi=x}
+      for(const k of P.ausKreis||[]){const x=V.dot(k.c,d),w=k.r*Math.sqrt(Math.max(0,1-V.dot(k.n,d)**2));if(x-w<lo)lo=x-w;if(x+w>hi)hi=x+w}return [lo,hi]};
+    const P=randPunkte(fi);if(!P.length)return null;
+    const alle=[];U.edges.forEach(e=>(e.pts||[]).forEach(p=>alle.push(p)));
+    if(f.plane){const n=V.norm(f.plane.n);
+      const gerade=U.edges.filter(e=>e.line&&e.faces?.includes(fi)).sort((a,b)=>b.len-a.len);
+      let ur=gerade.length?gerade[0].line.d:(Math.abs(n[0])<0.9?[1,0,0]:[0,1,0]);ur=V.sub(ur,V.mul(n,V.dot(ur,n)));
+      let ux=V.norm(ur),vx=V.norm(V.cross(n,ux));
+      const [u0,u1]=spanne(P,ux),[v0,v1]=spanne(P,vx);let laenge=u1-u0,breite=v1-v0;if(breite>laenge+1e-9){[laenge,breite]=[breite,laenge];[ux,vx]=[vx,ux]}
+      const [h0,h1]=spanne(alle,n);const hoehe=h1-h0;const eben=V.dot(f.plane.o,n);
+      // gegenüberliegende parallele Fläche mit Überdeckung → Blechdicke
+      let dicke=null;const box=Q=>{const [a0,a1]=spanne(Q,ux),[b0,b1]=spanne(Q,vx);return {a0,a1,b0,b1}};const B0=box(P);
+      F.forEach((g,gi)=>{if(gi===fi||!g.plane)return;const ng=V.norm(g.plane.n);if(Math.abs(V.dot(ng,n))<1-1e-6)return;
+        const d=Math.abs(V.dot(g.plane.o,n)-eben);if(d<1e-6||(dicke!=null&&d>=dicke))return;const Q=randPunkte(gi);if(!Q.length)return;const B1=box(Q);
+        const ue=Math.min(B0.a1,B1.a1)-Math.max(B0.a0,B1.a0),ve=Math.min(B0.b1,B1.b1)-Math.max(B0.b0,B1.b0);if(ue>1e-6&&ve>1e-6)dicke=d});
+      if(dicke!=null&&!(dicke<=0.25*breite))dicke=null;
+      const ecke=V.add(V.add(V.mul(ux,u0),V.mul(vx,v0)),V.mul(n,eben));
+      return {art:'eben',laenge,breite,dicke,hoehe,n,u:ux,v:vx,ecke}}
+    if(f.cyl){const d=V.norm(f.cyl.d);const [a0,a1]=spanne(P,d);return {art:'zylinder',r:f.cyl.r,durchmesser:2*f.cyl.r,laenge:a1-a0,d}}
+    return null};
   M.describe=s=>{const R0=RES(s),R=[];if(s.k==='solid'){const q=M.solidProps([s.inst]);R.push(['Volumen',q.volume,'V'],['Oberfläche',q.area,'A']);if(offenU(M.inst[s.inst??0].u))R.push(['Hinweis','Körper nicht geschlossen – Volumen nicht verlässlich','t']);return R}
-    if(s.k==='face'){const f=R0.f;R.push(['Fläche',f.type,'t'],['Flächeninhalt',f.area,'A']);const u=perimeter(R0.shape);R.push(['Umfang (gesamt)',u.s,'L']);if(Math.abs(u.outer-u.s)>1e-9)R.push(['Umfang (außen)',u.outer,'L']);
-      if(f.cyl){const bi=M.bendInfo(M.inst[s.inst??0].u,s.id);
-        if(bi){R.unshift(['Radius innen Ri',bi.ri,'L','!'],['Radius außen Ra',bi.ro,'L','!'],['Bogenlänge (angeklickt)',f.cyl.r*f.cyl.ang,'L','!'],['Biegewinkel',bi.phi*DEG,'W','!']);
+    if(s.k==='face'){const f=R0.f;const fm=M.flaechenMasse(M.inst[s.inst??0].u,s.id);
+      if(fm?.art==='eben'){R.push(['Länge',fm.laenge,'L','!'],['Breite',fm.breite,'L','!']);if(fm.dicke!=null)R.push(['Blechdicke',fm.dicke,'L','!']);R.push(['Gesamthöhe',fm.hoehe,'L','!'])}
+      R.push(['Fläche',f.type,'t'],['Flächeninhalt',f.area,'A']);const u=perimeter(R0.shape);R.push(['Umfang (gesamt)',u.s,'L']);if(Math.abs(u.outer-u.s)>1e-9)R.push(['Umfang (außen)',u.outer,'L']);
+      if(f.cyl){let bi=M.bendInfo(M.inst[s.inst??0].u,s.id);if(bi&&!(bi.phi<2*Math.PI-1e-6))bi=null; // voller Zylinder (Welle, Bohrung) ist keine Biegung
+        if(bi){if(fm?.art==='zylinder')R.unshift(['Länge',fm.laenge,'L']);R.unshift(['Radius innen Ri',bi.ri,'L','!'],['Radius außen Ra',bi.ro,'L','!'],['Bogenlänge (angeklickt)',f.cyl.r*f.cyl.ang,'L','!'],['Biegewinkel',bi.phi*DEG,'W','!']);
           R.push(['Blechdicke',bi.t,'L'],['Bogenlänge innen',bi.ri*bi.phi,'L'],['Bogenlänge außen',bi.ro*bi.phi,'L'],['Öffnungswinkel der Schenkel',Math.abs(180-bi.phi*DEG)<1e-6?0:Math.abs(180-bi.phi*DEG),'W']);
           if(bi.art==='umschlag')R.push(['Biegeart','Umschlag 180° (Falz)','t'],['Hinweis','Schenkel parallel: kein Biegepunkt. Angegeben sind gerader Teil und Maß bis Außenkante Umschlag.','t']);
           if(bi.art==='ueber180')R.push(['Biegeart','Biegung über 180°','t'],['Hinweis','Biegewinkel über 180°: Schenkellänge bis Biegepunkt ist nicht definiert. Angegeben ist der gerade Teil.','t']);
@@ -360,7 +388,7 @@ export function createBrep(ocIn){
             if(l.bisAussenkante!=null)R.push([n+' bis Außenkante Umschlag',l.bisAussenkante,'L'])});
           if(bi.legs.length===2&&bi.art==='normal')R.push(['Außenmaß über die Biegung',bi.legs[0].aussen+bi.legs[1].aussen,'L']);
           if(bi.art==='umschlag')R.push(['Außenmaß über Umschlag',2*bi.ro,'L'])}
-        else{R.unshift(['Radius R',f.cyl.r,'L','!'],['Bogenlänge',f.cyl.r*f.cyl.ang,'L','!']);R.push(['Durchmesser Ø',2*f.cyl.r,'L'],['Radius R',f.cyl.r,'L'],['Öffnungswinkel',f.cyl.ang*DEG,'W'],['Bogenlänge',f.cyl.r*f.cyl.ang,'L'])}}
+        else{R.unshift(['Durchmesser Ø',2*f.cyl.r,'L','!'],['Radius R',f.cyl.r,'L','!'],...(fm?.art==='zylinder'?[['Länge',fm.laenge,'L','!']]:[]),['Bogenlänge',f.cyl.r*f.cyl.ang,'L']);R.push(['Durchmesser Ø',2*f.cyl.r,'L'],['Radius R',f.cyl.r,'L'],['Öffnungswinkel',f.cyl.ang*DEG,'W'],['Bogenlänge',f.cyl.r*f.cyl.ang,'L'])}}
       if(f.cone){const k=f.cone;R.unshift(['Kegelwinkel (Senkwinkel)',2*k.semi*DEG,'W','!'],['Durchmesser groß Ø',2*k.rGross,'L','!'],['Durchmesser klein Ø',2*k.rKlein,'L','!'],['Kegelhöhe',k.h,'L','!']);
         R.push(['Halber Kegelwinkel',k.semi*DEG,'W'],['Mantellinie',k.mantel,'L'],['Kegelspitze',k.apex,'P'],['Achse durch',k.c,'P'],['Richtung',V.norm(k.d).map(x=>x.toFixed(4)).join(' / '),'t'])}
       if(f.sph){R.unshift(['Kugelradius R',f.sph.r,'L','!'],['Kugeldurchmesser Ø',2*f.sph.r,'L','!']);R.push(['Kugelmittelpunkt',f.sph.c,'P'])}
@@ -875,7 +903,9 @@ export function createBrep(ocIn){
   // ---- DXF für den Laser ----
   // Kreise = CIRCLE, Konturen = geschlossene LWPOLYLINE (Bögen als Bulge), Biegelinien je Richtung auf eigenem Layer, 1:1 in mm ($INSUNITS = 4).
   // Ursprung = linke untere Ecke des Zuschnitts. opts.beschriftung: Biegenotizen auf Layer BESCHRIFTUNG (Standard: aus).
-  M.konturSchleifen=(flat,tol=1e-3)=>{const ks=(flat.kanten||flat.contour.map(pts=>({pts,bogen:null}))).filter(k=>k.pts.length>1||k.bogen?.voll);
+  M.konturSchleifen=(flat,tol=1e-3)=>{const ks=(flat.kanten||flat.contour.map(pts=>({pts,bogen:null}))).filter(k=>k.pts.length>1||k.bogen?.voll)
+      // gekrümmte Polylinien (Freistich-Ecken über der Biegezone) → echte Bögen in DXF und GEO
+      .flatMap(k=>k.bogen||k.pts.length<4?[k]:(bogenZerlegen(k.pts)||[k]));
     const used=new Array(ks.length).fill(false),out=[];const nah=(p,q)=>Math.hypot(p[0]-q[0],p[1]-q[1])<tol;
     for(let i=0;i<ks.length;i++){if(used[i])continue;used[i]=true;const k0=ks[i];
       if(k0.bogen?.voll){out.push({kreis:k0.bogen,segs:[{k:k0,rev:false}],zu:true});continue}
