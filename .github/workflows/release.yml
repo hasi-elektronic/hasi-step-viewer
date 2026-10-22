@@ -26,6 +26,7 @@ jobs:
       - run: node tools/test-abwicklung.mjs
       - run: node tools/test-trumpf-geo.mjs  # Trumpf-kompatibel, Freiform-Stirnflächen, GEO-Export (synthetisches Teil)
       - run: node tools/test-edrw.mjs  # Messen wie eDrawings: parallel / Normaler Abstand / Delta, Bogen Mitte–Min.–Max.
+      - run: node tools/test-beschriftung.mjs  # jedes Maß nennt, was es misst; Gesamthöhe und Höhe Fläche–Fläche (synthetisch)
       - run: sudo apt-get install -y poppler-utils unzip
       - run: node tools/test-export.mjs
       - run: node tools/test-baum.mjs
@@ -59,6 +60,7 @@ jobs:
           node tools/smoke-messen.mjs
           SHOTDIR=docs/flaeche/hasi node tools/smoke-flaeche.mjs
           SHOTDIR=docs/edrw/hasi node tools/smoke-edrw.mjs
+          SHOTDIR=docs/edrw/hasi node tools/smoke-hoehe-beschriftung.mjs
           SHOTDIR=docs/seitenleiste node tools/smoke-seitenleiste.mjs
           node tools/smoke-einzelteil.mjs
           node tools/smoke-baugruppe.mjs
@@ -95,6 +97,7 @@ jobs:
           PORT=4174 node tools/smoke-einzelteil.mjs
           PORT=4174 MARKE=ms3d SHOTDIR=docs/flaeche/ms3d node tools/smoke-flaeche.mjs
           PORT=4174 SHOTDIR=docs/edrw/ms3d node tools/smoke-edrw.mjs
+          PORT=4174 SHOTDIR=docs/edrw/ms3d node tools/smoke-hoehe-beschriftung.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: werkzeugleiste
@@ -179,6 +182,7 @@ jobs:
           node tools/test-abwicklung.mjs
           node tools/test-trumpf-geo.mjs
           node tools/test-edrw.mjs
+          node tools/test-beschriftung.mjs
           node tools/test-export.mjs
           node tools/test-baum.mjs
           node tools/test-baugruppe-messen.mjs

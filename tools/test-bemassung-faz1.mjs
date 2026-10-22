@@ -18,7 +18,7 @@ const g=BM.geomLinear(k1);assert(nah(BM.V.len(BM.V.sub(g.l2,g.l1)),15));ok('Kett
 for(const t of ['kette','basislinie','fase'])assert(BM.TYPEN.some(x=>x[0]===t),'Typ fehlt: '+t);
 console.log('Fasenbemaßung:');
 const st={...BM.STIL_STANDARD,stellen:2};
-assert.equal(BM.massText({typ:'fase',a:2,b:2,winkel:45,wert:2},st)[0],'2 × 45°');assert.equal(BM.massText({typ:'fase',a:3,b:1.5,winkel:26.565,wert:3},st)[0],'3 × 1,5');
+assert.equal(BM.massText({typ:'fase',a:2,b:2,winkel:45,wert:2},st)[0],'Fase 2 × 45°');assert.equal(BM.massText({typ:'fase',a:3,b:1.5,winkel:26.565,wert:3},st)[0],'Fase 3 × 1,5');
 assert.equal(BM.massText({typ:'fase',a:2,b:2,winkel:45,text:'2x45 umlaufend'},st)[0],'2x45 umlaufend');ok('Text „2 × 45°“, „3 × 1,5“, eigener Text');
 console.log('Begleitdatei *.hasi3d.json:');
 const modell={instanzen:1,flaechen:23,kanten:51};

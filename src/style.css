@@ -216,3 +216,8 @@ aside.left{width:240px}
 #dxfGrund:empty,#geoInfo:empty{display:none}
 #dock.kompakt.zu{width:auto}
 #dock:has(>#blechPanel:not([hidden])){width:min(420px,calc(45% - 12px))}
+
+/* Messen: Maßrichtung als Umschalter, kein doppelter Hover-Hinweis */
+#linWahl{gap:2px;flex-wrap:wrap;align-items:center}#linWahl .m{margin-right:4px}#linWahl .btn{padding:2px 6px;font-size:11px}#linWahl .btn.on{background:var(--a);color:#fff;border-color:var(--a)}
+#ghKnopf.on{background:var(--a);color:#fff}
+#hover:empty{display:none}

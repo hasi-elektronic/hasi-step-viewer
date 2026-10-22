@@ -92,10 +92,17 @@ Testsuite: `tools/test-messen.mjs` (läuft in CI). Sie prüft 58 Sollmaße am Me
 - **Ein Klick auf eine Kante** zeigt den Wert direkt an der Kante, z. B. „Länge: 356,793 mm“; Bogen: Radius und Bogenlänge; Kreis: Durchmesser. Derselbe Wert steht unter „Ergebnisse“.
 - **Zwei Flächen:** parallel → „Die zwei gewählten Elemente sind parallel.“, Normaler Abstand (lila, mit Lotlinie im 3D), Abstand (kürzester Abstand) und Delta X/Y/Z der kürzesten Strecke; nicht parallel → Mindestabstand und Winkel. Es bleibt keine Bemaßung stehen (wie eDrawings); andere Paare und „Nur Flächen“ (Q, wie ZW3D) bemaßen wie bisher.
 - Im Messen wird die Verschieben-Triade nur gezeigt, wenn „Verschieben“ aktiv ist – sie verdeckt sonst Maßtexte.
+- **Jedes Maß sagt, was es misst** – nie eine nackte Zahl: „Abstand (schräg) 63,25“, „Höhe (Z) 60,00“, „Horizontal (X) 20,00“, „ΔX/ΔY/ΔZ“, „Ø“, „R“, „Winkel“, „Fase“, „Kettenmaß“, „Basismaß“. Eigener Maßtext und Präfix bleiben möglich.
+- **Zwei Punkte** (Ecke, Kantenmitte, Kreismittelpunkt): die Bemaßung folgt der Ansicht wie im CAD – im Bild fast senkrecht gewählt → **Höhe (Z)**, fast waagerecht → **Horizontal**, sonst **Abstand (schräg)**. Umschalter im Messen-Feld: **Auto / Ausgerichtet / Horizontal / Vertikal** (gilt sofort für die letzte Bemaßung). Die schräge Strecke und die Teilstrecken ΔX/ΔY/ΔZ tragen im 3D eigene Etiketten. Ergebnisse: zuerst **Höhe (ΔZ)**, dann Abstand, Delta X, Delta Y, Delta Z.
+- **Gesamthöhe (Taste H oder Knopf „Gesamthöhe (H)“, auch beim Wählen eines Teils über den Baum):** exakt aus der B-Rep senkrecht zur Grundfläche (gleiche Regel wie Abmessungen D). Gezeigt werden **Gesamthöhe (Hüllquader)** – alles, was über Fuß- und Deckfläche hinausragt, eingeschlossen – und **Höhe Fläche–Fläche** von der untersten zur obersten ebenen Fläche senkrecht zur Höhe (wie „Normaler Abstand“ in eDrawings), dazu Länge und Breite, als senkrechte Maße rechts neben dem Teil mit Hilfslinien. Fläche anklicken richtet neu aus, H oder Esc beendet. Beim Ziehen bzw. bei gewählter linearer Bemaßung sperrt H wie bisher die Richtung horizontal.
+- **Keine eigene Bemaßung-Schaltfläche mehr:** Messen und Bemaßung sind eins. Bemaßungen (Liste, Art wählen, Alle kopieren/löschen, als PNG/PDF, speichern/laden als `*.hasi3d.json`) stehen unter Messen › Erweitert; gespeicherte Bemaßungen lassen sich weiter laden. Menü Werkzeuge › „Bemaßungen (im Messen)“ öffnet die Stelle.
+- Hover-Hinweis nur noch am Cursor (kein zweiter Hinweis unten rechts).
 
-Geprüft durch `tools/test-edrw.mjs` (CI, B-Rep) und `tools/smoke-edrw.mjs` (headless, beide Marken, Bilder in `docs/edrw/`).
+Geprüft durch `tools/test-edrw.mjs`, `tools/test-beschriftung.mjs` (CI, B-Rep, Beschriftungen, Gesamthöhe am synthetischen `testdaten/bock.step` aus `tools/make-bock-teil.py`), `tools/smoke-edrw.mjs` und `tools/smoke-hoehe-beschriftung.mjs` (headless, beide Marken, Bilder in `docs/edrw/`).
 
 ![Start](docs/edrw/hasi/nachher-start.png) ![Zwei Flächen](docs/edrw/hasi/5-zwei-flaechen.png) ![Blech](docs/edrw/hasi/nachher-blech.png)
+
+![Schräg und Höhe](docs/edrw/hasi/schraeg-und-hoehe.png) ![Gesamthöhe](docs/edrw/hasi/gesamthoehe.png)
 
 ## K-Faktor und Biegetabelle
 

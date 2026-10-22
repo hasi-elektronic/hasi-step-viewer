@@ -41,7 +41,7 @@ for (const [w, h, tag] of [[1500, 900, 'gross'], [1100, 700, 'klein']]) {
   // Einpassen nach dem Öffnen nutzt die freie Fläche
   await p.locator('#fit').click();await pruefe(p, tag + ' Einpassen mit Messen');
   await p.locator('#btnBlech').click();await pruefe(p, tag + ' Blech', tag === 'gross' ? 'blech' : null);
-  await p.locator('#btnMass').click();await pruefe(p, tag + ' Bemaßung', tag === 'gross' ? 'bemassung' : null);
+  if (await p.locator('#btnMass').count()) fail('Bemaßung-Knopf soll entfallen');await p.locator('#btnMessen').click();await p.evaluate(() => { document.getElementById('messenErweitert').open = true; });await pruefe(p, tag + ' Messen (Bemaßungen)', tag === 'gross' ? 'bemassung' : null);
   await p.locator('#btnSchnitt').click();
   await p.evaluate(async () => { const n = window.__app.nodes().find(n => n.all && n.all.length === 1) || window.__app.nodes()[0]; window.__app.selectNode(n, true); await window.__app.act('props', n); await window.__app.act('move', n); });
   if (await p.locator('#bewegenPanel').isHidden()) fail('Verschieben-Feld geht nicht auf');

@@ -66,6 +66,7 @@ const hoehe=await A(async()=>{const a=window.__app,U=a.data().uniq[0];const vi=q
   out.abstand=wert('Abstand');out.hoehe=wert('Höhe (vertikal)');out.waagerecht=wert('Horizontal (waagerecht)');out.text=document.getElementById('mresult').innerText;
   r.value='vertikal';r.dispatchEvent(new Event('change'));await new Promise(q=>setTimeout(q,200));out.wahl=a.letzteMessung().r.wahl;
   const n0=a.dims().length;a.keepDim('auto');const d=a.dims().at(-1);out.dimTyp=d.typ;out.dimWert=d.wert;
+  // seit 22.10. folgt „Auto“ bei zwei Punkten der Ansicht: Vorne, fast senkrecht gewählt → Höhe (vertikal) schon beim Anlegen
   r.value='ausgerichtet';r.dispatchEvent(new Event('change'));await zwei();a.keepDim('auto');const l=a.dims().at(-1);out.linTyp=l.typ;out.linWert0=l.wert;out.linNo=l.no;a.renderDims();return out});
 if(Math.abs(hoehe.abstand-Math.hypot(60,380))>1e-4||Math.abs(hoehe.hoehe-380)>1e-4||Math.abs(hoehe.waagerecht-60)>1e-4)fail('Höhe/Abstand: '+JSON.stringify(hoehe));
 if(!/Höhe \(vertikal\)/.test(hoehe.text))fail('„Höhe (vertikal)“ fehlt im Ergebnis');if(hoehe.wahl!=='Höhe (vertikal)')fail('Maßrichtung vertikal nicht hervorgehoben: '+hoehe.wahl);

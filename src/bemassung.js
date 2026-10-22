@@ -18,15 +18,28 @@ export const TOLERANZEN=[['keine','Keine'],['symm','± symmetrisch'],['abmass','
 const zahl=(v,n)=>v.toLocaleString('de-DE',{minimumFractionDigits:n,maximumFractionDigits:n});
 const basis=n=>{const a=Math.abs(n[0])<0.9?[1,0,0]:[0,1,0];const e1=V.norm(V.cross(n,a));return [e1,V.cross(n,e1)]};
 
+/** Was misst die Bemaßung? Kurzname vor dem Wert, damit nie eine nackte Zahl im Bild steht (Hamdi 22.10.):
+ *  „Abstand (schräg)“, „Höhe (Z)“, „Horizontal“, „ΔX“, „Winkel“ … d.art überschreibt (z. B. „Gesamthöhe (Hüllquader)“). */
+const achseVon=dir=>{if(!dir)return null;const n=V.norm(dir);for(const [i,k] of [[0,'X'],[1,'Y'],[2,'Z']])if(Math.abs(n[i])>0.9999)return k;return null};
+export function artText(d){if(d.art!=null)return d.art;const t=d.typ;
+  if(!LINEAR.includes(t))return {winkel:'Winkel',radius:'',durchmesser:'',bogen:'Bogen',fase:'Fase',koordinate:''}[t]??'';
+  const dir=t==='ausgerichtet'||(t==='linear'&&(!d.linArt||d.linArt==='ausgerichtet'))||!d.dir?(d.p1&&d.p2?V.sub(d.p2,d.p1):null):d.dir,ax=achseVon(dir);
+  if(t==='achse-x')return 'ΔX';if(t==='achse-y')return 'ΔY';if(t==='achse-z')return 'ΔZ';
+  if(t==='kette')return 'Kettenmaß';if(t==='basislinie')return 'Basismaß';if(t==='ansicht')return 'In der Ansicht';
+  const lin=t==='linear'?(d.linArt||'ausgerichtet'):t;
+  if(lin==='hoehe'||lin==='vertikal')return ax==='Z'?'Höhe (Z)':t==='vertikal'?'Vertikal':'Höhe';
+  if(lin==='waagerecht'||lin==='horizontal')return ax?`Horizontal (${ax})`:'Horizontal';
+  return ax?`Abstand (${ax})`:'Abstand (schräg)'}
 /** Maßtext: [Haupttext, Zusatz oben, Zusatz unten] (Zusätze klein gestapelt, z. B. Abmaße). */
 export function massText(d,stil){const n=stil.stellen,w=d.wert;const t=d.tol||{art:'keine'};const o=+t.o||0,u=+t.u||0;
-  if(d.typ==='fase'){const gleich=Math.abs(d.a-d.b)<1e-6;const k=(v,m)=>{const z=zahl(v,m);return z.includes(',')?z.replace(/0+$/,'').replace(/,$/,''):z};const f=gleich?`${k(d.a,n)} × ${k(d.winkel,Math.min(n,2))}°`:`${k(d.a,n)} × ${k(d.b,n)}`;return [(d.praefix||'')+(d.text&&d.text.trim()?d.text:f),'','',d.suffix||'']}
+  const art=d.ohneArt?'':artText(d),mitArt=x=>art?art+' '+x:x;
+  if(d.typ==='fase'){const gleich=Math.abs(d.a-d.b)<1e-6;const k=(v,m)=>{const z=zahl(v,m);return z.includes(',')?z.replace(/0+$/,'').replace(/,$/,''):z};const f=gleich?`${k(d.a,n)} × ${k(d.winkel,Math.min(n,2))}°`:`${k(d.a,n)} × ${k(d.b,n)}`;return [(d.praefix||'')+(d.text&&d.text.trim()?d.text:mitArt(f)),'','',d.suffix||'']}
   const wert=d.einheit==='W'?zahl(w,n)+'°':zahl(w,n);
   const vor={radius:'R ',durchmesser:'Ø ',bogen:'⌒ '}[d.typ]||'';
-  let haupt=d.text&&d.text.trim()?d.text:vor+wert,oben='',unten='';
+  let haupt=d.text&&d.text.trim()?d.text:mitArt(vor+wert),oben='',unten='';
   if(t.art==='symm')haupt+=' ±'+zahl(o,n);
   else if(t.art==='abmass'){oben=(o>=0?'+':'−')+zahl(Math.abs(o),n);unten=(u>0?'+':'−')+zahl(Math.abs(u),n)}
-  else if(t.art==='grenz'){haupt=d.text&&d.text.trim()?d.text:vor;oben=zahl(w+o,n);unten=zahl(w-Math.abs(u),n)}
+  else if(t.art==='grenz'){haupt=d.text&&d.text.trim()?d.text:mitArt(vor).trim();oben=zahl(w+o,n);unten=zahl(w-Math.abs(u),n)}
   return [(d.praefix||'')+haupt,oben,unten,d.suffix||'']}
 
 function pfeil(ctx,p,dir,art,s){const [x,y]=p,[dx,dy]=dir;const nx=-dy,ny=dx;const L=s*0.9,W=s*0.3;
@@ -48,7 +61,8 @@ function text(ctx,p,ang,teile,stil,ueber=true){const [haupt,o,u,suf]=teile;const
   draw(haupt,-W/2,y0);
   if(wS){ctx.font=`600 ${g*0.7}px system-ui,sans-serif`;ctx.textBaseline='alphabetic';const xs=-W/2+wH+3,yb=ueber?y0-g*0.05:y0+g*0.35;draw(o,xs,yb-g*0.55);draw(u,xs,yb+(ueber?0:0.05*g));ctx.font=`600 ${g}px system-ui,sans-serif`;ctx.textBaseline=ueber?'bottom':'middle'}
   if(suf)draw(' '+suf,-W/2+wH+(wS?wS+3:0),y0);
-  ctx.restore();const r=Math.max(W,g)/2+4;return {x:p[0],y:p[1],r,w:W,h:g*1.3}}
+  // Trefferfläche gedreht wie der Text (senkrechte Maße sind schmal und hoch, sonst überlappen benachbarte Höhenmaße)
+  ctx.restore();const r=Math.max(W,g)/2+4,c=Math.abs(Math.cos(ang)),sn=Math.abs(Math.sin(ang)),H=g*1.3;return {x:p[0],y:p[1],r,w:c*W+sn*H,h:sn*W/2+c*H}}
 
 /** Zeichnet eine Bemaßung. Liefert die Trefferfläche für das Ziehen ({x,y,r}). */
 export function zeichne(ctx,d,P,stil,farbe='#0a6fb0'){ctx.strokeStyle=farbe;ctx.fillStyle=farbe;ctx.lineWidth=1.2;const s=stil.groesse,art=stil.pfeil,T=massText(d,stil);

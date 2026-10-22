@@ -2,7 +2,7 @@
 import assert from 'assert';import fs from 'fs';
 const html=fs.readFileSync('index.html','utf8');const css=fs.readFileSync('src/style.css','utf8');
 const boden=html.match(/<footer id="boden">([\s\S]*?)<\/footer>/)[1];
-const SOLL={btnReset:'Zurücksetzen',btnDreh:'Autodrehen',btnMessen:'Messen',btnSchnitt:'Schnitt',btnMass:'Bemaßung',btnBlech:'Blech'};
+const SOLL={btnReset:'Zurücksetzen',btnDreh:'Autodrehen',btnMessen:'Messen',btnSchnitt:'Schnitt',btnBlech:'Blech'};// Bemaßung ist seit 22.10. Teil von Messen (kein eigener Knopf);
 const knoepfe=[...boden.matchAll(/<button type="button" id="(\w+)"[^>]*title="([^"]+)"[^>]*>(<svg[\s\S]*?<\/svg>)<span>([^<]+)<\/span><\/button>/g)];
 assert.deepStrictEqual(knoepfe.map(k=>k[1]),Object.keys(SOLL),'Reihenfolge/Anzahl der Knöpfe');
 for(const [,id,titel,svg,text] of knoepfe){
@@ -17,12 +17,12 @@ const t=Object.fromEntries(knoepfe.map(k=>[k[1],k[3]]));
 // Messen = Lineal (schräges Rechteck mit Teilstrichen), Bemaßung = Maßlinie mit zwei Pfeilspitzen und Hilfslinien
 assert(/rotate\(-45/.test(t.btnMessen)&&/<rect[^>]*width="22"/.test(t.btnMessen),'Messen ist kein Lineal');
 assert(!/acf/.test(t.btnMessen),'Messen darf keine Maßpfeile haben (Verwechslung mit Bemaßung)');
-assert((t.btnMass.match(/z/g)||[]).length>=2&&/class="acf"/.test(t.btnMass),'Bemaßung ohne zwei Pfeilspitzen');
-assert(/M3\.4 12\.6V3\.6M20\.6 12\.6V3\.6/.test(t.btnMass),'Bemaßung ohne Hilfslinien');
-assert(/Messen – [^"]*nicht gespeichert/.test(html)&&/Bemaßung – [^"]*speichern[^"]*exportieren/.test(html),'Tooltips Messen/Bemaßung');
+assert(!/id="btnMass"/.test(html),'Bemaßung hat keinen eigenen Knopf mehr (gehört zu Messen)');
+assert(/Messen – [^"]*nicht gespeichert/.test(html),'Tooltip Messen');
+assert(/id="linWahl"[\s\S]*data-w="ausgerichtet"[\s\S]*data-w="horizontal"[\s\S]*data-w="vertikal"/.test(html)&&/id="ghKnopf"/.test(html),'Messen: Richtung Ausgerichtet/Horizontal/Vertikal und Gesamthöhe');
 // Farben: normal Strich Text, Akzent Markenfarbe; aktiv Strich Akzent, Details dunkler Akzent
 assert(/:root\{--a:#33AFE2;--a-dunkel:#1A7FAE/.test(css),'Hasi-Farben');
 assert(/html\[data-marke="sickinger"\]\{--a:#009EDF;--a-dunkel:#004B85\}/.test(css),'Sickinger-Farben');
 assert(/#boden button\.on\{--ik-strich:var\(--a\);--ik-akzent:var\(--a-dunkel\)/.test(css),'Aktiv-Zustand');
-console.log('  ok  6 Knöpfe, Zweiton über Variablen, Tooltips, Lineal ≠ Maßlinie');
+console.log('  ok  5 Knöpfe, Zweiton über Variablen, Tooltips, Lineal ≠ Maßlinie');
 console.log('OK: Werkzeugleiste');

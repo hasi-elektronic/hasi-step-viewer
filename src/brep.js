@@ -638,7 +638,14 @@ export function createBrep(ocIn){
     const ach=[a2,V.cross(a1,a2),a1];const rr=exaktBereich(ids,ach);if(!rr)return {ok:false,msg:'Keine Geometrie.'};
     const q=mkQuader(ach,rr);let [l,b]=[q.masse[0],q.masse[1]],[al,ab]=[ach[0],ach[1]];if(b>l+1e-9){[l,b]=[b,l];[al,ab]=[ab,al]}
     const ma=exaktBereich(ids,[[1,0,0],[0,1,0],[0,0,1]]);
-    return {ok:true,quelle,laenge:l,breite:b,hoehe:q.masse[2],richtung:{laenge:al,breite:ab,hoehe:a1},achsen:q.achsen,bereiche:rr,ecken:q.ecken,mitte:q.mitte,
+    // Höhe Fläche–Fläche: unterste und oberste ebene Fläche senkrecht zur Höhe (Fuß- bzw. Deckfläche), Abstand entlang a1 – wie „Normaler Abstand“ in eDrawings.
+    // Gesamthöhe (Hüllquader) schließt dagegen alles ein, was über diese Flächen hinausragt (Rundungen, schräge Kanten, Laschen).
+    // Flächeninhalt exakt aus der B-Rep (das Netz liegt im Browser nicht im Kern); nur winzige Splitter (< 0,01 % der größten waagerechten) zählen nicht
+    const waag=[];for(const i of ids){const I=M.inst[i],U=M.uniq[I.u];U.faces.forEach((f,fi)=>{if(!f.plane)return;const n=V.norm(T.d(I.m,f.plane.n));if(Math.abs(V.dot(n,a1))<COS_PARALLEL)return;
+      let a=0;try{a=f.area||0}catch{a=0}waag.push({id:fi,inst:i,h:V.dot(T.p(I.m,f.plane.o),a1),p:f.mid?T.p(I.m,f.mid):T.p(I.m,f.plane.o),a})});if(waag.length>5000)break}
+    const amax=Math.max(0,...waag.map(e=>e.a));let fu=null,fo=null;for(const e of waag){if(e.a<amax*(opts.ffMin??1e-4))continue;if(!fu||e.h<fu.h-1e-9||(Math.abs(e.h-fu.h)<=1e-9&&e.a>fu.a))fu=e;if(!fo||e.h>fo.h+1e-9||(Math.abs(e.h-fo.h)<=1e-9&&e.a>fo.a))fo=e}
+    const flaechen=fu&&fo&&fo.h-fu.h>Math.max(1e-9,0.5*q.masse[2])?{wert:fo.h-fu.h,unten:fu,oben:fo}:null;
+    return {ok:true,quelle,flaechen,laenge:l,breite:b,hoehe:q.masse[2],richtung:{laenge:al,breite:ab,hoehe:a1},achsen:q.achsen,bereiche:rr,ecken:q.ecken,mitte:q.mitte,
       modellachsen:{x:ma[0][1]-ma[0][0],y:ma[1][1]-ma[1][0],z:ma[2][1]-ma[2][0],min:ma.map(r=>r[0]),max:ma.map(r=>r[1])},exakt:true}};
   // ---------- Offener Körper ----------
   // Ein Unikat ist offen, wenn es keinen Volumenkörper hat oder eine seiner Schalen nicht geschlossen ist (BRep_Tool::IsClosed).
