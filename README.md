@@ -1,4 +1,14 @@
-# Hasi STEP-Betrachter (Prototyp 0.1.0)
+# Hasi 3D (Prototyp 0.1.0)
+
+Produktnamen ab 20.10.2026: **Hasi 3D** (Marke Hasi, vorher „Hasi STEP-Betrachter“) und **MS3D** (Marke Sickinger, vorher „Sickinger STEP-Viewer“). Kennungen, Programmkennungen der Dateizuordnung und MSI-Upgrade-Codes bleiben gleich, damit ein Update die Vorschau-Installation ersetzt.
+
+Programmdatei ab 21.10.2026: `hasi-3d.exe` / `ms3d.exe` (macOS: `Hasi 3D.app/Contents/MacOS/hasi-3d`, `MS3D.app/Contents/MacOS/ms3d`), vorher `hasi-step-betrachter` / `sickinger-step-viewer`.
+
+### Alte Vorschau beim Installieren entfernen
+- **Setup.exe (NSIS):** `src-tauri/windows/hooks.nsh` (`NSIS_HOOK_PREINSTALL`) sucht vor dem Kopieren den Deinstallations-Eintrag des alten Produktnamens („Hasi STEP-Betrachter“ bzw. „Sickinger STEP-Viewer“/„Sickinger STEP-Betrachter“) unter HKCU und HKLM und startet den alten Deinstaller still (`/S _?=<ordner>`). Danach schreibt die neue Installation die Dateizuordnung auf die neue Programmdatei. Die aktuelle Installation (gleicher Produktname) wird nie angefasst; liegt die alte im selben Ordner, wird nur ihr Eintrag entfernt. Einstellungen bleiben (gleiche Kennung). Ein altes Vorschau-MSI wird über `msiexec /x` entfernt (Windows fragt nach Administratorrechten).
+- **MSI:** `MajorUpgrade` mit dem festen Upgrade-Code ersetzt ein altes Vorschau-MSI. Ein altes Setup.exe-Vorschau entfernt das MSI nicht, dafür das Setup.exe verwenden.
+- **macOS:** die alte `.app` im Programme-Ordner von Hand löschen.
+- CI (Windows) installiert den Vorschau-Installer von #13 und danach den neuen still darüber und prüft das Ergebnis (`tools/test-alte-vorschau.ps1`).
 
 Reiner STEP/STP-Viewer (keine Bearbeitung). Tauri 2 + three.js + occt-import-js (OpenCascade als WASM, Parsing im Web Worker).
 
@@ -19,13 +29,13 @@ Linux-Voraussetzungen: libwebkit2gtk-4.1-dev, libgtk-3-dev, librsvg2-dev, Rust >
 ## Installer über CI
 `.github/workflows/release.yml`: Jobs auf `windows-latest` (NSIS-.exe + .msi) und `macos-latest` (Universal-.dmg), je Marke `hasi` und `sickinger`. Start über Tag `v*` oder manuell (workflow_dispatch); Ergebnisse als Actions-Artefakte.
 
-## Marke Sickinger
+## Marke Sickinger (MS3D)
 Dieselbe App, zweite Marke für Manfred Sickinger Apparatebau. Ohne Variable bleibt der Hasi-Build unverändert.
 
     MARKE=sickinger npm run build
     MARKE=sickinger npm run tauri build -- --config src-tauri/tauri.sickinger.conf.json
 
-Produktname „Sickinger STEP-Viewer“, Kennung `de.sickinger.stepviewer`, Herausgeber „Manfred Sickinger Apparatebau“. Farben aus dem Logo: Dunkelblau `#004B85`, Hellblau `#009EDF`. Im Über-Dialog steht zusätzlich „Entwickelt von Hasi Elektronic“.
+Produktname „MS3D“ (vorher „Sickinger STEP-Viewer“), Kennung `de.sickinger.stepviewer`, Herausgeber „Manfred Sickinger Apparatebau“. Farben aus dem Logo: Dunkelblau `#004B85`, Hellblau `#009EDF`. Im Über-Dialog steht zusätzlich „Entwickelt von Hasi Elektronic“.
 Voraussetzung: Repository auf GitHub (noch nicht angelegt). Ohne Apple-Developer-ID ist die .dmg unsigniert/nicht notarisiert -> Gatekeeper-Warnung (Rechtsklick > Öffnen). Ohne Windows-Codesigning-Zertifikat -> SmartScreen-Hinweis.
 
 ## Testdatei

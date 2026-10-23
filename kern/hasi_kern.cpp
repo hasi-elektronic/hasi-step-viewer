@@ -1,4 +1,4 @@
-// Hasi STEP-Betrachter – nativer Kern (Sidecar). OCCT (LGPL-2.1 mit Ausnahme), dynamisch gelinkt.
+// Hasi 3D / MS3D – nativer Kern (Sidecar). OCCT (LGPL-2.1 mit Ausnahme), dynamisch gelinkt.
 // Aufruf: hasi-kern <eingabe.step> <ausgabe-ordner> [--threads N] [--pruefen] [--seriell]
 // Ausgabe: modell.bin (JSON-Kopf + Binärdaten für die Anzeige) und modell.brep (Unikate als BREP für das Messen im WASM-Kern).
 // Ablauf: STEP einmal parsen; Blatt-Teile (bei Mehrkörper-Teilen jeder Körper einzeln) parallel übersetzen;

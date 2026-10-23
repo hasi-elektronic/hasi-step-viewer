@@ -19,7 +19,7 @@ fn main() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("Fehler beim Starten von Hasi STEP-Betrachter");
+        .expect("Fehler beim Starten von Hasi 3D");
     app.run(|app, event| match event {
         tauri::RunEvent::Ready => {
             if let Some(pfad) = step_aus_args(&std::env::args().collect::<Vec<_>>()) {
@@ -361,7 +361,7 @@ fn mac_menu(app: &mut tauri::App) -> tauri::Result<()> {
     use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
     use tauri::Manager;
     let h = app.handle();
-    let produkt = h.config().product_name.clone().unwrap_or_else(|| "Hasi STEP-Betrachter".into());
+    let produkt = h.config().product_name.clone().unwrap_or_else(|| "Hasi 3D".into());
     let sickinger = h.config().identifier.to_string().contains("sickinger");
     let meta = if sickinger {
         AboutMetadata {

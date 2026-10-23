@@ -1,4 +1,4 @@
-# Nativer Kern für den Hasi STEP-Betrachter. OCCT wird dynamisch gelinkt (LGPL-2.1 mit OCCT-Ausnahme).
+# Nativer Kern für Hasi 3D und MS3D. OCCT wird dynamisch gelinkt (LGPL-2.1 mit OCCT-Ausnahme).
 cmake_minimum_required(VERSION 3.16)
 project(hasi_kern CXX)
 set(CMAKE_CXX_STANDARD 17)

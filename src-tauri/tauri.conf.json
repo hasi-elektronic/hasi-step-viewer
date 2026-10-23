@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Hasi STEP-Betrachter",
+  "productName": "Hasi 3D",
   "version": "0.1.0",
   "identifier": "de.hasi-elektronic.stepviewer",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Hasi STEP-Betrachter",
+        "title": "Hasi 3D",
         "width": 1400,
         "height": 880,
         "dragDropEnabled": true
@@ -34,8 +34,8 @@
       "icons/icon.ico"
     ],
     "publisher": "Hasi Elektronic",
-    "shortDescription": "STEP-Betrachter für 3D-Modelle",
-    "longDescription": "Betrachter für STEP-/STP-Dateien: Modellbaum, Messen, Schnittansicht. Nur Ansicht, keine Bearbeitung.",
+    "shortDescription": "Hasi 3D – Betrachter für STEP-Modelle",
+    "longDescription": "Hasi 3D: Betrachter für STEP-/STP-Dateien: Modellbaum, Messen, Schnittansicht. Nur Ansicht, keine Bearbeitung.",
     "category": "Utility",
     "copyright": "© 2026 Hasi Elektronic",
     "fileAssociations": [
@@ -62,9 +62,10 @@
       },
       "wix": {
         "language": "de-DE",
-        "template": "windows/main.wxs"
+        "template": "windows/main.wxs",
+        "upgradeCode": "8058eeb3-a5b1-5569-a5d1-b51db6fb06e8"
       }
     }
   },
-  "mainBinaryName": "hasi-step-betrachter"
+  "mainBinaryName": "hasi-3d"
 }
