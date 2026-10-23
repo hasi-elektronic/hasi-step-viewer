@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 export async function checkMessinformationenUi(page,{loadAssembly}) {
-  await loadAssembly();await page.evaluate(async()=>{const a=window.__app;a.tab('messen');await a.messartSetzen('auto');a.clearSel()});
+  await loadAssembly();await page.waitForFunction(()=>window.__app.animFertig());await page.evaluate(async()=>{const a=window.__app;a.tab('messen');await a.messartSetzen('auto');a.clearSel()});
   const ids=await page.evaluate(async()=>{
     const a=window.__app,inst=a.nodes().find(n=>n.name==='Klotz').all[0],faces=a.data().uniq[a.data().inst[inst].u].faces;
     for(let id=1;id<faces.length;id++){const r=await window.__call('measure',{sels:[{k:'face',id:0,inst},{k:'face',id,inst}],opts:{}});if(r.edrw?.parallel&&Math.abs(r.edrw.normal-20)<1e-5)return {inst,ids:[0,id]}}throw new Error('Gegenflächen am 20-mm-Würfel fehlen');
@@ -13,7 +13,9 @@ export async function checkMessinformationenUi(page,{loadAssembly}) {
   assert(cards[0].r.rows.some(r=>/Normaler Abstand|Abstand senkrecht/.test(r[0])&&Math.abs(r[1]-20)<1e-6));
   for(const d of cards.slice(1)){assert(Math.abs(d.r.rows.find(r=>r[0]==='Flächeninhalt')[1]-400)<1e-6);assert(Math.abs(d.r.rows.find(r=>r[0]==='Umfang (gesamt)')[1]-80)<1e-6);assert.deepEqual(d.p,d.r.messpunkt)}
   const matrices=await page.evaluate(()=>window.__app.matrizen());
-  const last=cards.at(-1);await page.waitForTimeout(50);const pos=await page.evaluate(no=>window.__app.dimLabels().find(h=>h[1]===no)?.[0],last.no);assert(pos);
+  const last=cards.at(-1);
+  await page.waitForFunction(no=>window.__app.dimLabels().some(h=>h[1]===no&&h[0].every(Number.isFinite)),last.no,{timeout:15000}).catch(async error=>{throw new Error('Informationsfeld wurde nicht gezeichnet: '+JSON.stringify(await page.evaluate(()=>({labels:window.__app.dimLabels(),camera:window.__steuerung(),cards:window.__app.dims().filter(d=>d.typ==='info').map(d=>({no:d.no,p:d.p,off:d.off}))}))),{cause:error})});
+  const pos=await page.evaluate(no=>window.__app.dimLabels().find(h=>h[1]===no)?.[0],last.no);assert(pos);
   const canvas=await page.locator('#buehne').boundingBox();await page.mouse.move(canvas.x+pos[0],canvas.y+pos[1]);await page.mouse.down();await page.mouse.move(canvas.x+pos[0]+55,canvas.y+pos[1]+30,{steps:6});await page.mouse.up();
   assert.deepEqual(await page.evaluate(()=>window.__app.matrizen()),matrices);
   const dragged=await page.evaluate(no=>window.__app.dims().find(d=>d.no===no).off,last.no);assert.notDeepEqual(dragged,last.off);
