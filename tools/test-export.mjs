@@ -8,6 +8,8 @@ for(const [f,nb] of [['public/testblech.step',2],['testdaten/wanne.step',4]]){
   assert(T.kopf.find(k=>k[0]==='Zuschnitt')[1].includes('×'));
   const p=pdf(s,meta);assert.equal(new TextDecoder().decode(p.slice(0,5)),'%PDF-');const pf='/tmp/hasi-export/'+meta.teil+'.pdf';fs.writeFileSync(pf,p);
   const txt=execSync(`pdftotext -layout "${pf}" -`).toString();for(const w of ['Biegetabelle','Blechdicke','Zuschnitt','Biegelinie','nach oben','Schenkel','Seite 1 von','Hasi 3D'])assert(txt.includes(w),'PDF enthält nicht: '+w);
+  // Faz 2: Biegenotiz je Biegelinie in der Vorschau („B1 AUF 90° Ri 2“) und Spalte BD
+  for(const b of s.bends)assert(txt.includes(`B${b.nr} ${b.dir==='nach oben'?'AUF':'AB'} 90° Ri ${(+b.ri.toFixed(2)).toLocaleString('de-DE')}`),'PDF: Biegenotiz B'+b.nr);assert(txt.includes('BD [mm]'),'PDF: Spalte BD');
   const x=await xlsx(s,meta);assert.equal(x[0],0x50);assert.equal(x[1],0x4b);const xf='/tmp/hasi-export/'+meta.teil+'.xlsx';fs.writeFileSync(xf,x);
   const xml=execSync(`unzip -p "${xf}" xl/worksheets/sheet1.xml xl/sharedStrings.xml`).toString();for(const w of ['Biegetabelle','Richtung','Zuschnitt','gerader Teil außen'])assert(xml.includes(w),'XLSX enthält nicht: '+w);
   assert(/<v>(89\.9999|90)[0-9.]*<\/v>/.test(xml),'Winkel als Zahl');
@@ -23,3 +25,4 @@ const mir=Lx?pos.map(v=>Lx-v).sort((a,b)=>a-b):[];assert(fits(pos)||(Lx&&fits(mi
 console.log('  ok  Lage der Biegelinien am Testblech',pos.map(v=>v.toFixed(4)).join(' / '));
 console.log('OK: Export Biegetabelle');
 await import('./test-bemassung-faz1.mjs');
+await import('./test-messprotokoll.mjs');

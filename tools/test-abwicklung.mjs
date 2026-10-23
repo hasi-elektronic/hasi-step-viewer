@@ -19,3 +19,4 @@ r=run('winkel-senkung.step');assert(r.flat.incomplete&&r.fehler.some(f=>f.includ
 r=run('kuppel.step');assert(!r.ok&&/Nicht abwickelbar/.test(r.msg));console.log('  ok  Kuppel → '+r.msg);
 console.log('OK: Abwicklung');
 await import('./test-dxf.mjs');
+await import('./test-blech2.mjs');
