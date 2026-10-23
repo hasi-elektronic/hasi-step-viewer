@@ -31,7 +31,7 @@ self.onmessage=async e=>{const {id,cmd,args}=e.data;
     else if(cmd==='vorschau')r=B.vorschau(args.a,args.b);
     else if(cmd==='abmessungen')r=B.abmessungen(args.opts||{});
     else if(cmd==='offen')r=B.offen(args.ids);
-    else if(cmd==='sheet'){r=B.sheet(args.opts??args.K,args.inst);if(r.flat&&!r.flat.incomplete)r.dxf=B.dxf(r.flat,{beschriftung:!!(args.opts&&args.opts.beschriftung)})}
+    else if(cmd==='sheet'){r=B.sheet(args.opts??args.K,args.inst);if(r.flat&&!r.flat.incomplete){r.dxf=B.dxf(r.flat,{beschriftung:!!(args.opts&&args.opts.beschriftung)});try{const o=args.opts||{};r.geo=B.geo(r.flat,{name:o.name,werkstoff:o.werkstoffGeo,dicke:r.t,bends:r.bends.map(b=>({ang:b.ang,ri:b.ri,bd:b.bd,dir:b.dir}))});r.geoStat=B.letzteGeo}catch(e){r.geoFehler=e.message}}}
     const tr=[];if(cmd==='load')r.uniq.forEach(m=>tr.push(m.p.buffer,m.i.buffer,m.f.buffer));if(cmd==='stepSchreiben')tr.push(r.buffer);
     self.postMessage({id,ok:true,r},tr);
   }catch(err){

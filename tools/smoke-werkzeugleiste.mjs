@@ -20,7 +20,7 @@ const name = marke === 'sickinger' ? 'ms3d' : 'hasi3d';
 const leiste = p.locator('#boden');
 // Normalzustand: kein Knopf aktiv
 await p.evaluate(() => document.querySelectorAll('#boden button').forEach(b => b.classList.remove('on')));
-for (const id of ['btnReset', 'btnDreh', 'btnMessen', 'btnSchnitt', 'btnMass', 'btnBlech']) {
+for (const id of ['btnReset', 'btnDreh', 'btnMessen', 'btnSchnitt', 'btnBlech']) {
   const f = await farben(id);
   if (f.strich !== 'rgb(29, 29, 31)') fail(id + ' normal: Strich ' + f.strich);
   if (f.akzent && f.akzent !== F.a) fail(id + ' normal: Akzent ' + f.akzent);
@@ -29,8 +29,8 @@ for (const id of ['btnReset', 'btnDreh', 'btnMessen', 'btnSchnitt', 'btnMass', '
   const t = await p.locator('#' + id).getAttribute('title'); if (!/ – /.test(t)) fail(id + ': Tooltip ' + t);
 }
 await leiste.screenshot({ path: `${dir}/${name}-normal.png` });
-// Aktiv: Messen (Tab) bzw. Bemaßung
-for (const [id, datei] of [['btnMessen', 'aktiv-messen'], ['btnMass', 'aktiv-bemassung']]) {
+// Aktiv: Messen bzw. Blech (Bemaßung gehört seit 22.10. zu Messen)
+for (const [id, datei] of [['btnMessen', 'aktiv-messen'], ['btnBlech', 'aktiv-blech']]) {
   await p.evaluate(id => document.querySelectorAll('#boden button').forEach(b => b.classList.toggle('on', b.id === id)), id);
   const f = await farben(id);
   if (f.strich !== F.a) fail(id + ' aktiv: Strich ' + f.strich + ' statt ' + F.a);

@@ -72,7 +72,8 @@ Test: `testdaten/testblech-cm.step` (selbst erzeugt mit `tools/make-testblech-cm
 Alle Werte werden exakt aus der B-Rep (OCCT) berechnet, nicht aus dem Dreiecksnetz, und immer in mm angezeigt.
 
 - **Fangen** mit Hover-Vorschau und Fangsymbol: Ecke (Quadrat), Kantenmitte (Dreieck), Kreismittelpunkt (Kreis mit Kreuz), Kante, Fläche, Achse (gestrichelt; Zylinderflächen).
-- **Ein Element:** Kantenlänge, Kantenmitte, Ø und R, Bogenwinkel, Bogenlänge, Flächeninhalt, Umfang (gesamt und außen). Rundungen und Bögen zeigen Radius und Bogenlänge hervorgehoben.
+- **Ein Element:** Kantenlänge, Kantenmitte, Ø und R, Bogenwinkel, Bogenlänge, Umfang (gesamt und außen). Rundungen und Bögen zeigen Radius und Bogenlänge hervorgehoben.
+- **Fläche anklicken (nur mm):** ebene Fläche → **Länge × Breite** in der Flächenebene (an der längsten Kante ausgerichtet), **Blechdicke** (Abstand zur gegenüberliegenden parallelen Fläche desselben Körpers, wenn erkennbar) und **Gesamthöhe** des Körpers senkrecht zur Fläche; Zylinder → **Durchmesser Ø**, **Radius R** und **Länge** entlang der Achse. Flächeninhalt (mm²), Volumen und Oberfläche erscheinen nur mit Messen › Erweitert › „Flächeninhalt, Volumen und Oberfläche anzeigen“ (Standard aus); die Masse im Blech-/Masse-Bereich bleibt.
 - **Blech-Rundung (Ein-Klick):** Radius innen und außen, Biegewinkel, Blechdicke, Bogenlänge innen und außen, Schenkellänge innen und außen (gerader Anteil + R·tan(φ/2), bis zum virtuellen Knickpunkt), Außenmaß über die Biegung (Summe der äußeren Schenkellängen).
 - **Zwei Elemente:** Abstand min., max. und Mitte–Mitte, jeweils mit ΔX/ΔY/ΔZ, Winkel Kante–Kante, Fläche–Fläche und Kante–Fläche, paralleler Abstand, Lochabstand Mitte–Mitte.
   - Der maximale Abstand wird über die Randkanten berechnet. Geraden werden über ihre Endpunkte ausgewertet, Kreise analytisch, andere Kurven per Abtastung mit Goldener-Schnitt-Verfeinerung.
@@ -84,6 +85,25 @@ Alle Werte werden exakt aus der B-Rep (OCCT) berechnet, nicht aus dem Dreiecksne
 Testsuite: `tools/test-messen.mjs` (läuft in CI). Sie prüft 58 Sollmaße am Messteil `testdaten/messteil.step` (erzeugt mit `tools/make-messteil.py`, CadQuery) und am Testblech mit einer Toleranz von 0,0001 mm. Der Headless-Test `tools/smoke-messen.mjs` erzeugt die Screenshots.
 
 ![Fangen](docs/messen-fangen.png) ![Bemaßungen](docs/messen-bemassungen.png) ![Blech-Rundung](docs/messen-blech-rundung.png)
+
+## Messen wie eDrawings
+
+- **Start:** kein Werkzeugfeld offen, das Modell wird in die freie Fläche unter der Werkzeugleiste eingepasst (projizierter Hüllquader, mittig). Ein offenes Messen-Feld wird nicht wiederhergestellt.
+- **Messen-Feld kompakt unten links** (höchstens 280 px breit): Einheiten, Bogen-/Kreismessungen (Abstand Mitte zu Mitte, Mindestabstand, Maximalabstand), Ergebnisse. Abstandsmethode, Maßrichtung, Projiziert auf, Fangen, Bemaßungen und alles Weitere liegen unter „Erweitert“ (zugeklappt). „Messen“ in der unteren Leiste öffnet und schließt das Feld.
+- **Ein Klick auf eine Kante** zeigt den Wert direkt an der Kante, z. B. „Länge: 356,793 mm“; Bogen: Radius und Bogenlänge; Kreis: Durchmesser. Derselbe Wert steht unter „Ergebnisse“.
+- **Zwei Flächen:** parallel → „Die zwei gewählten Elemente sind parallel.“, Normaler Abstand (lila, mit Lotlinie im 3D), Abstand (kürzester Abstand) und Delta X/Y/Z der kürzesten Strecke; nicht parallel → Mindestabstand und Winkel. Es bleibt keine Bemaßung stehen (wie eDrawings); andere Paare und „Nur Flächen“ (Q, wie ZW3D) bemaßen wie bisher.
+- Im Messen wird die Verschieben-Triade nur gezeigt, wenn „Verschieben“ aktiv ist – sie verdeckt sonst Maßtexte.
+- **Jedes Maß sagt, was es misst** – nie eine nackte Zahl: „Abstand (schräg) 63,25“, „Höhe (Z) 60,00“, „Horizontal (X) 20,00“, „ΔX/ΔY/ΔZ“, „Ø“, „R“, „Winkel“, „Fase“, „Kettenmaß“, „Basismaß“. Eigener Maßtext und Präfix bleiben möglich.
+- **Zwei Punkte** (Ecke, Kantenmitte, Kreismittelpunkt): die Bemaßung folgt der Ansicht wie im CAD – im Bild fast senkrecht gewählt → **Höhe (Z)**, fast waagerecht → **Horizontal**, sonst **Abstand (schräg)**. Umschalter im Messen-Feld: **Auto / Ausgerichtet / Horizontal / Vertikal** (gilt sofort für die letzte Bemaßung). Die schräge Strecke und die Teilstrecken ΔX/ΔY/ΔZ tragen im 3D eigene Etiketten. Ergebnisse: zuerst **Höhe (ΔZ)**, dann Abstand, Delta X, Delta Y, Delta Z.
+- **Gesamthöhe (Taste H oder Knopf „Gesamthöhe (H)“, auch beim Wählen eines Teils über den Baum):** exakt aus der B-Rep senkrecht zur Grundfläche (gleiche Regel wie Abmessungen D). Gezeigt werden **Gesamthöhe (Hüllquader)** – alles, was über Fuß- und Deckfläche hinausragt, eingeschlossen – und **Höhe Fläche–Fläche** von der untersten zur obersten ebenen Fläche senkrecht zur Höhe (wie „Normaler Abstand“ in eDrawings), dazu Länge und Breite, als senkrechte Maße rechts neben dem Teil mit Hilfslinien. Fläche anklicken richtet neu aus, H oder Esc beendet. Beim Ziehen bzw. bei gewählter linearer Bemaßung sperrt H wie bisher die Richtung horizontal.
+- **Keine eigene Bemaßung-Schaltfläche mehr:** Messen und Bemaßung sind eins. Bemaßungen (Liste, Art wählen, Alle kopieren/löschen, als PNG/PDF, speichern/laden als `*.hasi3d.json`) stehen unter Messen › Erweitert; gespeicherte Bemaßungen lassen sich weiter laden. Menü Werkzeuge › „Bemaßungen (im Messen)“ öffnet die Stelle.
+- Hover-Hinweis nur noch am Cursor (kein zweiter Hinweis unten rechts).
+
+Geprüft durch `tools/test-edrw.mjs`, `tools/test-beschriftung.mjs` (CI, B-Rep, Beschriftungen, Gesamthöhe am synthetischen `testdaten/bock.step` aus `tools/make-bock-teil.py`), `tools/smoke-edrw.mjs` und `tools/smoke-hoehe-beschriftung.mjs` (headless, beide Marken, Bilder in `docs/edrw/`).
+
+![Start](docs/edrw/hasi/nachher-start.png) ![Zwei Flächen](docs/edrw/hasi/5-zwei-flaechen.png) ![Blech](docs/edrw/hasi/nachher-blech.png)
+
+![Schräg und Höhe](docs/edrw/hasi/schraeg-und-hoehe.png) ![Gesamthöhe](docs/edrw/hasi/gesamthoehe.png)
 
 ## K-Faktor und Biegetabelle
 
@@ -100,6 +120,15 @@ Umsetzung: `src/kfaktor.js`. Werkstoffe (Dichte für die Masse): Stahl 7,85, Ede
 **Eigene Biegetabelle (CSV):** Spalten `s;ri;Winkel;v` oder `s;ri;Winkel;K` (Trennzeichen `;`, `,` oder Tab, Dezimalkomma erlaubt, Winkel optional). Passende Zeilen (s ±1 %, ri ±2 %, Winkel ±1°) haben Vorrang vor DIN 6935. Beispiel: `testdaten/biegetabelle-beispiel.csv` (Beispielwerte, keine Herstellerangaben).
 
 ![Biegetabelle](docs/blech-biegetabelle.png)
+
+**K-Faktor „Trumpf-kompatibel“ (Standard in MS3D):** TruTops Boost rechnet nicht mit einem festen K-Faktor, sondern mit Biegeabzügen (BD) je Dicke, Radius und Winkel aus der Werkzeugdatenbank. Eine Trumpf-GEO desselben Teils zeigte für s 6 / Ri 6 (Gesenk EV W40, Oberwerkzeug R1): BD 11,1996 bei 90° (gleichwertig K 0,358) und BD 9,70327 bei 82,46° (gleichwertig K 0,312). DIN 6935 gibt K 0,325 für beide – ein einziger K-Faktor kann Trumpf daher nicht treffen, es braucht eine Tabelle je Winkel.
+
+- Eingebaut sind diese Werte (`TRUMPF_TABELLE` in `src/kfaktor.js`). Zwischen zwei Winkeln wird der gleichwertige K-Faktor linear interpoliert, außerhalb gilt der nächste mit Hinweis.
+- **Trumpf-GEO laden** (Blech → Details) übernimmt die BD-Werte aller Biegelinien einer GEO aus TruTops Boost (Dicke, DESIGN_BEND_RADIUS, Winkel, Biegeabzug) und hat Vorrang.
+- Ohne Trumpf-Wert (andere Dicke oder anderer Radius) gilt DIN 6935 mit Hinweis.
+- Mit diesen Werten stimmte der Zuschnitt des Kundenteils auf 0,0001 mm mit Trumpf überein (DIN 6935: −0,63 / +0,45 mm).
+- Hasi 3D startet weiter mit DIN 6935; die Wahl bleibt gespeichert.
+
 
 ## Abwicklung
 
@@ -122,6 +151,16 @@ Testteile (selbst erzeugt mit `tools/make-abwicklung-teile.py`, CadQuery):
 - Kuppel
 
 Geprüft durch `tools/test-abwicklung.mjs` (CI, Sollmaße) und `tools/smoke-abwicklung.mjs` (headless).
+
+**Blech-Feld:** oben die Abwicklung mit Maßen (Zuschnitt Länge × Breite, Lage der achsparallelen Biegelinien ab der unteren bzw. linken Kante), darunter Blechdicke, Biegungen, Zuschnitt, Werkstoff und Masse. Biegetabelle, Schenkel, Formeln und Einstellungen liegen unter „Details“.
+
+**Freiform-Stirnflächen:** schräg geschnittene Biegungsenden liegen in manchen Dateien als B-Spline-Fläche mit Dicke-Kante vor. Sie gehören zum Rand, nicht zur Blechseite, und sperren die Abwicklung nicht mehr (Hinweis statt Fehler). Andere nicht abwickelbare Flächen sperren weiter.
+
+**Lage wie Trumpf:** Standard ist „wie Trumpf“: die lange Seite senkrecht (Y), +90° gedreht, Ursprung links unten. „wie konstruiert“ lässt die Lage der festen Fläche.
+
+**Abwicklung als GEO speichern** (Trumpf GEO 1.03 wie TruTops Boost, `src/geo.js`): Außenkontur und Innenkonturen aus Linien, echten Bögen und Kreisen, Biegelinien mit Öffnungswinkel (− = AB, + = AUF), Radius und Biegeabzug, Schnittlänge. DXF und GEO werden über den Speichern-Dialog geschrieben; fehlt die Endung, wird `.dxf` bzw. `.geo` angehängt. Geprüft durch `tools/test-trumpf-geo.mjs` (CI): Schreiben, neu Einlesen, Ausdehnung, Konturen, Biegelinien, Fläche, Schnittlänge, ezdxf-Audit.
+
+Speichern (Desktop): Rust schreibt die GEO als ANSI (Windows-1252) mit CRLF, prüft danach die Dateigröße auf der Platte und meldet „GEO gespeichert: … (n Bytes)“; ein leerer Inhalt legt keine Datei an, sondern meldet es. Der Abschnitt #~11 hat dieselben 20 Zeilen wie die GEO aus TruTops (vorher fehlte eine Leerzeile, ein zeilengenauer Leser fand dann keine Geometrie). Freistich-Ecken, die über eine Biegezone laufen, werden als echte Bögen (≤ 0,01 mm Abweichung) statt als Polylinie geschrieben – in DXF und GEO. CI: `tools/smoke-geo-speichern.mjs` (Klick in der Oberfläche) → `cargo test geo_aus_der_oberflaeche_speichern` (Schreibweg der App, auch unter Windows) → `tools/geo-pruefen.mjs` (Konturen, Biegungen, Ausdehnung).
 
 ![Wanne](docs/abwicklung-wanne.png) ![Abwicklung Wanne](docs/abwicklung-wanne-flach.png) ![Warnung](docs/abwicklung-warnung.png)
 

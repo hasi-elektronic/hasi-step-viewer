@@ -4,7 +4,7 @@ for(const d of ['public','dist'])if(fs.existsSync(d))fs.copyFileSync('testdaten/
 const b=await chromium.launch({executablePath:process.env.CHROME||'/usr/bin/google-chrome',args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const p=await b.newPage({viewport:{width:1500,height:900}});const errs=[];p.on('pageerror',e=>errs.push(e.message));
 const fail=m=>{throw new Error(m)};
-await p.goto(process.env.URL||'http://localhost:4173/');await p.evaluate(()=>window.__loadUrl('./messteil.step'));
+await p.goto(process.env.URL||'http://localhost:4173/');await p.evaluate(()=>{document.querySelectorAll('#messenErweitert,#blechDetails').forEach(d=>d.open=true);if(document.getElementById('messenPanel').hidden)document.getElementById('btnMessen').click()});;await p.evaluate(()=>window.__loadUrl('./messteil.step'));
 const A=(f,a)=>p.evaluate(f,a);
 const cam=()=>A(()=>window.__app.cam?window.__app.cam():null);
 // Maus: Mitte ziehen = drehen, Rad = Zoom, Links ziehen = keine Drehung

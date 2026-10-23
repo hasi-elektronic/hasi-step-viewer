@@ -11,6 +11,7 @@ const fail=m=>{throw new Error(m)};const A=(f,a)=>p.evaluate(f,a);const nah=(a,c
 const laden=async f=>{await A(f=>window.__loadUrl('./'+f),f);await p.waitForFunction(f=>window.__lastLoad?.name===f&&window.__app.data(),f,{timeout:60000});await p.waitForTimeout(300)};
 const bild=async n=>{await p.waitForTimeout(400);await p.screenshot({path:path.join(SHOTS,n)});console.log('  Bild',path.join(SHOTS,n))};
 await p.goto(process.env.URL||'http://localhost:4173/');
+await p.evaluate(()=>{document.querySelectorAll('#messenErweitert,#blechDetails').forEach(d=>d.open=true);if(document.getElementById('messenPanel').hidden)document.getElementById('btnMessen').click()}); // Start ohne offenes Feld: für diesen Test Messen öffnen, „Erweitert“/„Details“ aufklappen
 // 1) Messteil: Senkung ↔ Kugelmulde, alle Methoden
 await laden('faz1-messteil.step');
 const m=await A(async()=>{const app=window.__app,U=app.data().uniq[0],out={};const ei=f=>U.edges.findIndex(f);

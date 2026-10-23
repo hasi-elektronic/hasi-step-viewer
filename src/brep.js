@@ -1,4 +1,5 @@
 import {biegung} from './kfaktor.js';
+import {abwicklungLage,geoSchreiben,bogenZerlegen} from './geo.js';
 import {faltePunkt} from './falten.js';
 import {methodenZeile,projiziere,normalAbstand,PROJ_NORMALE,RICHTUNGEN,richtungsVektor,COS_PARALLEL,SIN_PARALLEL,ebeneEbene,lotPaar,aufEbene,aufAchse,ebeneAchse,achseAchse,innenWinkel} from './messen-hilfen.js';
 // B-Rep-Kern: Einlesen, Topologie, Messen, Blech. Läuft im Worker (Browser) und in Node (Tests).
@@ -346,10 +347,38 @@ export function createBrep(ocIn){
     // Fasenwinkel = Winkel zwischen Fase und der Fläche mit dem längeren Schenkel
     const gleich=Math.abs(a-b)<1e-6;const text=gleich?`${deZahl(a)} × ${deZahl(winkel,2)}°`:`${deZahl(a)} × ${deZahl(b)} (${deZahl(winkel,2)}°)`;
     return {a,b,winkel,breite,text,ecke:X,p1:P1,p2:P2}};
+  // Maße einer angeklickten Fläche in mm (Hamdi 22.10.): eben → Länge × Breite in der Flächenebene, ausgerichtet an der längsten
+  // geraden Kante, Blechdicke = Abstand zur nächsten gegenüberliegenden parallelen Fläche desselben Körpers (wenn sie sich überdecken
+  // und der Abstand klein gegen die Breite ist), Gesamthöhe des Körpers senkrecht zur Fläche; Zylinder → Ø, R und Länge entlang der Achse.
+  M.flaechenMasse=(u,fi)=>{const U=M.uniq[u],F=U.faces,f=F[fi];if(!f)return null;
+    const randPunkte=g=>{const P=[];U.edges.forEach(e=>{if(!e.faces?.includes(g))return;(e.pts||[]).forEach(p=>P.push(p));
+      if(e.circle&&e.circle.ang>2*Math.PI-1e-6){const c=e.circle,n=V.norm(c.n);P.ausKreis=P.ausKreis||[];P.ausKreis.push({c:c.c,n,r:c.r})}});return P};
+    const spanne=(P,d)=>{let lo=Infinity,hi=-Infinity;for(const p of P){const x=V.dot(p,d);if(x<lo)lo=x;if(x>hi)hi=x}
+      for(const k of P.ausKreis||[]){const x=V.dot(k.c,d),w=k.r*Math.sqrt(Math.max(0,1-V.dot(k.n,d)**2));if(x-w<lo)lo=x-w;if(x+w>hi)hi=x+w}return [lo,hi]};
+    const P=randPunkte(fi);if(!P.length)return null;
+    const alle=[];U.edges.forEach(e=>(e.pts||[]).forEach(p=>alle.push(p)));
+    if(f.plane){const n=V.norm(f.plane.n);
+      const gerade=U.edges.filter(e=>e.line&&e.faces?.includes(fi)).sort((a,b)=>b.len-a.len);
+      let ur=gerade.length?gerade[0].line.d:(Math.abs(n[0])<0.9?[1,0,0]:[0,1,0]);ur=V.sub(ur,V.mul(n,V.dot(ur,n)));
+      let ux=V.norm(ur),vx=V.norm(V.cross(n,ux));
+      const [u0,u1]=spanne(P,ux),[v0,v1]=spanne(P,vx);let laenge=u1-u0,breite=v1-v0;if(breite>laenge+1e-9){[laenge,breite]=[breite,laenge];[ux,vx]=[vx,ux]}
+      const [h0,h1]=spanne(alle,n);const hoehe=h1-h0;const eben=V.dot(f.plane.o,n);
+      // gegenüberliegende parallele Fläche mit Überdeckung → Blechdicke
+      let dicke=null;const box=Q=>{const [a0,a1]=spanne(Q,ux),[b0,b1]=spanne(Q,vx);return {a0,a1,b0,b1}};const B0=box(P);
+      F.forEach((g,gi)=>{if(gi===fi||!g.plane)return;const ng=V.norm(g.plane.n);if(Math.abs(V.dot(ng,n))<1-1e-6)return;
+        const d=Math.abs(V.dot(g.plane.o,n)-eben);if(d<1e-6||(dicke!=null&&d>=dicke))return;const Q=randPunkte(gi);if(!Q.length)return;const B1=box(Q);
+        const ue=Math.min(B0.a1,B1.a1)-Math.max(B0.a0,B1.a0),ve=Math.min(B0.b1,B1.b1)-Math.max(B0.b0,B1.b0);if(ue>1e-6&&ve>1e-6)dicke=d});
+      if(dicke!=null&&!(dicke<=0.25*breite))dicke=null;
+      const ecke=V.add(V.add(V.mul(ux,u0),V.mul(vx,v0)),V.mul(n,eben));
+      return {art:'eben',laenge,breite,dicke,hoehe,n,u:ux,v:vx,ecke}}
+    if(f.cyl){const d=V.norm(f.cyl.d);const [a0,a1]=spanne(P,d);return {art:'zylinder',r:f.cyl.r,durchmesser:2*f.cyl.r,laenge:a1-a0,d}}
+    return null};
   M.describe=s=>{const R0=RES(s),R=[];if(s.k==='solid'){const q=M.solidProps([s.inst]);R.push(['Volumen',q.volume,'V'],['Oberfläche',q.area,'A']);if(offenU(M.inst[s.inst??0].u))R.push(['Hinweis','Körper nicht geschlossen – Volumen nicht verlässlich','t']);return R}
-    if(s.k==='face'){const f=R0.f;R.push(['Fläche',f.type,'t'],['Flächeninhalt',f.area,'A']);const u=perimeter(R0.shape);R.push(['Umfang (gesamt)',u.s,'L']);if(Math.abs(u.outer-u.s)>1e-9)R.push(['Umfang (außen)',u.outer,'L']);
-      if(f.cyl){const bi=M.bendInfo(M.inst[s.inst??0].u,s.id);
-        if(bi){R.unshift(['Radius innen Ri',bi.ri,'L','!'],['Radius außen Ra',bi.ro,'L','!'],['Bogenlänge (angeklickt)',f.cyl.r*f.cyl.ang,'L','!'],['Biegewinkel',bi.phi*DEG,'W','!']);
+    if(s.k==='face'){const f=R0.f;const fm=M.flaechenMasse(M.inst[s.inst??0].u,s.id);
+      if(fm?.art==='eben'){R.push(['Länge',fm.laenge,'L','!'],['Breite',fm.breite,'L','!']);if(fm.dicke!=null)R.push(['Blechdicke',fm.dicke,'L','!']);R.push(['Gesamthöhe',fm.hoehe,'L','!'])}
+      R.push(['Fläche',f.type,'t'],['Flächeninhalt',f.area,'A']);const u=perimeter(R0.shape);R.push(['Umfang (gesamt)',u.s,'L']);if(Math.abs(u.outer-u.s)>1e-9)R.push(['Umfang (außen)',u.outer,'L']);
+      if(f.cyl){let bi=M.bendInfo(M.inst[s.inst??0].u,s.id);if(bi&&!(bi.phi<2*Math.PI-1e-6))bi=null; // voller Zylinder (Welle, Bohrung) ist keine Biegung
+        if(bi){if(fm?.art==='zylinder')R.unshift(['Länge',fm.laenge,'L']);R.unshift(['Radius innen Ri',bi.ri,'L','!'],['Radius außen Ra',bi.ro,'L','!'],['Bogenlänge (angeklickt)',f.cyl.r*f.cyl.ang,'L','!'],['Biegewinkel',bi.phi*DEG,'W','!']);
           R.push(['Blechdicke',bi.t,'L'],['Bogenlänge innen',bi.ri*bi.phi,'L'],['Bogenlänge außen',bi.ro*bi.phi,'L'],['Öffnungswinkel der Schenkel',Math.abs(180-bi.phi*DEG)<1e-6?0:Math.abs(180-bi.phi*DEG),'W']);
           if(bi.art==='umschlag')R.push(['Biegeart','Umschlag 180° (Falz)','t'],['Hinweis','Schenkel parallel: kein Biegepunkt. Angegeben sind gerader Teil und Maß bis Außenkante Umschlag.','t']);
           if(bi.art==='ueber180')R.push(['Biegeart','Biegung über 180°','t'],['Hinweis','Biegewinkel über 180°: Schenkellänge bis Biegepunkt ist nicht definiert. Angegeben ist der gerade Teil.','t']);
@@ -359,7 +388,7 @@ export function createBrep(ocIn){
             if(l.bisAussenkante!=null)R.push([n+' bis Außenkante Umschlag',l.bisAussenkante,'L'])});
           if(bi.legs.length===2&&bi.art==='normal')R.push(['Außenmaß über die Biegung',bi.legs[0].aussen+bi.legs[1].aussen,'L']);
           if(bi.art==='umschlag')R.push(['Außenmaß über Umschlag',2*bi.ro,'L'])}
-        else{R.unshift(['Radius R',f.cyl.r,'L','!'],['Bogenlänge',f.cyl.r*f.cyl.ang,'L','!']);R.push(['Durchmesser Ø',2*f.cyl.r,'L'],['Radius R',f.cyl.r,'L'],['Öffnungswinkel',f.cyl.ang*DEG,'W'],['Bogenlänge',f.cyl.r*f.cyl.ang,'L'])}}
+        else{R.unshift(['Durchmesser Ø',2*f.cyl.r,'L','!'],['Radius R',f.cyl.r,'L','!'],...(fm?.art==='zylinder'?[['Länge',fm.laenge,'L','!']]:[]),['Bogenlänge',f.cyl.r*f.cyl.ang,'L']);R.push(['Durchmesser Ø',2*f.cyl.r,'L'],['Radius R',f.cyl.r,'L'],['Öffnungswinkel',f.cyl.ang*DEG,'W'],['Bogenlänge',f.cyl.r*f.cyl.ang,'L'])}}
       if(f.cone){const k=f.cone;R.unshift(['Kegelwinkel (Senkwinkel)',2*k.semi*DEG,'W','!'],['Durchmesser groß Ø',2*k.rGross,'L','!'],['Durchmesser klein Ø',2*k.rKlein,'L','!'],['Kegelhöhe',k.h,'L','!']);
         R.push(['Halber Kegelwinkel',k.semi*DEG,'W'],['Mantellinie',k.mantel,'L'],['Kegelspitze',k.apex,'P'],['Achse durch',k.c,'P'],['Richtung',V.norm(k.d).map(x=>x.toFixed(4)).join(' / '),'t'])}
       if(f.sph){R.unshift(['Kugelradius R',f.sph.r,'L','!'],['Kugeldurchmesser Ø',2*f.sph.r,'L','!']);R.push(['Kugelmittelpunkt',f.sph.c,'P'])}
@@ -498,10 +527,13 @@ export function createBrep(ocIn){
     if(ha&&hb&&Math.abs(V.dot(ha.d,hb.d))>=COS_PARALLEL){const w=V.sub(hb.c,ha.c);const d=V.len(V.sub(w,V.mul(ha.d,V.dot(w,ha.d))));rows.push(['Lochabstand Mitte–Mitte',d,'L'])}
     // Gewählte Abstandsmethode bestimmt Messlinie, ΔX/ΔY/ΔZ-Linien und Bemaßung. Fehlt sie (z. B. Rand–Mitte bei einem Punkt), gilt die nächstliegende.
     // „Automatisch“: Fläche zu Fläche → Hauptwert des Falls (Lotpaar), sonst kürzester Abstand.
-    let w=auto?(paare.auto?'auto':'min'):opts.methode;if(!paare[w])w=w==='rand-mitte'?(isP(a)?'mitte':'min'):w==='mitte-rand'?(isP(b)?'mitte':'min'):'min';if(!paare[w])w='min';
-    const ri=richtungZeilen(rows,paare[w],opts);const name=ri?ri.name:(auto&&ff?ff.name:methodenZeile(w));gfx.push(paare[w]);projZeilen(rows,paare[w],sels,opts);
+    // Bogen-/Kreismessungen (wie eDrawings): ist ein Element rund (Bogen, Kreis, Zylinder), gilt bei „Automatisch“ die gewählte Art Mitte zu Mitte / Min. / Max.
+    // Mitte zu Mitte mit nur einem runden Element = Mittelpunkt des Bogens zum anderen Element (Mitte–Rand bzw. Rand–Mitte), wie eDrawings
+    const rund=x=>x.k==='edge'&&!!holeAxis(x),ra=rund(a),rb=rund(b);let bg=opts.bogen;if(bg==='mitte'&&!(ra&&rb))bg=ra?'mitte-rand':'rand-mitte';
+    const bgAn=!!(auto&&bg&&bg!=='auto'&&(ra||rb)&&paare[bg]);let w=auto?(bgAn?bg:(paare.auto?'auto':'min')):opts.methode;if(!paare[w])w=w==='rand-mitte'?(isP(a)?'mitte':'min'):w==='mitte-rand'?(isP(b)?'mitte':'min'):'min';if(!paare[w])w='min';
+    const ri=richtungZeilen(rows,paare[w],opts);const name=ri?ri.name:(auto&&!bgAn&&ff?ff.name:methodenZeile(w));gfx.push(paare[w]);projZeilen(rows,paare[w],sels,opts);
     // Genau eine Zeile ist der Hauptwert (fett, Bemaßungstext): bei Fläche zu Fläche der Fall-Hauptwert
-    if(ff){rows.forEach(r=>{if(r[3])r.length=3});const h=rows.find(r=>r[0]===(auto&&!ri?ff.name:name));if(h)h[3]='!'}
+    if(ff){rows.forEach(r=>{if(r[3])r.length=3});const h=rows.find(r=>r[0]===(auto&&!bgAn&&!ri?ff.name:name));if(h)h[3]='!'}
     const out={rows,gfx,label:rows.find(r=>r[0]===name)||rows[0],delta:paare[w],wahl:name,richtung:ri};
     if(ff)out.ff={fall:ff.fall,name:ff.name,versetzt:!!ff.versetzt,winkelMass:auto&&!ri?ff.winkelMass:undefined,paar:ff.paar,wert:ff.wert};
     // Für das Hervorheben im 3D beim Überfahren einer Ergebniszeile: Strecke je Zeile
@@ -509,6 +541,14 @@ export function createBrep(ocIn){
     if(paare['rand-mitte'])out.linien['Abstand Rand–Mitte']=paare['rand-mitte'];if(paare['mitte-rand'])out.linien['Abstand Mitte–Rand']=paare['mitte-rand'];if(paare.unendlich)out.linien['Abstand unendlich verlängert']=paare.unendlich;
     if(ff&&ff.paar)out.linien[ff.name]=ff.paar;if(ff&&ff.fall==='A')out.linien['Paralleler Abstand']=ff.paar;if(ff&&ff.max)out.linien['Mantelabstand max.']=ff.max.paar;
     if(name&&!out.linien[name])out.linien[name]=paare[w];
+    // Ergebnis wie eDrawings: zwei Flächen → „parallel“ mit Normaler Abstand (Lot) und Abstand (kürzester Abstand) samt Delta X/Y/Z
+    // der kürzesten Strecke; nicht parallel → Mindestabstand und Winkel. Andere Paare: Abstand (min.) mit Delta.
+    {const dd=[0,1,2].map(j=>Math.abs(md.p2[j]-md.p1[j]));const ed={abstand:md.d,abstandPaar:[md.p1,md.p2],delta:dd};
+      const winkelZ=rows.find(r=>/^Winkel (Fläche|Kante)–(Fläche|Kante)$/.test(r[0]));
+      if(a.k==='face'&&b.k==='face'&&ff&&ff.fall==='A'){ed.parallel=true;ed.normal=ff.wert;ed.normalPaar=ff.paar}
+      else if(a.k==='face'&&b.k==='face'){ed.parallel=false;if(winkelZ)ed.winkel=winkelZ[1]}
+      else if(winkelZ)ed.winkel=winkelZ[1];
+      out.edrw=ed}
     return out};
   const meshVA=u=>{const U=M.uniq[u];if(U.mva)return U.mva;const p=U.p,ix=U.i;let v=0,A=0,cx=0,cy=0,cz=0;
     for(let t=0;t<ix.length;t+=3){const a=ix[t]*3,b=ix[t+1]*3,c=ix[t+2]*3;const ax=p[a],ay=p[a+1],az=p[a+2],bx=p[b],by=p[b+1],bz=p[b+2],qx=p[c],qy=p[c+1],qz=p[c+2];
@@ -626,7 +666,14 @@ export function createBrep(ocIn){
     const ach=[a2,V.cross(a1,a2),a1];const rr=exaktBereich(ids,ach);if(!rr)return {ok:false,msg:'Keine Geometrie.'};
     const q=mkQuader(ach,rr);let [l,b]=[q.masse[0],q.masse[1]],[al,ab]=[ach[0],ach[1]];if(b>l+1e-9){[l,b]=[b,l];[al,ab]=[ab,al]}
     const ma=exaktBereich(ids,[[1,0,0],[0,1,0],[0,0,1]]);
-    return {ok:true,quelle,laenge:l,breite:b,hoehe:q.masse[2],richtung:{laenge:al,breite:ab,hoehe:a1},achsen:q.achsen,bereiche:rr,ecken:q.ecken,mitte:q.mitte,
+    // Höhe Fläche–Fläche: unterste und oberste ebene Fläche senkrecht zur Höhe (Fuß- bzw. Deckfläche), Abstand entlang a1 – wie „Normaler Abstand“ in eDrawings.
+    // Gesamthöhe (Hüllquader) schließt dagegen alles ein, was über diese Flächen hinausragt (Rundungen, schräge Kanten, Laschen).
+    // Flächeninhalt exakt aus der B-Rep (das Netz liegt im Browser nicht im Kern); nur winzige Splitter (< 0,01 % der größten waagerechten) zählen nicht
+    const waag=[];for(const i of ids){const I=M.inst[i],U=M.uniq[I.u];U.faces.forEach((f,fi)=>{if(!f.plane)return;const n=V.norm(T.d(I.m,f.plane.n));if(Math.abs(V.dot(n,a1))<COS_PARALLEL)return;
+      let a=0;try{a=f.area||0}catch{a=0}waag.push({id:fi,inst:i,h:V.dot(T.p(I.m,f.plane.o),a1),p:f.mid?T.p(I.m,f.mid):T.p(I.m,f.plane.o),a})});if(waag.length>5000)break}
+    const amax=Math.max(0,...waag.map(e=>e.a));let fu=null,fo=null;for(const e of waag){if(e.a<amax*(opts.ffMin??1e-4))continue;if(!fu||e.h<fu.h-1e-9||(Math.abs(e.h-fu.h)<=1e-9&&e.a>fu.a))fu=e;if(!fo||e.h>fo.h+1e-9||(Math.abs(e.h-fo.h)<=1e-9&&e.a>fo.a))fo=e}
+    const flaechen=fu&&fo&&fo.h-fu.h>Math.max(1e-9,0.5*q.masse[2])?{wert:fo.h-fu.h,unten:fu,oben:fo}:null;
+    return {ok:true,quelle,flaechen,laenge:l,breite:b,hoehe:q.masse[2],richtung:{laenge:al,breite:ab,hoehe:a1},achsen:q.achsen,bereiche:rr,ecken:q.ecken,mitte:q.mitte,
       modellachsen:{x:ma[0][1]-ma[0][0],y:ma[1][1]-ma[1][0],z:ma[2][1]-ma[2][0],min:ma.map(r=>r[0]),max:ma.map(r=>r[1])},exakt:true}};
   // ---------- Offener Körper ----------
   // Ein Unikat ist offen, wenn es keinen Volumenkörper hat oder eine seiner Schalen nicht geschlossen ist (BRep_Tool::IsClosed).
@@ -791,6 +838,12 @@ export function createBrep(ocIn){
         if(Math.abs(rr-r)<1e-6*Math.max(1,r)){if(e.circle.ang>TW-1e-6)bogen={c,r,voll:true};
           else{const w=p=>Math.atan2(p[1]-c[1],p[0]-c[0]);const as=w(pts[0]),ae=w(pts.at(-1)),am=w(m.f(e.mid));const ccw=ccwW(as,am)<ccwW(as,ae);
             bogen={c,r,voll:false,ccw,a0:ccw?as:ae,a1:ccw?ae:as};bogen.sweep=ccwW(bogen.a0,bogen.a1)}}}
+      // Freiform-/B-Spline-Kanten (z. B. an schräg geschnittenen Biegungsenden), die in der Ebene ein Kreisbogen sind → echter Bogen wie in der Trumpf-GEO
+      if(!bogen&&!e.line&&pts.length>=5){const a=pts[0],b=pts[pts.length>>1],z=pts.at(-1);const d=2*(a[0]*(b[1]-z[1])+b[0]*(z[1]-a[1])+z[0]*(a[1]-b[1]));
+        if(Math.abs(d)>1e-9){const q=x=>x[0]*x[0]+x[1]*x[1];const c=[(q(a)*(b[1]-z[1])+q(b)*(z[1]-a[1])+q(z)*(a[1]-b[1]))/d,(q(a)*(z[0]-b[0])+q(b)*(a[0]-z[0])+q(z)*(b[0]-a[0]))/d];
+          const r=Math.hypot(a[0]-c[0],a[1]-c[1]);const sehne=Math.hypot(z[0]-a[0],z[1]-a[1]);
+          if(r<1e4&&sehne>1e-6&&pts.every(p=>Math.abs(Math.hypot(p[0]-c[0],p[1]-c[1])-r)<=1e-3)){const w=p=>Math.atan2(p[1]-c[1],p[0]-c[0]);const as=w(a),ae=w(z),am=w(b);const ccw=ccwW(as,am)<ccwW(as,ae);
+            const sw=ccwW(ccw?as:ae,ccw?ae:as);if(sw<TW-1e-6){bogen={c,r,voll:false,ccw,a0:ccw?as:ae,a1:ccw?ae:as,sweep:sw,angepasst:true};pts[0]=[c[0]+r*Math.cos(as),c[1]+r*Math.sin(as)];pts[pts.length-1]=[c[0]+r*Math.cos(ae),c[1]+r*Math.sin(ae)]}}}}
       const teile=clips.has(fi)?clipPts(fi,pts):[pts];
       if(teile.length===1&&teile[0]===pts){lines.push(pts);kanten.push({pts,bogen});return [pts]}
       teile.forEach(T=>{lines.push(T);kanten.push({pts:T,bogen:null})});return teile};
@@ -806,7 +859,17 @@ export function createBrep(ocIn){
     res.flat={contour:lines,kanten,bendLines,rissLinien,bendInfo:res.bends.map(b=>({nr:b.nr,dir:b.dir,ang:b.ang,ri:b.ri,seite:b.seite,angenommen:!!b.angenommen})),min:mn,max:mx,size:[mx[0]-mn[0],mx[1]-mn[1]]};
     res.faltung={basis:FB,bends:fbends,kette:Object.fromEntries(kette),fehler:faltFehler};
     // ---- Prüfungen ----
-    const free=F.filter(f=>!f.plane&&!f.cyl);if(free.length)res.fehler.push(`Das Teil enthält ${free.length} nicht abwickelbare Fläche(n) (${[...new Set(free.map(f=>f.type))].join(', ')}).`);
+    // Freiformflächen: Stirnflächen (Dicke t, z. B. schräg geschnittene Biegungsenden oder Eckfreischnitte) bilden keine Blechseite und
+    // liegen nicht in der Abwicklung – die Kontur kommt von der Kante zur Hautfläche (wie Trumpf/ZW3D). Nur Freiformflächen der Blechseite sperren.
+    const gegen=new Set();F.forEach((g,gi)=>{if(skin.has(gi))return;
+      if(g.plane&&isSkinPlane(g)&&[...skin].some(si=>F[si].plane&&V.dot(F[si].plane.n,g.plane.n)<-1+1e-6&&Math.abs(Math.abs(V.dot(V.sub(g.plane.o,F[si].plane.o),g.plane.n))-t)<1e-3))gegen.add(gi);
+      else if(g.cyl&&[...skin].some(si=>F[si].cyl&&coaxial(F[si].cyl,g.cyl)&&Math.abs(Math.abs(F[si].cyl.r-g.cyl.r)-t)<1e-3))gegen.add(gi)});
+    const stirn=fi=>{const ks=E.filter(e=>e.faces.includes(fi));const nb=ks.map(e=>e.faces.find(x=>x!==fi));
+      const quer=ks.some(e=>e.line&&Math.abs(V.len(V.sub(e.pts.at(-1),e.pts[0]))-t)<1e-3*Math.max(1,t));
+      return F[fi].type==='Freiform'&&quer&&nb.some(x=>skin.has(x))&&nb.some(x=>gegen.has(x)||(!skin.has(x)&&(F[x].plane||F[x].cyl||F[x].type==='Freiform')))&&!nb.every(x=>skin.has(x))};
+    const free=F.map((f,i)=>[f,i]).filter(([f])=>!f.plane&&!f.cyl);const freiStirn=free.filter(([,i])=>stirn(i)),freiHaut=free.filter(([,i])=>!stirn(i));
+    if(freiHaut.length)res.fehler.push(`Das Teil enthält ${freiHaut.length} nicht abwickelbare Fläche(n) (${[...new Set(freiHaut.map(([f])=>f.type))].join(', ')}).`);
+    if(freiStirn.length){res.stirnFrei=freiStirn.length;res.warn.push(`${freiStirn.length} Freiform-Stirnfläche(n) (Dicke ${(+t.toFixed(3)).toLocaleString('de-DE')} mm, z. B. schräg geschnittene Biegungsenden) – nicht Teil der Blechseite, Kontur aus der Kante zur Blechseite.`)}
     // Zyklen im Flächengraphen: Kanten zwischen zwei Hautflächen, die nicht im Abwicklungsbaum liegen, müssen in 2D
     // aus beiden Flächen auf dieselbe Stelle fallen – sonst ist die Ecke geschlossen (Eckfreischnitt fehlt). Gerissene Kanten zählen nicht.
     let closed=0;E.forEach((e,ei)=>{if(!rissKanten.has(ei)&&offen(ei))closed++});
@@ -826,6 +889,8 @@ export function createBrep(ocIn){
     res.flat.incomplete=res.fehler.length>0;
     if(res.flat.incomplete)res.warn.unshift('ACHTUNG: Abwicklung unvollständig oder fehlerhaft – DXF-Export gesperrt.');
     res.skinArea=[...skin].reduce((s,i)=>s+F[i].area,0);
+    // Lage wie Trumpf (lange Seite in Y), nur auf Wunsch (App: Standard „wie Trumpf“); Prüfungen oben laufen in der berechneten Lage
+    if(opts.lage==='trumpf'){const inc=res.flat.incomplete;res.flat=abwicklungLage(res.flat,'trumpf');res.flat.incomplete=inc}
     M._blech={inst,maps,skin:[...skin],faltung:res.faltung};
     return res};
   // Netz der Blechhaut für die Falt-Animation: je Dreiecksecke die 2D-Lage in der Abwicklung (letzte M.sheet-Rechnung)
@@ -838,7 +903,9 @@ export function createBrep(ocIn){
   // ---- DXF für den Laser ----
   // Kreise = CIRCLE, Konturen = geschlossene LWPOLYLINE (Bögen als Bulge), Biegelinien je Richtung auf eigenem Layer, 1:1 in mm ($INSUNITS = 4).
   // Ursprung = linke untere Ecke des Zuschnitts. opts.beschriftung: Biegenotizen auf Layer BESCHRIFTUNG (Standard: aus).
-  M.konturSchleifen=(flat,tol=1e-3)=>{const ks=(flat.kanten||flat.contour.map(pts=>({pts,bogen:null}))).filter(k=>k.pts.length>1||k.bogen?.voll);
+  M.konturSchleifen=(flat,tol=1e-3)=>{const ks=(flat.kanten||flat.contour.map(pts=>({pts,bogen:null}))).filter(k=>k.pts.length>1||k.bogen?.voll)
+      // gekrümmte Polylinien (Freistich-Ecken über der Biegezone) → echte Bögen in DXF und GEO
+      .flatMap(k=>k.bogen||k.pts.length<4?[k]:(bogenZerlegen(k.pts)||[k]));
     const used=new Array(ks.length).fill(false),out=[];const nah=(p,q)=>Math.hypot(p[0]-q[0],p[1]-q[1])<tol;
     for(let i=0;i<ks.length;i++){if(used[i])continue;used[i]=true;const k0=ks[i];
       if(k0.bogen?.voll){out.push({kreis:k0.bogen,segs:[{k:k0,rev:false}],zu:true});continue}
@@ -860,6 +927,8 @@ export function createBrep(ocIn){
       else{const g=gerade(pts);for(let i=0;i<g.length-1;i++)v.push({p:g[i],bulge:0})}}
     if(!zu){const l=segs.at(-1);v.push({p:l.rev?l.k.pts[0]:l.k.pts.at(-1),bulge:0})}
     return v};
+  // Trumpf-GEO der Abwicklung (src/geo.js); meta: {name, werkstoff, dicke, bends}
+  M.geo=(flat,meta={})=>{const r=geoSchreiben(flat,M.konturSchleifen(flat),meta);M.letzteGeo=r.stat;return r.text};
   M.dxf=(flat,opts={})=>{if(typeof opts!=='object'||!opts)opts={};const L=[];const g=(c,v)=>L.push(String(c),String(v));
     let h=0x100;const H=()=>(h++).toString(16).toUpperCase();const f4=v=>(Math.abs(v)<5e-5?0:v).toFixed(4);
     const X=p=>f4(p[0]-flat.min[0]),Y=p=>f4(p[1]-flat.min[1]);

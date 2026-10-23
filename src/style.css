@@ -195,3 +195,29 @@ html[data-marke="sickinger"] #drop{flex-direction:column;gap:4px}
 .hint.klein{font-size:11px;margin:2px 0 6px}
 #abmKnopf.on{background:var(--a,#0a8f5a);color:#fff}
 .dunkel .kv div.big{color:#fff!important}
+/* Messen kompakt wie eDrawings: unten links, höchstens 280 px breit und halbe Höhe; alles Weitere unter „Erweitert“ */
+#dock.kompakt{width:min(280px,calc(45% - 12px))}
+#messenPanel.kompakt .pbody{max-height:min(38vh,340px)}
+#dock.kompakt>#messenPanel .pbody{max-height:min(38vh,340px)}
+#messenPanel select{max-width:100%}
+#messenPanel #bogenAbstand{width:100%}
+#messenPanel .ergebnis{background:#1f252b;border:1px solid #3a434c;border-radius:6px;padding:6px 8px;font-size:12px;line-height:1.45;white-space:pre-line;margin:4px 0 6px;min-height:2.6em}
+#messenPanel .ergebnis b{color:#fff}
+#messenPanel .ergebnis .lila{color:#c9a2ff}
+#messenPanel #mresult{max-height:9.5em;overflow:auto}
+#messenErweitert{margin-top:6px;border-top:1px solid #3a434c;padding-top:4px}
+#messenErweitert>summary,#blechDetails>summary{cursor:pointer;font-weight:700;padding:4px 0;user-select:none}
+aside.left{width:240px}
+/* Blech: Abwicklung oben und groß, darunter die Kurzwerte; Tabellen und Erklärungen unter „Details“ */
+#blechPanel{width:380px}
+#dock>#blechPanel{width:auto}
+#flatprev svg{max-height:min(46vh,520px);margin:8px 0 6px}
+#blechDetails{margin-top:6px;border-top:1px solid var(--line);padding-top:4px}
+#dxfGrund:empty,#geoInfo:empty{display:none}
+#dock.kompakt.zu{width:auto}
+#dock:has(>#blechPanel:not([hidden])){width:min(420px,calc(45% - 12px))}
+
+/* Messen: Maßrichtung als Umschalter, kein doppelter Hover-Hinweis */
+#linWahl{gap:2px;flex-wrap:wrap;align-items:center}#linWahl .m{margin-right:4px}#linWahl .btn{padding:2px 6px;font-size:11px}#linWahl .btn.on{background:var(--a);color:#fff;border-color:var(--a)}
+#ghKnopf.on{background:var(--a);color:#fff}
+#hover:empty{display:none}

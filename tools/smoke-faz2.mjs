@@ -13,6 +13,7 @@ const laden=async f=>{await A(f=>window.__loadUrl('./'+f),f);await p.waitForFunc
 const blech=async()=>{await A(()=>window.__app.tab('blech'));await p.waitForFunction(()=>window.__lastSheet);return A(()=>window.__app.calcSheet())};
 const notizen=()=>A(()=>[...document.querySelectorAll('#flatprev g.biegenotiz')].map(g=>({nr:+g.dataset.nr,r:g.dataset.richtung,t:g.querySelector('text').textContent})));
 await p.goto(URL);
+await p.evaluate(()=>{document.querySelectorAll('#messenErweitert,#blechDetails').forEach(d=>d.open=true);if(document.getElementById('messenPanel').hidden)document.getElementById('btnMessen').click()}); // Start ohne offenes Feld: für diesen Test Messen öffnen, „Erweitert“/„Details“ aufklappen
 
 // 1) Virtueller Riss: geschlossene Ecken gesperrt → 4 senkrechte Eckkanten wählen → Abwicklung frei, Risskanten violett
 await laden('wanne-ohne-freischnitt.step');let r=await blech();if(!r.fehler.some(f=>f.includes('Geschlossene Ecken')))fail('Kasten: geschlossene Ecken nicht erkannt');

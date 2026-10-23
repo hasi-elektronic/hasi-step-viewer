@@ -8,6 +8,7 @@ const p = await b.newPage({ viewport: { width: 1500, height: 900 } });
 const errs = [];
 p.on('pageerror', e => errs.push(e.message));
 await p.goto('http://localhost:' + port + '/');
+await p.evaluate(()=>{document.querySelectorAll('#messenErweitert,#blechDetails').forEach(d=>d.open=true);if(document.getElementById('messenPanel').hidden)document.getElementById('btnMessen').click()}); // Start ohne offenes Feld: für diesen Test Messen öffnen, „Erweitert“/„Details“ aufklappen
 await p.waitForFunction(() => window.__loadUrl);
 const titel = await p.title();
 if (titel !== 'MS3D') throw new Error('Fenstertitel: ' + titel);

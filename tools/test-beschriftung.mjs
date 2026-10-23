@@ -1,0 +1,32 @@
+// Beschriftung (Hamdi 22.10.): jedes Maß nennt, WAS es misst – nie eine nackte Zahl. Dazu Gesamthöhe und Höhe Fläche–Fläche
+// aus der B-Rep auf synthetischen Teilen (testdaten/bock.step aus tools/make-bock-teil.py, testdaten/haube-6mm.step).
+import assert from 'assert';import fs from 'fs';import * as BM from '../src/bemassung.js';
+import {loadOC} from './oc-node.mjs';import {createBrep} from './kern-loader.mjs';
+const st={stellen:3},T=d=>BM.massText(d,st)[0];let n=0;const gleich=(a,b,m)=>{assert.strictEqual(a,b,m);n++};
+const u=[0,0,0],o=[20,0,60];
+gleich(T({typ:'linear',linArt:'ausgerichtet',p1:u,p2:o,wert:63.246}),'Abstand (schräg) 63,246','schräg');
+gleich(T({typ:'ausgerichtet',p1:u,p2:[0,0,60],wert:60}),'Abstand (Z) 60,000','ausgerichtet entlang Z');
+gleich(T({typ:'linear',linArt:'vertikal',p1:u,p2:o,dir:[0,0,1],wert:60}),'Höhe (Z) 60,000','vertikal = Höhe (Z)');
+gleich(T({typ:'hoehe',p1:u,p2:o,dir:[0,0,1],wert:60}),'Höhe (Z) 60,000','hoehe');
+gleich(T({typ:'vertikal',p1:u,p2:o,dir:[0.3,0,0.95],wert:60}),'Vertikal 60,000','Bildschirm vertikal');
+gleich(T({typ:'linear',linArt:'horizontal',p1:u,p2:o,dir:[1,0,0],wert:20}),'Horizontal (X) 20,000','horizontal');
+gleich(T({typ:'waagerecht',p1:u,p2:o,dir:[0.6,0.8,0],wert:20}),'Horizontal 20,000','waagerecht schräg im Grundriss');
+for(const [t,k] of [['achse-x','ΔX'],['achse-y','ΔY'],['achse-z','ΔZ']])gleich(T({typ:t,p1:u,p2:o,dir:[1,0,0],wert:5}),k+' 5,000',t);
+gleich(T({typ:'kette',p1:u,p2:o,dir:[1,0,0],wert:5}),'Kettenmaß 5,000','kette');gleich(T({typ:'basislinie',p1:u,p2:o,dir:[1,0,0],wert:5}),'Basismaß 5,000','basis');
+gleich(T({typ:'durchmesser',wert:20}),'Ø 20,000','Ø');gleich(T({typ:'radius',wert:10}),'R 10,000','R');gleich(T({typ:'bogen',wert:31.4}),'Bogen ⌒ 31,400','Bogen');
+gleich(T({typ:'winkel',wert:90,einheit:'W'}),'Winkel 90,000°','Winkel');gleich(T({typ:'fase',a:2,b:2,winkel:45,wert:2}),'Fase 2 × 45°','Fase');
+gleich(T({typ:'hoehe',p1:u,p2:o,dir:[0,0,1],wert:66,art:'Gesamthöhe (Hüllquader)'}),'Gesamthöhe (Hüllquader) 66,000','eigene Art');
+gleich(T({typ:'linear',linArt:'ausgerichtet',p1:u,p2:o,wert:63.246,text:'Steg'}),'Steg','eigener Text bleibt');
+gleich(T({typ:'linear',linArt:'ausgerichtet',p1:u,p2:o,wert:63.246,praefix:'2× '}),'2× Abstand (schräg) 63,246','Präfix davor');
+gleich(BM.massText({typ:'hoehe',p1:u,p2:o,dir:[0,0,1],wert:60,tol:{art:'grenz',o:0.1,u:0.1}},st)[0],'Höhe (Z)','Grenzmaß: Art statt Zahl');
+console.log(`  ok  ${n} Beschriftungen (Abstand (schräg), Höhe (Z), Horizontal, ΔX/ΔY/ΔZ, Ø, R, Winkel, Fase, eigene Art/Text)`);
+const B=createBrep(await loadOC());const nah=(a,b,t=1e-6)=>Math.abs(a-b)<=t;
+B.load(new Uint8Array(fs.readFileSync('testdaten/bock.step')),'bock.step');let r=B.abmessungen({});
+assert(r.ok&&nah(r.hoehe,66)&&nah(r.laenge,120)&&nah(r.breite,50),'Bock: Gesamthöhe/Länge/Breite '+JSON.stringify([r.hoehe,r.laenge,r.breite]));
+assert(r.flaechen&&nah(r.flaechen.wert,60),'Bock: Höhe Fläche–Fläche 60 (runde Rippe hat keine Deckfläche) '+JSON.stringify(r.flaechen&&r.flaechen.wert));
+assert(nah(r.flaechen.unten.p[2],0)&&nah(r.flaechen.oben.p[2],60),'Bock: Fuß- und Deckfläche');n+=2;
+console.log(`  ok  Bock: Gesamthöhe (Hüllquader) ${r.hoehe.toFixed(3)}, Höhe Fläche–Fläche ${r.flaechen.wert.toFixed(3)}, Länge ${r.laenge.toFixed(3)}, Breite ${r.breite.toFixed(3)}`);
+const H=B;H.load(new Uint8Array(fs.readFileSync('testdaten/haube-6mm.step')),'haube-6mm.step');r=H.abmessungen({});
+assert(r.ok&&nah(r.hoehe,80,1e-5)&&r.flaechen&&nah(r.flaechen.wert,80,1e-6),'Haube: Gesamthöhe = Fläche–Fläche = 80');n++;
+console.log(`  ok  Haube: Gesamthöhe ${r.hoehe.toFixed(4)} = Höhe Fläche–Fläche ${r.flaechen.wert.toFixed(4)}`);
+console.log(`OK: Beschriftung und Gesamthöhe (${n} Prüfungen)`);

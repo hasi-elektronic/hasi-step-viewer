@@ -62,6 +62,35 @@ function biegungRoh(ri,s,phi,opts){
   if(tab&&!isNaN(tab.v)){const ba=tab.v+2*ossb;return {ba,v:tab.v,bd:-tab.v,K:(ba/phi-ri)/s,quelle:'Tabelle',tabelle:tq}}
   if(tab&&!isNaN(tab.K)){const ba=phi*(ri+tab.K*s);return {ba,v:ba-2*ossb,bd:2*ossb-ba,K:tab.K,quelle:'Tabelle',tabelle:tq}}
   let K,quelle,hinweis=null;
+  if(opts.modus==='trumpf'){const t=trumpfWert(opts.tabelle,s,ri,phi*180/Math.PI);
+    if(t){const ba=2*ossb-t.bd;return {ba,v:-t.bd,bd:t.bd,K:(ba/phi-ri)/s,quelle:'Trumpf',tabelle:{spalte:'BD',werkstoff:null,trumpf:t.art,herkunft:t.herkunft},hinweis:t.hinweis||null}}
+    const d=dinKFaktor(ri,s);const ba=phi*(ri+d.K*s);
+    return {ba,v:ba-2*ossb,bd:2*ossb-ba,K:d.K,quelle:'DIN 6935',hinweis:`Trumpf-kompatibel: kein Trumpf-Wert für s ${de(s)} / Ri ${de(ri)} – DIN 6935 verwendet. Trumpf-GEO dieses Blechs laden, um die Werte zu übernehmen.`}}
   if(opts.modus==='din'){const d=dinKFaktor(ri,s);K=d.K;quelle='DIN 6935';hinweis=d.hinweis}else{K=opts.K;quelle='manuell'}
   const ba=phi*(ri+K*s);return {ba,v:ba-2*ossb,bd:2*ossb-ba,K,quelle,hinweis};
 }
+
+// ---------- Trumpf-kompatibel ----------
+// Biegeverkürzung BD je Blechdicke s, Konstruktionsradius Ri und Biegewinkel φ, wie TruTops Boost sie für die Abwicklung verwendet
+// (DESIGN_BEND_DEDUCTION aus der GEO-Datei). BD bezieht sich auf die Außenmaße bis zum Schnittpunkt der Außenflächen:
+// Zuschnitt = a + b − BD, also Biegezugabe BZ = 2·(Ri + s)·tan(φ/2) − BD. Eingebaute Werte: Sickinger, TruBend 5230,
+// Oberwerkzeug OW210/S R1/28 H240, Gesenk EV W40/80 R5, Stahl 6 mm (aus einer Trumpf-GEO, 22.10.2026).
+// Weitere Werte: „Trumpf-GEO laden“ übernimmt BD je Biegung aus jeder GEO-Datei (Spalte BD in der Biegetabelle).
+// Zwischen zwei Winkeln derselben Dicke/Radius wird der gleichwertige K-Faktor linear interpoliert, außerhalb gilt der K des nächsten Winkels.
+export const TRUMPF_TABELLE=[
+  {s:6,ri:6,w:90,bd:11.1996,herkunft:'TruBend 5230 · EV W40/80 R5'},
+  {s:6,ri:6,w:82.46002,bd:9.70327,herkunft:'TruBend 5230 · EV W40/80 R5'}];
+const de=v=>(+(+v).toFixed(3)).toLocaleString('de-DE');
+const bzAusBd=(ri,s,phi,bd)=>2*Math.tan(phi/2)*(ri+s)-bd;
+export function trumpfWert(eigene,s,ri,wDeg){
+  const passt=r=>Math.abs(r.s-s)<=Math.max(0.01,0.01*s)&&Math.abs(r.ri-ri)<=Math.max(0.01,0.02*ri)&&r.bd>0&&r.w>0;
+  const zeilen=[...(eigene||[]).filter(r=>passt(r)&&!isNaN(r.bd)&&!isNaN(r.w)).map(r=>({...r,herkunft:r.herkunft||r.quelle||'eigene Tabelle'})),...TRUMPF_TABELLE.filter(passt)];
+  if(!zeilen.length)return null;
+  const gleich=zeilen.find(r=>Math.abs(r.w-wDeg)<=0.05);if(gleich)return {bd:gleich.bd,art:'Tabelle',herkunft:gleich.herkunft};
+  // gleichwertiger K je Winkel, dann interpolieren
+  const phi=wDeg*Math.PI/180;const K=r=>{const p=r.w*Math.PI/180;return (bzAusBd(r.ri,r.s,p,r.bd)/p-r.ri)/r.s};
+  const pk=[...new Map(zeilen.map(r=>[r.w.toFixed(3),r])).values()].sort((a,b)=>a.w-b.w);
+  let k,hinweis=null;const lo=pk.filter(r=>r.w<wDeg).at(-1),hi=pk.find(r=>r.w>wDeg);
+  if(lo&&hi){const u=(wDeg-lo.w)/(hi.w-lo.w);k=K(lo)+u*(K(hi)-K(lo))}
+  else{const n=lo||hi;k=K(n);hinweis=`Trumpf-kompatibel: Winkel ${de(wDeg)}° außerhalb der Trumpf-Werte (${pk.map(r=>de(r.w)+'°').join(', ')}) – K des nächsten Winkels.`}
+  const ba=phi*(ri+k*s);return {bd:bzAusBd(ri,s,phi,0)-ba,art:'interpoliert',herkunft:(lo||hi).herkunft,hinweis}}
