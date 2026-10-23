@@ -39,13 +39,58 @@ let vr=null,vc=null,vHit=null;
   wurzel.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1)),new THREE.LineBasicMaterial({color:0x5c656e})));
   vHit=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshBasicMaterial({visible:false}));wurzel.add(vHit);vr.userData={vs,wurzel};
 })();
-function resize(){const w=view.clientWidth,h=view.clientHeight;renderer.setSize(w,h);overlay.width=w*devicePixelRatio;overlay.height=h*devicePixelRatio;overlay.style.width=w+'px';overlay.style.height=h+'px';camera.aspect=w/h;camera.updateProjectionMatrix();needs=true}
+function resize(){const w=view.clientWidth,h=view.clientHeight;renderer.setSize(w,h);overlay.width=w*devicePixelRatio;overlay.height=h*devicePixelRatio;overlay.style.width=w+'px';overlay.style.height=h+'px';camera.aspect=w/h;if(dockBereit)freiraum();else camera.updateProjectionMatrix();needs=true}
+var dockBereit=false,freiD=0; // Seitenleiste (siehe unten)
 addEventListener('resize',resize);resize();controls.addEventListener('change',()=>needs=true);
 if(window.ResizeObserver)new ResizeObserver(()=>resize()).observe(view);
+// ---------- Seitenleiste: Bedienfelder (Messen, Blech, Schnitt, Verschieben, Eigenschaften) liegen neben dem Modell, nie darüber ----------
+// Rechts unter dem Ansichtswürfel (oder links), einklappbar, an der Titelleiste ziehbar (rastet links/rechts ein), Zustand in localStorage.
+// Die Kamera verschiebt ihren Bildmittelpunkt in den freien Bereich (setViewOffset), Einpassen rechnet mit der freien Breite.
+const dock=document.createElement('div');dock.id='dock';view.appendChild(dock);
+const dockLasche=document.createElement('button');dockLasche.type='button';dockLasche.id='dockLasche';dockLasche.title='Seitenleiste ausklappen';dock.appendChild(dockLasche);
+for(const id of ['schnittPanel','bewegenPanel','props','messenPanel','blechPanel']){const el=$(id);if(el)dock.appendChild(el)}
+{const zu=$('blechZu');if(zu){const b=document.createElement('button');b.type='button';b.className='zuKnopf dockEin';b.id='blechEin';b.title='Einklappen';b.textContent='–';zu.before(b);b.style.marginLeft='auto';zu.style.marginLeft='0'}}
+let dockZustand={seite:'rechts',oben:null,zu:false};try{const g=JSON.parse(localStorage.getItem('seitenleiste')||'{}');if(g&&typeof g==='object')Object.assign(dockZustand,g)}catch{}
+const DOCK_OBEN={rechts:184,links:56};
+function dockSpeichern(){try{localStorage.setItem('seitenleiste',JSON.stringify(dockZustand))}catch{}}
+function dockSichtbar(){return [...dock.children].filter(e=>e!==dockLasche&&!e.hidden)}
+function dockEinklappen(zu){dockZustand.zu=!!zu;dockSpeichern();dockAnwenden()}
+function dockAnwenden(){const z=dockZustand;if(z.seite!=='links')z.seite='rechts';dock.classList.toggle('links',z.seite==='links');dock.classList.toggle('zu',!!z.zu);
+  const vh=view.clientHeight||600,min=DOCK_OBEN[z.seite];const oben=Math.round(Math.min(Math.max(Number.isFinite(z.oben)?z.oben:min,min),Math.max(min,vh-140)));
+  dock.style.top=oben+'px';dock.style.left=z.seite==='links'?'12px':'';dock.style.right=z.seite==='links'?'':'12px';
+  const s=dockSichtbar();if(dock.hidden!==!s.length)dock.hidden=!s.length;
+  const haupt=s.find(e=>e.id==='messenPanel'||e.id==='blechPanel')||s[0];const name=haupt?.querySelector('.ptitel,.dhead')?.firstChild?.textContent?.trim()||'Seitenleiste';
+  if(dockLasche.textContent!==name)dockLasche.textContent=name;freiraum()}
+function dockRechteck(){if(dock.hidden)return null;const r=dock.getBoundingClientRect(),v=view.getBoundingClientRect();return {x0:r.left-v.left,y0:r.top-v.top,x1:r.right-v.left,y1:r.bottom-v.top}}
+function modellRechteck(){if(!model||box.isEmpty())return null;camera.updateMatrixWorld();const v=new THREE.Vector3(),w=view.clientWidth,h=view.clientHeight;let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+  for(let i=0;i<8;i++){v.set(i&1?box.max.x:box.min.x,i&2?box.max.y:box.min.y,i&4?box.max.z:box.min.z).project(camera);const x=(v.x+1)/2*w,y=(1-v.y)/2*h;x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y)}
+  return {x0,y0,x1,y1}}
+function modellUnterDock(){const d=dockRechteck(),m=modellRechteck();return !!(d&&m&&m.x0<d.x1&&m.x1>d.x0&&m.y0<d.y1&&m.y1>d.y0)}
+function freiraum(){if(!dockBereit)return;const w=view.clientWidth,h=view.clientHeight;let D=0;const d=dockRechteck();
+  if(d&&w>0)D=Math.max(0,Math.min(dockZustand.seite==='links'?d.x1+12:w-d.x0+12,w*0.6));
+  const alt=freiD;freiD=D;
+  if(D>0&&w>0&&h>0)camera.setViewOffset(w,h,dockZustand.seite==='links'?-D/2:D/2,0,w,h);else camera.clearViewOffset();
+  camera.updateProjectionMatrix();needs=true;
+  if(model&&!anim&&!dockZug&&Math.abs(D-alt)>1&&modellUnterDock())fit()}
+let dockZug=null;
+dock.addEventListener('pointerdown',e=>{const kopf=e.target.closest('.ptitel,.dhead');if(!kopf||e.button!==0||e.target.closest('button,select,input,label,a'))return;
+  const r=dock.getBoundingClientRect(),v=view.getBoundingClientRect();dockZug={dx:e.clientX-r.left,dy:e.clientY-r.top,v};dock.classList.add('zieht');try{kopf.setPointerCapture(e.pointerId)}catch{}e.preventDefault()});
+addEventListener('pointermove',e=>{if(!dockZug)return;const v=dockZug.v;dock.style.right='';dock.style.left=Math.round(e.clientX-v.left-dockZug.dx)+'px';dock.style.top=Math.round(e.clientY-v.top-dockZug.dy)+'px'});
+const dockLoslassen=()=>{if(!dockZug)return;const v=dockZug.v,r=dock.getBoundingClientRect();dockZug=null;dock.classList.remove('zieht');
+  dockZustand.seite=(r.left+r.width/2)<(v.left+v.width/2)?'links':'rechts';dockZustand.oben=Math.round(r.top-v.top);dockSpeichern();dockAnwenden()};
+addEventListener('pointerup',dockLoslassen);addEventListener('pointercancel',dockLoslassen);
+dockLasche.onclick=()=>dockEinklappen(false);
+// Ein Feld, das neu aufgeht, klappt die Seitenleiste aus
+const dockBeobachter=new MutationObserver(rs=>{let auf=false;for(const r of rs)if(r.oldValue!==null&&!r.target.hidden)auf=true;if(auf&&dockZustand.zu){dockZustand.zu=false;dockSpeichern()}dockAnwenden()});
+for(const el of dock.children)if(el!==dockLasche)dockBeobachter.observe(el,{attributes:true,attributeFilter:['hidden'],attributeOldValue:true});
+if(window.ResizeObserver)new ResizeObserver(()=>freiraum()).observe(dock);
+dockBereit=true;dockAnwenden();
+window.__dock=()=>({zustand:{...dockZustand},frei:freiD,dock:dockRechteck(),modell:modellRechteck(),ueberlappt:modellUnterDock(),ansicht:[view.clientWidth,view.clientHeight]});
 function wuerfelSync(){if(!vr)return;const dir=camera.position.clone().sub(controls.target);if(dir.lengthSq()<1e-8)dir.set(0,0,1);vc.position.copy(dir.normalize().multiplyScalar(2.7));vc.up.copy(camera.up);vc.lookAt(0,0,0);vr.render(vr.userData.vs,vc);
   const q=camera.quaternion.clone().invert();const set=(id,v)=>{const p=v.clone().applyQuaternion(q);const el=$(id);if(!el)return;el.style.left=(50+p.x*46)+'%';el.style.top=(50-p.y*46)+'%'};
   set('kN',new THREE.Vector3(0,0,-1));set('kO',new THREE.Vector3(1,0,0));set('kS',new THREE.Vector3(0,0,1));set('kW',new THREE.Vector3(-1,0,0))}
-function sichtDistanz(s){const tan35=Math.tan(35*Math.PI/360);return s*1.7*(tan35/Math.tan(camera.fov*Math.PI/360))}
+// Abstand fürs Einpassen; bei schmalem freiem Bereich (neben der Seitenleiste) zählt auch die freie Breite
+function sichtDistanz(s){const tan35=Math.tan(35*Math.PI/360);const h=view.clientHeight||1,fa=Math.min(1,Math.max(0.2,((view.clientWidth||h)-freiD)/h));return s*1.7*(tan35/(Math.tan(camera.fov*Math.PI/360)*fa))}
 function animSchritt(){const t=Math.min(1,(performance.now()-anim.t0)/anim.ms);const k=t*t*(3-2*t);
   const q=new THREE.Quaternion().setFromUnitVectors(anim.dirA,anim.dirB);const qi=new THREE.Quaternion().slerp(q,k);
   const dir=anim.dirA.clone().applyQuaternion(qi);const len=anim.aLen+(anim.bLen-anim.aLen)*k;const tar=anim.aTar.clone().lerp(anim.bTar,k);
@@ -554,9 +599,9 @@ function linearSperren(art){const d=dimDrag?.d||dims.find(x=>x.no===dimSel);if(!
 addEventListener('keydown',e=>{if(e.ctrlKey||e.metaKey||e.altKey||textFeld())return;const art={KeyH:'horizontal',KeyV:'vertikal',KeyA:'ausgerichtet',KeyL:null}[e.code];if(art===undefined)return;if(linearSperren(art))e.preventDefault()});
 renderer.domElement.addEventListener('pointerup',e=>{if(!dimDrag)return;e.stopImmediatePropagation();const d=dimDrag.d,mv=dimDrag.moved;dimDrag=null;down=null;if(!mv)editDim(d);needs=true},true);
 // ---- Ansicht mit Bemaßungen exportieren (PNG/PDF) ----
-function ansichtBild(){renderer.render(scene,camera);drawDims();const c=document.createElement('canvas');c.width=renderer.domElement.width;c.height=renderer.domElement.height;const x=c.getContext('2d');
+function ansichtBild(){renderer.render(scene,camera);drawDims();const c=document.createElement('canvas');const pr=renderer.domElement.width/(view.clientWidth||1),fd=Math.round(freiD*pr),sx=dockZustand.seite==='links'?fd:0;c.width=Math.max(1,renderer.domElement.width-fd);c.height=renderer.domElement.height;const x=c.getContext('2d');
   const g=x.createLinearGradient(0,0,0,c.height);g.addColorStop(0,'#e7eef5');g.addColorStop(.55,'#c5d0dc');g.addColorStop(1,'#b7c5d3');x.fillStyle=g;x.fillRect(0,0,c.width,c.height);
-  x.drawImage(renderer.domElement,0,0);x.drawImage(overlay,0,0,c.width,c.height);return c}
+  x.drawImage(renderer.domElement,sx,0,c.width,c.height,0,0,c.width,c.height);x.drawImage(overlay,sx*overlay.width/renderer.domElement.width,0,c.width*overlay.width/renderer.domElement.width,overlay.height,0,0,c.width,c.height);return c}
 const toBytes=url=>{const b=atob(url.split(',')[1]);const u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u};
 async function exportPng(){await saveBytes(baseName()+'_Bemaßung.png',toBytes(ansichtBild().toDataURL('image/png')),'PNG-Bild','png','image/png')}
 async function exportPdf(){const c=ansichtBild();const {jsPDF}=await import('jspdf');const pdf=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
@@ -729,7 +774,7 @@ $('btnSchnitt').onclick=()=>{const p=$('schnittPanel');p.hidden=!p.hidden;$('btn
 $('btnMass').onclick=()=>{tabTo('messen');$('dimtyp')?.scrollIntoView({block:'nearest'})};
 $('btnBlech').onclick=()=>tabTo('blech');
 $('schnittZu').onclick=()=>{$('schnittPanel').hidden=true;$('btnSchnitt').classList.remove('on')};
-$('messenZu').onclick=()=>$('messenPanel').classList.toggle('zu');
+$('messenZu').onclick=()=>dockEinklappen(true);$('blechEin').onclick=()=>dockEinklappen(true);
 $('blechZu').onclick=()=>tabTo('messen');
 $('baumZu').onclick=()=>{$('baum').classList.add('zu');$('baumLasche').hidden=false};
 $('baumLasche').onclick=()=>{$('baum').classList.remove('zu');$('baumLasche').hidden=true};
@@ -763,7 +808,7 @@ $('kring').addEventListener('pointermove',e=>{if(!ringDrag)return;const delta=ri
   camera.position.copy(controls.target).add(ringDrag.off.clone().applyAxisAngle(achse,delta));camera.up.copy(ringDrag.up).applyAxisAngle(achse,delta);camera.lookAt(controls.target);controls.update();needs=true});
 $('kring').addEventListener('pointerup',()=>{ringDrag=null});
 $('wuerfelHome').onclick=()=>animiereAnsicht('iso');
-document.querySelectorAll('.tab').forEach(t=>{const alt=t.onclick;t.onclick=ev=>{alt?.call(t,ev);if(t.dataset.tab==='messen')$('messenPanel').classList.remove('zu')}});
+document.querySelectorAll('.tab').forEach(t=>{const alt=t.onclick;t.onclick=ev=>{alt?.call(t,ev);$('messenPanel').classList.remove('zu');dockEinklappen(false)}});
 
 // ---------- Komponente verschieben / drehen (Triade, nur Matrix) ----------
 let zug=null,zugSperre=false;

@@ -51,6 +51,7 @@ jobs:
           SHOT=docs/hasi-oberflaeche.png node tools/smoke-ui.mjs
           node tools/smoke-drehen.mjs
           node tools/smoke-messen.mjs
+          SHOTDIR=docs/seitenleiste node tools/smoke-seitenleiste.mjs
           node tools/smoke-baugruppe.mjs
           SHOT=docs/hasi-baugruppe.png node tools/smoke-baugruppe-ui.mjs
           SHOTDIR=docs/werkzeugleiste node tools/smoke-werkzeugleiste.mjs
@@ -81,10 +82,16 @@ jobs:
           PORT=4174 node tools/smoke-drop.mjs
           PORT=4174 SHOT=docs/sickinger-baugruppe.png node tools/smoke-baugruppe-ui.mjs
           PORT=4174 SHOTDIR=docs/werkzeugleiste node tools/smoke-werkzeugleiste.mjs
+          PORT=4174 MARKE=ms3d SHOTDIR=docs/seitenleiste node tools/smoke-seitenleiste.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: werkzeugleiste
           path: docs/werkzeugleiste/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seitenleiste
+          path: docs/seitenleiste/
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: hasi-oberflaeche

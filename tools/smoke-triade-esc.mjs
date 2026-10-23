@@ -51,7 +51,8 @@ await A(()=>document.activeElement.blur());
 // d) sofort weiter messen
 await zweiFlaechen();await p.keyboard.press('Escape');await zweiFlaechen();z=await zustand();if(z.n!==2)fail('nach Esc nicht weiter messbar');
 // e) Klick ins Leere hebt die Auswahl auf, Bemaßungen bleiben
-await p.mouse.click(cv.x+cv.width-60,cv.y+cv.height-60);await p.waitForTimeout(300);z=await zustand();if(z.n||z.txt)fail('Klick ins Leere hebt die Auswahl nicht auf');if(z.dims!==dims0)fail('Klick ins Leere löscht Bemaßungen');
+await p.mouse.click(cv.x+60,cv.y+cv.height-60); // links unten: frei (rechts liegt die Seitenleiste)
+await p.waitForTimeout(300);z=await zustand();if(z.n||z.txt)fail('Klick ins Leere hebt die Auswahl nicht auf');if(z.dims!==dims0)fail('Klick ins Leere löscht Bemaßungen');
 // f) zweites Esc ohne Mess-Auswahl hebt die Bauteilauswahl auf (Triade verschwindet)
 await triade('faz1-messteil');if(!await A(()=>window.__app.gizmo()))fail('Triade fehlt');await p.keyboard.press('Escape');
 if(await A(()=>window.__app.gizmo()))fail('Esc ohne Messung: Bauteilauswahl/Triade bleibt');if(await A(()=>window.__app.dims().length)!==dims0)fail('Bemaßungen weg (f)');
@@ -77,6 +78,6 @@ await p.keyboard.press('h');lin=await A(no=>window.__app.dims().find(d=>d.no===n
 [lx,ly]=await lab();await p.mouse.move(lx,ly);await p.mouse.down();await p.mouse.move(lx+200,ly,{steps:10});await p.mouse.up();await p.waitForTimeout(300);
 lin=await A(no=>window.__app.dims().find(d=>d.no===no),hoehe.linNo);if(lin.linArt!=='horizontal'||Math.abs(lin.wert-60)>1e-4)fail('gesperrt, aber Richtung gewechselt: '+lin.linArt);
 console.log('hoehe ok: wahre Länge',hoehe.abstand.toFixed(4),'Höhe',hoehe.hoehe,'waagerecht',hoehe.waagerecht,'| Linear seitlich → Höhe 380, H → 60 gesperrt');
-if(SHOTS){await A(()=>document.activeElement?.blur());await p.mouse.move(cv.x+cv.width-80,cv.y+cv.height-80);await p.mouse.wheel(0,500);await p.waitForTimeout(300);await p.screenshot({path:path.join(SHOTS,'hoehe-schraeger-fuss.png')})}
+if(SHOTS){await A(()=>document.activeElement?.blur());await p.mouse.move(cv.x+80,cv.y+cv.height-80);await p.mouse.wheel(0,500);await p.waitForTimeout(300);await p.screenshot({path:path.join(SHOTS,'hoehe-schraeger-fuss.png')})}
 console.log('fehler',JSON.stringify(errs));await b.close();if(errs.length)process.exit(1);console.log('OK: Triade und Esc');
 await import('./smoke-faz2.mjs');
