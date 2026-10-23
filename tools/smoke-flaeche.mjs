@@ -87,7 +87,7 @@ await p.keyboard.press('Escape');await p.waitForTimeout(100);if(await p.evaluate
 await p.keyboard.press('q');if(await p.isChecked('#nurFlaechen'))fail('Q schaltet nicht aus');
 
 // 3) Schräger Fuß: Abmessungen an der Grundfläche 100 × 30 × 380, Klick auf die schräge Wand richtet neu aus
-await laden('schraeger-fuss');await p.mouse.move(640,420);for(let i=0;i<4;i++){await p.mouse.wheel(0,250);await p.waitForTimeout(120)}await p.waitForTimeout(500);// 380 mm hohes Teil: etwas herauszoomen fürs Bild
+await laden('schraeger-fuss');await p.mouse.move(640,420);for(let i=0;i<4;i++){await p.mouse.wheel(0,-250);await p.waitForTimeout(120)}await p.waitForTimeout(500);// CAD-Richtung: Rad nach oben zoomt das 380 mm hohe Teil heraus.
 await p.click('#abmKnopf');await p.waitForFunction(()=>window.__abm&&window.__abm.ok,null,{timeout:15000});await p.waitForTimeout(200);
 t=await p.textContent('#abminfo');if(!t.includes('100,000 × 30,000 × 380,000 mm')||!t.includes('Grundfläche'))fail('Abmessungen schräger Fuß: '+t);ok('Abmessungen schräger Fuß 100 × 30 × 380 (Grundfläche)');
 await p.mouse.move(1400,880);await bild(`${marke}-abmessungen-schraeger-fuss`);
