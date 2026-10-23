@@ -1,0 +1,30 @@
+// Hinweis-Overlay „STEP-Datei hier ablegen“ und Pfad-Öffnen im Browser (ohne echtes OS-Drag).
+// Aufruf: node tools/smoke-drop.mjs (vite preview, PORT)
+import { chromium } from 'playwright-core';
+const port = process.env.PORT || '4173';
+const b = await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/google-chrome', args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const p = await b.newPage({ viewport: { width: 1500, height: 900 } });
+const errs = [];
+p.on('pageerror', e => errs.push(e.message));
+await p.goto('http://localhost:' + port + '/');
+await p.waitForFunction(() => window.__dateiZiehen && window.__oeffnePfad);
+const text = await p.locator('#dropHint').innerText();
+if (text.trim() !== 'STEP-Datei hier ablegen') throw new Error('Hinweistext: ' + text);
+const anfang = await p.locator('#dropHint').evaluate(el => el.hidden);
+if (!anfang) throw new Error('Hinweis ist beim Start sichtbar');
+await p.evaluate(() => window.__dateiZiehen(true));
+const sichtbar = await p.locator('#dropHint').evaluate(el => ({ hidden: el.hidden, display: getComputedStyle(el).display, pe: getComputedStyle(el).pointerEvents }));
+if (sichtbar.hidden || sichtbar.display === 'none') throw new Error('Hinweis bleibt versteckt: ' + JSON.stringify(sichtbar));
+if (sichtbar.pe !== 'none') throw new Error('Hinweis fängt Zeiger: ' + sichtbar.pe);
+await p.evaluate(() => window.__dateiZiehen(false));
+const weg = await p.locator('#dropHint').evaluate(el => el.hidden && getComputedStyle(el).display === 'none');
+if (!weg) throw new Error('Hinweis lässt sich nicht ausblenden');
+const html5 = await p.evaluate(() => typeof document.getElementById('view').ondrop === 'function');
+if (!html5) throw new Error('Browser-Drop fehlt');
+await p.evaluate(() => window.__oeffnePfad('notiz.txt'));
+await p.waitForFunction(() => document.getElementById('status').textContent.includes('Nur STEP-Dateien'));
+await p.evaluate(() => window.__oeffnePfad('/tmp/teil.step'));
+await p.waitForFunction(() => document.getElementById('status').textContent.includes('Öffnen per Pfad nur in der Desktop-App'));
+if (errs.length) throw new Error(errs.join(' | '));
+await b.close();
+console.log('OK: Ablegen-Hinweis', port);

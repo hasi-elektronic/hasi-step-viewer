@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Sickinger STEP-Viewer",
+  "identifier": "de.sickinger.stepviewer",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Sickinger STEP-Viewer",
+        "width": 1400,
+        "height": 880,
+        "dragDropEnabled": true
+      }
+    ]
+  },
+  "bundle": {
+    "publisher": "Manfred Sickinger Apparatebau",
+    "shortDescription": "STEP-Viewer für 3D-Modelle",
+    "longDescription": "STEP-Viewer für STEP-/STP-Dateien: Modellbaum, Messen, Schnittansicht. Nur Ansicht, keine Bearbeitung. Entwickelt von Hasi Elektronic.",
+    "copyright": "© 2026 Manfred Sickinger Apparatebau",
+    "fileAssociations": [
+      {
+        "ext": ["step", "stp"],
+        "name": "SickingerStep",
+        "description": "STEP-Datei (.step, .stp)",
+        "role": "Viewer",
+        "mimeType": "model/step",
+        "rank": "Default",
+        "exportedType": {
+          "identifier": "de.sickinger.step",
+          "conformsTo": ["public.data"]
+        }
+      }
+    ],
+    "icon": [
+      "icons-sickinger/32x32.png",
+      "icons-sickinger/128x128.png",
+      "icons-sickinger/128x128@2x.png",
+      "icons-sickinger/icon.icns",
+      "icons-sickinger/icon.ico"
+    ]
+  },
+  "mainBinaryName": "sickinger-step-viewer"
+}

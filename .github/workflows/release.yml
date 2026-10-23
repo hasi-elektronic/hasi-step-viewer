@@ -1,0 +1,301 @@
+name: release
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    tags: ['v*']
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - run: node tools/make-testblech.mjs public/testblech.step
+      - run: node tools/test-brep.mjs public/testblech.step
+      - run: node tools/test-kfaktor.mjs public/testblech.step
+      - run: node tools/test-einheit.mjs public/testblech.step
+      - run: node tools/test-messen.mjs
+      - run: node tools/test-abwicklung.mjs
+      - run: sudo apt-get install -y poppler-utils unzip
+      - run: node tools/test-export.mjs
+      - run: node tools/test-baum.mjs
+      - run: node tools/test-baugruppe-messen.mjs
+      - run: npm run build
+      - name: Bemaßung und Kontextmenü
+        run: |
+          set -euo pipefail
+          if [ -x /usr/bin/google-chrome ]; then export CHROME=/usr/bin/google-chrome
+          elif [ -x /usr/bin/google-chrome-stable ]; then export CHROME=/usr/bin/google-chrome-stable
+          else
+            sudo node node_modules/playwright-core/cli.js install-deps chromium
+            node node_modules/playwright-core/cli.js install chromium
+            CHROME="$(find "$HOME/.cache/ms-playwright" -type f -name chrome -path '*chrome-linux*' -print -quit)"
+            export CHROME
+          fi
+          test -x "$CHROME"
+          npm run preview >/tmp/vite-preview.log 2>&1 &
+          for i in $(seq 1 40); do curl -sf -o /dev/null http://localhost:4173/ && break; sleep 1; done
+          curl -sf -o /dev/null http://localhost:4173/
+          node tools/smoke-bemassung.mjs
+          node tools/smoke-kontextmenue.mjs
+          grep -q 'STEP-Datei hier ablegen' dist/index.html
+          grep -q 'id="dropHint"' dist/index.html
+          node tools/smoke-drop.mjs
+          SHOT=docs/hasi-oberflaeche.png node tools/smoke-ui.mjs
+          node tools/smoke-baugruppe.mjs
+          SHOT=docs/hasi-baugruppe.png node tools/smoke-baugruppe-ui.mjs
+      - name: Marke Sickinger (Frontend)
+        run: |
+          set -euo pipefail
+          MARKE=sickinger npm run build
+          grep -q 'Sickinger STEP-Viewer' dist/index.html
+          grep -q 'Entwickelt von Hasi Elektronic' dist/index.html
+          grep -q 'data-marke="sickinger"' dist/index.html
+          test -f dist/marken/sickinger.png
+          grep -q 'HASI <span>STEP-Betrachter</span>' index.html
+          node --input-type=module -e "import fs from 'fs'; const j=JSON.parse(fs.readFileSync('src-tauri/tauri.sickinger.conf.json','utf8')); if(j.productName!=='Sickinger STEP-Viewer'||j.identifier!=='de.sickinger.stepviewer'||j.bundle.publisher!=='Manfred Sickinger Apparatebau') process.exit(1); const ext=a=>a&&a.ext&&a.ext.join(','); const b=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8')); if(b.app.windows[0].dragDropEnabled!==true||ext(b.bundle.fileAssociations[0])!=='step,stp'||b.bundle.fileAssociations[0].name!=='HasiStep') process.exit(1); if(j.app.windows[0].dragDropEnabled!==true||ext(j.bundle.fileAssociations[0])!=='step,stp'||j.bundle.fileAssociations[0].name!=='SickingerStep') process.exit(1)"
+          if [ -x /usr/bin/google-chrome ]; then export CHROME=/usr/bin/google-chrome
+          elif [ -x /usr/bin/google-chrome-stable ]; then export CHROME=/usr/bin/google-chrome-stable
+          else
+            sudo node node_modules/playwright-core/cli.js install-deps chromium
+            node node_modules/playwright-core/cli.js install chromium
+            CHROME="$(find "$HOME/.cache/ms-playwright" -type f -name chrome -path '*chrome-linux*' -print -quit)"
+            export CHROME
+          fi
+          test -x "$CHROME"
+          npm run preview -- --port 4174 --strictPort >/tmp/vite-preview-sickinger.log 2>&1 &
+          for i in $(seq 1 40); do curl -sf -o /dev/null http://localhost:4174/ && break; sleep 1; done
+          curl -sf -o /dev/null http://localhost:4174/
+          grep -q 'STEP-Datei hier ablegen' dist/index.html
+          PORT=4174 node tools/smoke-marke.mjs
+          PORT=4174 node tools/smoke-drop.mjs
+          PORT=4174 SHOT=docs/sickinger-baugruppe.png node tools/smoke-baugruppe-ui.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hasi-oberflaeche
+          path: docs/hasi-oberflaeche.png
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sickinger-oberflaeche
+          path: docs/sickinger-oberflaeche.png
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hasi-baugruppe
+          path: docs/hasi-baugruppe.png
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sickinger-baugruppe
+          path: docs/sickinger-baugruppe.png
+          if-no-files-found: error
+  kern:
+    # Nativer Kern unter Linux: OCCT bauen (Cache), Kern bauen, Abgleich mit OCCT-Referenztransfer, alle Tests über den nativen Pfad
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - uses: actions/cache/restore@v4  # Wiederherstellen; Speichern direkt nach dem OCCT-Build, auch wenn spätere Schritte scheitern
+        id: occt
+        with:
+          path: ${{ runner.temp }}/occt
+          key: occt-7.8.1-${{ runner.os }}-${{ hashFiles('tools/occt-bauen.sh') }}
+      - run: sudo apt-get update -q && sudo apt-get install -y -q libgl-dev libegl-dev  # TKV3d linkt unter Linux libGL/libEGL
+      - if: steps.occt.outputs.cache-hit != 'true'
+        run: tools/occt-bauen.sh "${{ runner.temp }}/occt"
+      - if: steps.occt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/occt
+          key: ${{ steps.occt.outputs.cache-primary-key }}
+      - run: cmake -S kern -B kern/build -DCMAKE_PREFIX_PATH="${{ runner.temp }}/occt" -DCMAKE_BUILD_TYPE=Release && cmake --build kern/build --parallel
+      - run: echo "LD_LIBRARY_PATH=$RUNNER_TEMP/occt/lib" >> "$GITHUB_ENV"  # OCCT-Bibliotheken für den Kern-Probelauf
+      - run: node tools/make-testblech.mjs public/testblech.step
+      - name: Abgleich mit dem seriellen OCCT-Transfer (--pruefen)
+        run: for f in testdaten/*.step public/testblech.step; do kern/build/hasi-kern "$f" "$RUNNER_TEMP" --pruefen; done
+      - run: sudo apt-get install -y poppler-utils unzip
+      - name: Tests über den nativen Kern
+        env: { KERN: native, KERN_PRUEFEN: '1' }
+        run: |
+          node tools/test-brep.mjs public/testblech.step
+          node tools/test-kfaktor.mjs public/testblech.step
+          node tools/test-einheit.mjs public/testblech.step
+          node tools/test-messen.mjs
+          node tools/test-abwicklung.mjs
+          node tools/test-export.mjs
+          node tools/test-baum.mjs
+          node tools/test-baugruppe-messen.mjs
+      - name: Paket (Probe)
+        run: python3 tools/kern-paket.py kern/build/hasi-kern "${{ runner.temp }}/occt" kern-paket --triple x86_64-unknown-linux-gnu
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            marke: hasi
+            plattform: windows
+            args: '--bundles nsis,msi'
+            out: 'src-tauri/target/release/bundle/**/*.*'
+          - os: windows-latest
+            marke: sickinger
+            plattform: windows
+            args: '--bundles nsis,msi'
+            out: 'src-tauri/target/release/bundle/**/*.*'
+          - os: macos-latest
+            marke: hasi
+            plattform: macos
+            args: '--target universal-apple-darwin --bundles dmg,app'
+            out: 'src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg'
+          - os: macos-latest
+            marke: sickinger
+            plattform: macos
+            args: '--target universal-apple-darwin --bundles dmg,app'
+            out: 'src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - run: npm ci
+      # Nativer Kern: OCCT (Cache) + hasi-kern, als Sidecar mit Bibliotheken in die App
+      - uses: actions/cache/restore@v4  # Wiederherstellen; Speichern direkt nach dem OCCT-Build, auch wenn spätere Schritte scheitern
+        id: occt
+        with:
+          path: ${{ runner.temp }}/occt
+          key: occt-7.8.1-${{ runner.os }}-${{ hashFiles('tools/occt-bauen.sh') }}
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - if: steps.occt.outputs.cache-hit != 'true'
+        shell: bash
+        run: tools/occt-bauen.sh "$RUNNER_TEMP/occt"
+      - if: steps.occt.outputs.cache-hit != 'true' && matrix.marke == 'hasi'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/occt
+          key: ${{ steps.occt.outputs.cache-primary-key }}
+      - name: Kern bauen und packen
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then ARCH='-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0'; TRIPLE=universal-apple-darwin; EXE=kern/build/hasi-kern; else ARCH=''; TRIPLE=x86_64-pc-windows-msvc; EXE=kern/build/Release/hasi-kern.exe; fi
+          cmake -S kern -B kern/build -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/occt" -DCMAKE_BUILD_TYPE=Release $ARCH
+          cmake --build kern/build --config Release --parallel
+          [ "$RUNNER_OS" = "Windows" ] && pip install pefile
+          python3 tools/kern-paket.py "$EXE" "$RUNNER_TEMP/occt" kern-paket --triple $TRIPLE || python tools/kern-paket.py "$EXE" "$RUNNER_TEMP/occt" kern-paket --triple $TRIPLE
+          node tools/make-testblech.mjs public/testblech.step
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            lipo -info kern-paket/hasi-kern-universal-apple-darwin kern-paket/hasi-kern-aarch64-apple-darwin kern-paket/hasi-kern-x86_64-apple-darwin
+            mkdir -p probe/MacOS probe/Resources
+            cp kern-paket/hasi-kern-$TRIPLE probe/MacOS/hasi-kern
+            cp -R kern-paket/kern probe/Resources/kern
+            otool -L probe/MacOS/hasi-kern | grep -q '@rpath/'
+            otool -l probe/MacOS/hasi-kern | grep -q '@executable_path/../Resources/kern'
+            otool -l probe/Resources/kern/*.dylib | grep -q '@loader_path'
+            # Bauinstallation verstecken, damit der Probelauf die Bibliotheken im Bundle benutzt
+            mv "$RUNNER_TEMP/occt" "$RUNNER_TEMP/occt-versteckt"
+            probe/MacOS/hasi-kern public/testblech.step "$RUNNER_TEMP" --pruefen || { mv "$RUNNER_TEMP/occt-versteckt" "$RUNNER_TEMP/occt"; exit 1; }
+            mv "$RUNNER_TEMP/occt-versteckt" "$RUNNER_TEMP/occt"
+            ZIEL='kern/'
+          else
+            # Windows findet DLLs im Ordner der EXE, nicht über einen Unterordner
+            mkdir -p probe
+            cp kern-paket/hasi-kern-$TRIPLE.exe probe/
+            cp kern-paket/kern/*.dll probe/
+            probe/hasi-kern-$TRIPLE.exe public/testblech.step "$RUNNER_TEMP" --pruefen
+            ZIEL='./'
+          fi
+          printf '%s\n' "{\"bundle\":{\"externalBin\":[\"../kern-paket/hasi-kern\"],\"resources\":{\"../kern-paket/kern/*\":\"$ZIEL\"}}}" > src-tauri/tauri.kern.json
+      - name: App bauen
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          MARKE: ${{ matrix.marke }}
+        run: |
+          $tauriArgs = "${{ matrix.args }}".Split(' ')
+          $cfg = @('--config','src-tauri/tauri.kern.json')
+          if ($env:MARKE -eq 'sickinger') { $cfg += @('--config','src-tauri/tauri.sickinger.conf.json') }
+          npx tauri build @tauriArgs @cfg
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $html = Get-Content -Raw dist/index.html
+          if ($env:MARKE -eq 'sickinger') {
+            if ($html -notmatch 'Sickinger STEP-Viewer') { throw 'Frontend ohne Sickinger-Marke' }
+          } else {
+            if ($html -notmatch 'Hasi STEP-Betrachter' -or $html -match 'Sickinger') { throw 'Hasi-Frontend verändert' }
+          }
+      - name: App bauen
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          MARKE: ${{ matrix.marke }}
+        run: |
+          set -euo pipefail
+          EXTRA=""
+          if [ "$MARKE" = "sickinger" ]; then EXTRA="--config src-tauri/tauri.sickinger.conf.json"; fi
+          npx tauri build ${{ matrix.args }} --config src-tauri/tauri.kern.json $EXTRA
+          if [ "$MARKE" = "sickinger" ]; then grep -q 'Sickinger STEP-Viewer' dist/index.html
+          else grep -q 'Hasi STEP-Betrachter' dist/index.html && ! grep -q 'Sickinger' dist/index.html
+          fi
+      - name: Kern im Installer prüfen
+        shell: bash
+        env:
+          MARKE: ${{ matrix.marke }}
+        run: |
+          set -e; n=$(ls kern-paket/kern | wc -l | tr -d ' '); echo "Bibliotheken im Paket: $n"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            APP=$(ls -d src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app); ls -la "$APP/Contents/MacOS"; test -x "$APP/Contents/MacOS/hasi-kern"
+            test $(ls "$APP/Contents/Resources/kern" | wc -l) -ge $n
+            otool -L "$APP/Contents/MacOS/hasi-kern" | grep -q '@rpath/'
+            otool -l "$APP/Contents/MacOS/hasi-kern" | grep -q '@executable_path/../Resources/kern'
+            otool -l "$APP/Contents/Resources/kern"/* | grep -q '@loader_path'
+            if otool -L "$APP/Contents/MacOS/hasi-kern" | tail -n +2 | grep -E '/occt/|/Users/'; then echo 'absoluter Bibliothekspfad im Sidecar'; exit 1; fi
+            mv "$RUNNER_TEMP/occt" "$RUNNER_TEMP/occt-versteckt"
+            "$APP/Contents/MacOS/hasi-kern" public/testblech.step "$RUNNER_TEMP" --pruefen || { mv "$RUNNER_TEMP/occt-versteckt" "$RUNNER_TEMP/occt"; exit 1; }
+            mv "$RUNNER_TEMP/occt-versteckt" "$RUNNER_TEMP/occt"
+            PLIST=$(plutil -convert xml1 -o - "$APP/Contents/Info.plist")
+            printf '%s\n' "$PLIST" | grep -q 'CFBundleDocumentTypes'
+            printf '%s\n' "$PLIST" | grep -q '<string>step</string>'
+            printf '%s\n' "$PLIST" | grep -q '<string>stp</string>'
+            printf '%s\n' "$PLIST" | grep -q '<string>Viewer</string>'
+            if [ "$MARKE" = "sickinger" ]; then printf '%s\n' "$PLIST" | grep -q 'de.sickinger.step'; else printf '%s\n' "$PLIST" | grep -q 'de.hasi-elektronic.step'; fi
+            DMG=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg); hdiutil attach -nobrowse -mountpoint /tmp/dmg "$DMG"
+            test -x /tmp/dmg/*.app/Contents/MacOS/hasi-kern
+            test $(ls /tmp/dmg/*.app/Contents/Resources/kern | wc -l) -ge $n
+            DMGPLIST=$(plutil -convert xml1 -o - /tmp/dmg/*.app/Contents/Info.plist)
+            printf '%s\n' "$DMGPLIST" | grep -q 'CFBundleDocumentTypes'
+            printf '%s\n' "$DMGPLIST" | grep -q '<string>step</string>'
+            printf '%s\n' "$DMGPLIST" | grep -q '<string>stp</string>'
+            hdiutil detach /tmp/dmg
+          else
+            MSI=$(ls src-tauri/target/release/bundle/msi/*.msi); msiexec //a "$(cygpath -w "$MSI")" //qn TARGETDIR="$(cygpath -w "$RUNNER_TEMP/msi")"
+            K=""; for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do K=$(find "$RUNNER_TEMP/msi" -iname 'hasi-kern*.exe' -print -quit); [ -n "$K" ] && break; sleep 5; done
+            echo "MSI: $K"; test -n "$K"
+            D=$(dirname "$K")
+            test "$(find "$D" -maxdepth 1 -iname '*.dll' | wc -l)" -ge "$n"
+            "$K" public/testblech.step "$RUNNER_TEMP" --pruefen
+            EXE=$(ls src-tauri/target/release/bundle/nsis/*.exe); 7z l "$EXE" | grep -i -E 'hasi-kern|TKernel'
+            KLASSE=HasiStep; [ "$MARKE" = "sickinger" ] && KLASSE=SickingerStep
+            NSI=$(find src-tauri/target/release/nsis -name installer.nsi -print -quit)
+            test -n "$NSI"
+            grep -q "APP_ASSOCIATE \"step\" \"$KLASSE\"" "$NSI"
+            grep -q "APP_ASSOCIATE \"stp\" \"$KLASSE\"" "$NSI"
+            WXS=$(find src-tauri/target/release/wix -name '*.wxs' -print -quit)
+            test -n "$WXS"
+            grep -q "Extension Id=\"step\"" "$WXS"
+            grep -q "Extension Id=\"stp\"" "$WXS"
+            grep -q "ProgId Id=\"$KLASSE.step\"" "$WXS"
+            grep -q "ProgId Id=\"$KLASSE.stp\"" "$WXS"
+          fi
+          ls -la ${{ matrix.out }} 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.marke }}-step-viewer-${{ matrix.plattform }}
+          path: ${{ matrix.out }}
+          if-no-files-found: error

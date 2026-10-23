@@ -1,0 +1,12 @@
+node_modules/
+dist/
+src-tauri/target/
+samples/
+*.stp
+*.step
+public/ocjs/
+public/occt/
+!testdaten/*.step
+kern/build/
+kern-paket/
+src-tauri/tauri.kern.json
