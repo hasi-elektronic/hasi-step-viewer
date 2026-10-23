@@ -28,3 +28,11 @@ Bulunup düzeltilenler: renk geometri kaynaklarının bırakılması, geç başl
 Bu kayıt henüz oluşturulmamış paketi geçmiş saymaz. Aynı sabit kaynaktan iki Windows x64 NSIS üretilir; paket içinden çıkarılan EXE/core/DLL/WASM hashleri ve marka/sürüm denetlenir. İki gerçek WebView2 uygulamasında startup çoklu dosya, sekme/Auto/async akışları, native STEP export ve yeniden import, yerel büyük montaj kontrol edilir. Kullanıcı uygulaması kapatılmaz; test yalnız kendi başlattığı PID'yi kapatır.
 
 Fiziksel Explorer drop, native OS dosya seçici/kaydet diyalogu, MSI ve macOS bu yerel NSIS teslim kapsamının dışında. Browser PNG/PDF üretimi native OS kaydetme testi değildir. Müşteri STEP dosyası yalnız yerel okunur; repoya veya dış servise gönderilmez. Native/WASM sayısal tutarlılığı bağımsız teknik resim doğrulaması sayılmaz. Son paket sonuçları ve bağımsız teslim kararları dış manifestte tutulur.
+
+## Sabit paket kaynağı ve test taşıması
+
+Uygulama commit'i `bffec0afcc28c97cd155993a184823ff58bf2bea`. İki NSIS aynı uygulama girdileriyle üretilir. Sonraki bu belge ve test-only değişiklikler için uygulama tekrar derlenmez; manifest uygulama ve doğrulama commit'lerini ayırır.
+
+İlk CI39987088182, yeni smoke-dokumente'nin `127.0.0.1` adresine bağlanamadı; hemen önce localhost kullanan UI testi geçmişti. Yeni yardımcı diğer testler ve Vite sağlık kontrolüyle aynı `localhost` adresine taşındı. Yerel yalnız `::1` dinleyen preview4187 üzerinde IPv4 bağlantısının reddedildiği doğrulandı; değiştirilmiş tam sekme/Auto/async testi exit0 geçti. Code ve QA dar test değişikliğini uygun buldu. İlk CI başarısızlığı başarı diye yazılmaz; yeni CI ayrı izlenir.
+
+Hasi 3D gerçek NSIS içinden çıkan uygulamanın WebView2 testi exit0 geçti: iki CLI başlangıç dosyası, altı sekme izolasyonu/Auto/async, native STEP export ve tekrar import, eski UI/ayar/Info akışları ve yerel2078 gövdeli montaj. Bu kayıt anında MS3D paket testi hâlâ bekleniyor; dış manifest nihai iki marka sonucunu kaydeder.

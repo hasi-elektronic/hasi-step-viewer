@@ -7,7 +7,7 @@ const browser=await chromium.launch({executablePath:process.env.CHROME||'/usr/bi
 try{
   const page=await browser.newPage({viewport:{width:1500,height:900}}),errors=[];
   page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));
-  await page.goto(`http://127.0.0.1:${process.env.PORT||5173}/`);await page.waitForFunction(()=>window.__dateienBereit);
+  await page.goto(`http://localhost:${process.env.PORT||5173}/`);await page.waitForFunction(()=>window.__dateienBereit);
   const load=(file,name=file)=>page.evaluate(async({bytes,name})=>window.__loadBytes(Uint8Array.from(bytes).buffer,name),{bytes:[...fs.readFileSync('testdaten/'+file)],name});
   const result=await checkDokumenteUi(page,{loadPart:()=>load('messteil.step','A – Şasi.step'),loadAssembly:()=>load('messbaugruppe.step','B.step'),loadExtra:()=>page.evaluate(async bytes=>{
     const files=['C.step','D.step','E.step','F.step'].map(name=>new File([Uint8Array.from(bytes)],name));
