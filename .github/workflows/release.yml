@@ -23,6 +23,8 @@ jobs:
       - run: node tools/test-messen.mjs
       - run: node tools/test-messarten.mjs
       - run: node tools/test-messauftraege.mjs
+      - run: node tools/test-einstellungen.mjs
+      - run: node tools/test-messinformationen.mjs
       - run: node tools/test-flaeche-flaeche.mjs  # Fläche zu Fläche (ZW3D), Abmessungen, offener Körper – WASM-Kern
       - run: node tools/test-hoehe.mjs
       - run: node tools/test-messen-faz1.mjs
@@ -63,6 +65,7 @@ jobs:
           node tools/smoke-datei-oeffnen.mjs
           SHOT=docs/hasi-oberflaeche.png node tools/smoke-ui.mjs
           node tools/smoke-drehen.mjs
+          node tools/smoke-oberflaeche.mjs
           node tools/smoke-messkern-fehler.mjs
           node tools/smoke-messen.mjs
           node tools/smoke-messarten.mjs
@@ -100,6 +103,7 @@ jobs:
           curl -sf -o /dev/null http://localhost:4174/
           grep -q 'STEP-Datei hier ablegen' dist/index.html
           PORT=4174 node tools/smoke-marke.mjs
+          PORT=4174 MARKE=sickinger node tools/smoke-oberflaeche.mjs
           PORT=4174 node tools/smoke-drop.mjs
           PORT=4174 SHOT=docs/sickinger-baugruppe.png node tools/smoke-baugruppe-ui.mjs
           PORT=4174 SHOTDIR=docs/werkzeugleiste node tools/smoke-werkzeugleiste.mjs
@@ -189,6 +193,7 @@ jobs:
           node tools/test-einheit.mjs public/testblech.step
           node tools/test-messen.mjs
           node tools/test-messarten.mjs
+          node tools/test-messinformationen.mjs
           node tools/test-flaeche-flaeche.mjs
           node tools/test-hoehe.mjs
           node tools/test-abwicklung.mjs
@@ -349,7 +354,7 @@ jobs:
           if ($env:MARKE -eq 'sickinger') {
             if ($html -notmatch '<title>MS3D</title>') { throw 'Frontend ohne Sickinger-Marke' }
           } else {
-            if ($html -notmatch '<title>Hasi 3D</title>' -or $html -match 'Sickinger') { throw 'Hasi-Frontend verändert' }
+            if ($html -notmatch '<title>Hasi 3D</title>' -or $html -match 'data-marke="sickinger"') { throw 'Hasi-Frontend verändert' }
           }
       - name: App bauen
         if: runner.os != 'Windows'
@@ -362,7 +367,7 @@ jobs:
           if [ "$MARKE" = "sickinger" ]; then EXTRA="--config src-tauri/tauri.sickinger.conf.json"; fi
           npx tauri build ${{ matrix.args }} --config src-tauri/tauri.kern.json $EXTRA
           if [ "$MARKE" = "sickinger" ]; then grep -q '<title>MS3D</title>' dist/index.html
-          else grep -q '<title>Hasi 3D</title>' dist/index.html && ! grep -q 'Sickinger' dist/index.html
+          else grep -q '<title>Hasi 3D</title>' dist/index.html && ! grep -q 'data-marke="sickinger"' dist/index.html
           fi
       - name: GEO speichern unter Windows (Schreibweg der App, cargo test)
         if: runner.os == 'Windows' && matrix.marke == 'hasi'

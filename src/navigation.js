@@ -10,6 +10,8 @@ class CadControls extends TrackballControls {
     this.staticMoving = true;
     this.rotateSpeed = 2;
     this.panSpeed = 1;
+    this.wheelDirection = -1; // CAD: Rad nach unten nähert das Modell an.
+    this.wheelSpeed = 1;
     this.keys = []; // Buchstaben bleiben für CAD-Befehle frei.
     setNavigationTool(this, 'wahl');
     this.listeners = new AbortController();
@@ -39,7 +41,7 @@ class CadControls extends TrackballControls {
       const distance = camera.position.distanceTo(this.target);
       if (distance <= 0) return;
       const pixels = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1);
-      const requested = distance * Math.exp(MathUtils.clamp(pixels * 0.001, -1, 1));
+      const requested = distance * Math.exp(MathUtils.clamp(pixels * this.wheelDirection * this.wheelSpeed * 0.001, -1, 1));
       const factor = MathUtils.clamp(requested, Math.max(this.minDistance, camera.near*2), this.maxDistance) / distance;
       this.dispatchEvent({type:'start',cursorZoom:true});
       camera.position.sub(anchor).multiplyScalar(factor).add(anchor);

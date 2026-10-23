@@ -489,7 +489,7 @@ export function createBrep(ocIn){
     const rows=[],gfx=[];
     if(sels.length===1){const s0=sels[0],out={rows:M.describe(s0),gfx};
       // Fase: Anker (Mitte der Fasenfläche im Querschnitt, Modellkoordinaten) für die Fasenbemaßung „2 × 45°“
-      if(s0.k==='face'){const I=M.inst[s0.inst??0],fa=M.uniq[I.u].faces[s0.id]?.plane?M.fase(I.u,s0.id):null;
+      if(s0.k==='face'){out.messpunkt=props('S',sel2shape(s0)).c;const I=M.inst[s0.inst??0],fa=M.uniq[I.u].faces[s0.id]?.plane?M.fase(I.u,s0.id):null;
         if(fa)out.fase={a:fa.a,b:fa.b,winkel:fa.winkel,p:T.p(I.m,V.mul(V.add(fa.p1,fa.p2),0.5))}}
       return out}
     if(sels.length>2){const ed=sels.filter(s=>s.k==='edge');
@@ -552,7 +552,14 @@ export function createBrep(ocIn){
       else if(winkelZ)ed.winkel=winkelZ[1];
       out.edrw=ed}
     return out};
-  M.measure=(sels,opts={})=>gezieltMessen(sels,opts,{auto:measureAuto,resolve:RES,punkt:selPoint});
+  M.measure=(sels,opts={})=>{
+    const r=gezieltMessen(sels,opts,{auto:measureAuto,resolve:RES,punkt:selPoint});
+    if(!r.messpunkt&&r.bereit!==false&&sels.length){
+      if(r.gfx?.[0])r.messpunkt=V.mul(V.add(...r.gfx[0]),.5);
+      else{const s=sels[0],q=RES(s);r.messpunkt=q.p||q.axis?.c||q.e?.mid||((q.f||s.k==='solid')?props('S',q.shape).c:null)}
+    }
+    return r;
+  };
   const meshVA=u=>{const U=M.uniq[u];if(U.mva)return U.mva;const p=U.p,ix=U.i;let v=0,A=0,cx=0,cy=0,cz=0;
     for(let t=0;t<ix.length;t+=3){const a=ix[t]*3,b=ix[t+1]*3,c=ix[t+2]*3;const ax=p[a],ay=p[a+1],az=p[a+2],bx=p[b],by=p[b+1],bz=p[b+2],qx=p[c],qy=p[c+1],qz=p[c+2];
       const dv=(ax*(by*qz-bz*qy)-ay*(bx*qz-bz*qx)+az*(bx*qy-by*qx))/6;v+=dv;cx+=dv*(ax+bx+qx)/4;cy+=dv*(ay+by+qy)/4;cz+=dv*(az+bz+qz)/4;

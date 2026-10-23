@@ -25,7 +25,7 @@ try{
   assert(ready,'Eigene WebView2-Testinstanz nicht erreichbar');
   const args=['tools/smoke-desktop-messen.mjs',endpoint,path.resolve('testdaten/messteil.step')];
   if(process.argv[3])args.push(path.resolve(process.argv[3])); // Nur lokaler, ausdrücklich angegebener STEP-Pfad.
-  const result=execFileSync(process.execPath,args,{encoding:'utf8',timeout:180000,windowsHide:true});
+  const result=execFileSync(process.execPath,args,{encoding:'utf8',timeout:180000,windowsHide:true,env:{...process.env,HASI_TEST_PRODUKT:path.basename(exe).toLowerCase()==='ms3d.exe'?'MS3D':'Hasi 3D'}});
   console.log(result.trim());
 }finally{
   if(child.pid&&child.exitCode===null)try{execFileSync('taskkill',['/PID',String(child.pid),'/T','/F'],{stdio:'ignore',windowsHide:true})}catch{}

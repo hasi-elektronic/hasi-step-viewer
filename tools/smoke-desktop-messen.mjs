@@ -5,6 +5,9 @@ import path from 'node:path';
 import {chromium} from 'playwright-core';
 import {checkMessartenUi} from './check-messarten-ui.mjs';
 import {checkGrosseMessung} from './check-grosse-messung.mjs';
+import fs from 'node:fs';
+import {checkOberflaecheUi} from './check-oberflaeche-ui.mjs';
+import {checkMessinformationenUi} from './check-messinformationen-ui.mjs';
 const browser=await chromium.connectOverCDP(process.argv[2]);
 try {
   const page=browser.contexts().flatMap(context=>context.pages()).find(page=>page.url().includes('tauri.localhost'));
@@ -37,6 +40,9 @@ try {
   assert(!/Fehler|CompileError/.test(result.ui),result.ui);
   assert(result.ui.includes('118,322'),result.ui);
   const messarten=await checkMessartenUi(page);
+  const loadLocal=async file=>{await page.evaluate(file=>window.__oeffnePfad(file),path.resolve('testdaten',file));await page.evaluate(()=>window.__messBereit)};
+  const oberflaeche=await checkOberflaecheUi(page,{produkt:process.env.HASI_TEST_PRODUKT||(process.env.MARKE==='sickinger'?'MS3D':'Hasi 3D'),version:JSON.parse(fs.readFileSync('package.json','utf8')).version,loadAssembly:()=>loadLocal('testbaugruppe.step'),loadPart:()=>loadLocal('messteil.step')});
+  const informationen=await checkMessinformationenUi(page,{loadAssembly:()=>loadLocal('messbaugruppe.step')});
   const grosseBaugruppe=process.argv[4]?await checkGrosseMessung(page,path.resolve(process.argv[4])):null;
-  console.log(JSON.stringify({wasmBytes:bytes.length,nativeImport:true,distanceMm:distance,measurementUi:result.ui,messarten,...(grosseBaugruppe?{grosseBaugruppe}:{})}));
+  console.log(JSON.stringify({wasmBytes:bytes.length,nativeImport:true,distanceMm:distance,measurementUi:result.ui,messarten,oberflaeche,informationen,...(grosseBaugruppe?{grosseBaugruppe}:{})}));
 } finally { await browser.close(); }

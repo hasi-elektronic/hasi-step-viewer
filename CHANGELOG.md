@@ -1,5 +1,16 @@
 # Änderungen
 
+## 0.1.5
+
+- Informationsfelder merken Abstand/Normalabstand, Achsanteile, Winkel, Kreis- und Flächenwerte direkt am Modell. Flächenpaare können zusätzlich zwei eigene Karten mit Fläche und Umfang erhalten. Karten sind verschiebbar, werden in der Begleitdatei gespeichert, neu gemessen und vollständig ins Messprotokoll übernommen.
+
+- Größere Baugruppen-Pfeile mit klarer Auf-/Zu-Anzeige und Tastaturbedienung; vergrößerte Datei-Schließen-Taste, modernisierte Tabs und Dialoge.
+- Über steht für beide Marken rechts oben und zeigt die echte Programmversion, Manfred Sickinger GmbH, Hasi Elektronic und Hamdi Güncavdi.
+- Einstellungen wirken sofort und bleiben gespeichert: Mausradrichtung und -tempo, Drehtempo, Bildauflösung, Hintergrund, Baumdichte, STEP-Farben und Mess-Nachkommastellen.
+- Mausrad standardmäßig umgekehrt: nach unten näher, nach oben weiter. Die Richtung ist umschaltbar; der Punkt unter dem Cursor bleibt stehen.
+- M aktiviert Messen und wechselt aus Navigationswerkzeugen zurück zur Auswahl. Textfelder und modale Dialoge sind von CAD-Kürzeln ausgenommen.
+- Redundante Frei-drehen-Schaltflächen entfernt; die mittlere Maustaste dreht weiterhin frei.
+
 ## 0.1.4
 
 - Messen mit gezielter Messartwahl und Schnellzugriff: Radius, Durchmesser, Bogenlänge, Sehne, Bogenhöhe, Kantenlänge, Abstand, Winkel, Fläche, Umfang und Körperwerte.

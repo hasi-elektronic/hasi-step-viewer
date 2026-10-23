@@ -82,15 +82,8 @@ const pixel = await p.evaluate(p => window.__app.screenOf(p), punkt);
 await p.mouse.move(pixel[0], pixel[1]);await p.mouse.wheel(0, -250);await frames(2);
 const pixelDanach = await p.evaluate(p => window.__app.screenOf(p), punkt);
 if (Math.hypot(pixel[0]-pixelDanach[0],pixel[1]-pixelDanach[1]) > 0.5) fail('Zoom verschiebt den Punkt unter dem Cursor');
-// Hauptknopf startet freie Mausnavigation statt automatischer Einachsdrehung.
-await p.locator('#btnDreh').click();
-if ((await st()).autodrehen || await p.evaluate(() => window.__app.werkzeug()) !== 'drehen') fail('Hauptknopf startet kein freies Drehen');
-if (await p.locator('#btnDreh').getAttribute('aria-pressed') !== 'true') fail('Drehen-Werkzeug nicht aktiv markiert');
-const linksVorher = (await st()).pos;
-await p.mouse.move(cx,cy);await p.mouse.down();await p.mouse.move(cx+140,cy+100,{steps:8});await p.mouse.up();await frames(2);
-if (gleich(linksVorher,(await st()).pos)) fail('Drehen-Werkzeug dreht mit Links nicht');
-await p.locator('#btnDreh').click();
-if (await p.evaluate(() => window.__app.werkzeug()) !== 'wahl') fail('Drehen-Knopf kehrt nicht zur Auswahl zurück');
+// Freies Drehen bleibt per mittlerer Maustaste verfügbar, ohne redundante Schaltflächen.
+if(await p.locator('#btnDreh,[data-werkzeug=drehen]').count())fail('Entfernter Frei-drehen-Knopf ist noch vorhanden');
 // Autodrehen: Schalter an, dann dreht es; ein Griff in die Ansicht schaltet es aus und es steht danach still
 await p.getByRole('button',{name:'Werkzeuge',exact:true}).click();
 await p.locator('[data-aktion="drehen"]').click();
@@ -106,8 +99,6 @@ if (!gleich((await st()).pos, a1)) fail('Nach dem Loslassen dreht es von selbst 
 await p.getByRole('button',{name:'Werkzeuge',exact:true}).click();await p.locator('[data-aktion="drehen"]').click();
 await p.mouse.move(cx,cy);await p.mouse.wheel(0,-50);await frames(2);
 if((await st()).autodrehen)fail('Autodrehen bleibt nach Wheel-Zoom an');
-const txt = await p.locator('#btnDreh').innerText();
-if (txt.trim() !== 'Frei drehen') fail('Beschriftung: ' + txt);
 if (errs.length) fail('Seitenfehler: ' + errs.join(' | '));
 console.log('smoke-drehen ok: frei über die Pole zur Rückseite, Bauteillagen unverändert, Mitte/Links drehen, Strg+Mitte schwenken, Cursorzoom, kein Nachlauf');
 await b.close();
