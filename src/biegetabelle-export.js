@@ -34,15 +34,16 @@ export function tabelle(sheet, meta = {}) {
     ['Werkstoff', meta.werkstoff || '–'],
     ['K-Faktor', meta.kfaktor || (sheet.modus === 'manuell' ? de(sheet.K, 2) : 'nach DIN 6935 (je Biegung)')],
     ['Zuschnitt', f ? `${de(Math.max(...f.size))} × ${de(Math.min(...f.size))} mm` : '–'],
-    ['Biegungen', String(sheet.bends.length)],
+    ['Biegungen', String(sheet.biegungen?.length ?? sheet.bends.length)],
   ];
+  if (sheet.biegungen && sheet.biegungen.length !== sheet.bends.length) kopf.push(['Biegezonen', `${sheet.bends.length} (gleiche Nr. = eine Biegelinie, ein Hub)`]);
   if (meta.masse) kopf.push(['Masse', meta.masse]);
   const spalten = ['Nr.', 'Winkel [°]', 'Ri [mm]', 'Richtung', 'Biegelinie (Lage im Zuschnitt)', 'Biegelänge [mm]', 'BZ [mm]', 'v [mm]', 'BD [mm]', 'K', 'Quelle'];
   const zeilen = sheet.bends.map((b, i) => {
     const bl = f?.bendLines?.[i] ? biegelinie(f.bendLines[i], f) : null;
-    return { nr: b.nr, winkel: b.ang, ri: b.ri, richtung: b.dir, lage: bl?.text || '–', lageXY: bl, laenge: b.len, bz: b.ba, v: b.v, bd: b.bd ?? (b.v == null ? null : -b.v), k: b.K, quelle: quelleText(b), schenkel: b.schenkel || [] };
+    return { nr: b.gruppe ?? b.nr, zone: b.nr, winkel: b.ang, ri: b.ri, richtung: b.dir, lage: bl?.text || '–', lageXY: bl, laenge: b.len, bz: b.ba, v: b.v, bd: b.bd ?? (b.v == null ? null : -b.v), k: b.K, quelle: quelleText(b), schenkel: b.schenkel || [] };
   });
-  const hinweis = 'Nr. = Reihenfolge der Abwicklung (keine Biegefolgeplanung). Ursprung der Lageangaben: linke untere Ecke des Zuschnitts, wie im DXF. Werte vor der Fertigung prüfen.';
+  const hinweis = 'Nr. = Biegung in der Reihenfolge der Abwicklung (keine Biegefolgeplanung); Biegezonen auf derselben Biegelinie mit gleichem Winkel, Richtung und Ri tragen dieselbe Nr. Ursprung der Lageangaben: linke untere Ecke des Zuschnitts, wie im DXF. Werte vor der Fertigung prüfen.';
   return { kopf, spalten, zeilen, hinweis, zuschnitt: f ? { laenge: Math.max(...f.size), breite: Math.min(...f.size) } : null };
 }
 

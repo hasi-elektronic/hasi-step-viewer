@@ -28,6 +28,7 @@ jobs:
       - run: node tools/test-edrw.mjs  # Messen wie eDrawings: parallel / Normaler Abstand / Delta, Bogen Mitte–Min.–Max.
       - run: node tools/test-beschriftung.mjs  # jedes Maß nennt, was es misst; Gesamthöhe und Höhe Fläche–Fläche (synthetisch)
       - run: node tools/test-flaechenmasse.mjs  # Fläche anklicken → Länge × Breite, Blechdicke, Gesamthöhe; Zylinder Ø, R, Länge (mm)
+      - run: node tools/test-biegungen.mjs  # Biegezonen auf derselben Biegelinie = eine Biegung (synthetisches Teil mit zwei Laschen)
       - run: sudo apt-get update && sudo apt-get install -y poppler-utils unzip
       - run: node tools/test-export.mjs
       - run: node tools/test-baum.mjs
@@ -61,6 +62,7 @@ jobs:
           node tools/smoke-messen.mjs
           SHOTDIR=docs/flaeche/hasi node tools/smoke-flaeche.mjs
           SHOTDIR=docs/edrw/hasi node tools/smoke-edrw.mjs
+          node tools/smoke-biegungen.mjs
           SHOTDIR=docs/edrw/hasi node tools/smoke-hoehe-beschriftung.mjs
           SHOTDIR=docs/edrw/hasi node tools/smoke-flaeche-mm.mjs
           SHOTDIR=docs/seitenleiste node tools/smoke-seitenleiste.mjs

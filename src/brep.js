@@ -1,6 +1,7 @@
 import {biegung} from './kfaktor.js';
 import {abwicklungLage,geoSchreiben,bogenZerlegen} from './geo.js';
 import {faltePunkt} from './falten.js';
+import {biegungenGruppieren} from './biegungen.js';
 import {methodenZeile,projiziere,normalAbstand,PROJ_NORMALE,RICHTUNGEN,richtungsVektor,COS_PARALLEL,SIN_PARALLEL,ebeneEbene,lotPaar,aufEbene,aufAchse,ebeneAchse,achseAchse,innenWinkel} from './messen-hilfen.js';
 // B-Rep-Kern: Einlesen, Topologie, Messen, Blech. Läuft im Worker (Browser) und in Node (Tests).
 // Alle Längen intern in mm (OCCT rechnet STEP-Dateien beim Import in mm um).
@@ -856,7 +857,9 @@ export function createBrep(ocIn){
     const ext=[];kanten.forEach(k=>{ext.push(...k.pts);const b=k.bogen;if(!b)return;
       for(let q=0;q<4;q++){const a=q*Math.PI/2;if(b.voll||ccwW(b.a0,a)<=b.sweep+1e-12)ext.push([b.c[0]+b.r*Math.cos(a),b.c[1]+b.r*Math.sin(a)])}});
     const mn=[Math.min(...ext.map(p=>p[0])),Math.min(...ext.map(p=>p[1]))],mx=[Math.max(...ext.map(p=>p[0])),Math.max(...ext.map(p=>p[1]))];
-    res.flat={contour:lines,kanten,bendLines,rissLinien,bendInfo:res.bends.map(b=>({nr:b.nr,dir:b.dir,ang:b.ang,ri:b.ri,seite:b.seite,angenommen:!!b.angenommen})),min:mn,max:mx,size:[mx[0]-mn[0],mx[1]-mn[1]]};
+    // Biegungen wie an der Abkantpresse zählen: Biegezonen auf derselben Biegelinie (gleicher Winkel, Richtung, Ri) = eine Biegung (src/biegungen.js)
+    {const g=biegungenGruppieren(res.bends,bendLines);res.bends.forEach((b,i)=>Object.assign(b,g.zonen[i]));res.biegungen=g.biegungen}
+    res.flat={contour:lines,kanten,bendLines,rissLinien,bendInfo:res.bends.map(b=>({nr:b.nr,gruppe:b.gruppe,abschnitt:b.abschnitt,abschnitte:b.abschnitte,dir:b.dir,ang:b.ang,ri:b.ri,seite:b.seite,angenommen:!!b.angenommen})),min:mn,max:mx,size:[mx[0]-mn[0],mx[1]-mn[1]]};
     res.faltung={basis:FB,bends:fbends,kette:Object.fromEntries(kette),fehler:faltFehler};
     // ---- Prüfungen ----
     // Freiformflächen: Stirnflächen (Dicke t, z. B. schräg geschnittene Biegungsenden oder Eckfreischnitte) bilden keine Blechseite und
@@ -962,7 +965,7 @@ export function createBrep(ocIn){
       flat.bendLines.forEach((b,i)=>{const q=bi[i];if(!q)return;const m=[(b[0][0]+b[1][0])/2,(b[0][1]+b[1][1])/2];let w=Math.atan2(b[1][1]-b[0][1],b[1][0]-b[0][0])*DEG;if(w>90)w-=180;if(w<=-90)w+=180;
         // Text mittig 2 mm neben der Biegelinie (72 = 1: zentriert am Ausrichtpunkt 11/21)
         const wr=w/DEG,nx=-Math.sin(wr)*2,ny=Math.cos(wr)*2,t=[m[0]+nx,m[1]+ny];
-        kopf('TEXT','BESCHRIFTUNG','AcDbText');g(10,X(t));g(20,Y(t));g(30,0);g(40,'3.5000');g(1,`B${q.nr} ${q.dir==='nach oben'?'AUF':'AB'} ${de(q.ang,1)}%%d Ri ${de(q.ri,2)}`);g(50,w.toFixed(4));g(72,1);g(11,X(t));g(21,Y(t));g(31,0);g(100,'AcDbText')})}
+        kopf('TEXT','BESCHRIFTUNG','AcDbText');g(10,X(t));g(20,Y(t));g(30,0);g(40,'3.5000');g(1,`B${q.gruppe??q.nr} ${q.dir==='nach oben'?'AUF':'AB'} ${de(q.ang,1)}%%d Ri ${de(q.ri,2)}`);g(50,w.toFixed(4));g(72,1);g(11,X(t));g(21,Y(t));g(31,0);g(100,'AcDbText')})}
     g(0,'ENDSEC');g(0,'EOF');M.letzteDxf=stat;return L.join('\n')+'\n'};
   return M;
 }
