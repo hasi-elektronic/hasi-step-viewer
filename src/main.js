@@ -8,7 +8,12 @@ import { deltaLinien ,richtungsVektor,RICHTUNGEN,kopierWert} from './messen-hilf
 import { stepText, teilName as ohneNummer, sichererName, eindeutigeNamen, stepNachbearbeiten } from './step-export.js';
 import { listen } from '@tauri-apps/api/event';
 import { createOpenQueue, installFileDrop } from './datei-oeffnen.js';
+import { MESSARTEN, messartInfo, gleicheMessauswahl } from './messarten.js';
+import { createMessauftraege } from './messauftraege.js';
 const $=id=>document.getElementById(id), view=$('view');
+const messauftraege=createMessauftraege();
+let messart='auto';
+const html=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 if(MARKE.id==='sickinger'){document.documentElement.dataset.marke='sickinger';document.title=MARKE.produkt}
 let logoZusage=null;
 function logoDaten(){if(!MARKE.logo)return Promise.resolve(null);if(!logoZusage)logoZusage=fetch(MARKE.logo).then(r=>{if(!r.ok)throw new Error('Logo fehlt');return r.blob()}).then(b=>new Promise(res=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.readAsDataURL(b)}));return logoZusage}
@@ -145,10 +150,10 @@ const nf=(v,d=3)=>v.toLocaleString('de-DE',{minimumFractionDigits:d,maximumFract
 function fmt(v,k){if(k==='L')return nf(v,PREC)+' mm';if(k==='A')return nf(v,PREC)+' mm²';if(k==='V')return nf(v,PREC)+' mm³';
   if(k==='W')return nf(v,Math.max(PREC,1))+' °';if(k==='P')return v.map(x=>nf(x,PREC)).join(' / ')+' mm';if(k==='M')return v>=1000?nf(v/1000)+' kg':nf(v,1)+' g';return String(v)}
 // Flächeninhalt, Volumen und Oberfläche nur unter Messen › Erweitert (Standard aus): angezeigt werden Maße in mm
-const FLAECHEN_ZEILEN=new Set(['Flächeninhalt','Volumen','Oberfläche','Volumen (≈, Netz)','Oberfläche (≈, Netz)']);
+const FLAECHEN_ZEILEN=new Set(['Flächeninhalt','Volumen','Oberfläche','Volumen (≈, Netz)','Oberfläche (≈, Netz)','Kreissektorfläche','Kreissegmentfläche']);
 const flaecheAn=()=>!!document.getElementById('flaecheZeigen')?.checked;
 const ohneFlaeche=rows=>flaecheAn()?rows:rows.filter(r=>!FLAECHEN_ZEILEN.has(r[0]));
-const kv=(el,rows)=>{el._rows=rows;el.innerHTML=rows.map(([a,b,k,x],i)=>`<div${x?' class="big"':''}>${a}</div><div data-i="${i}" class="${x?'big ':''}wert" title="Klicken: kopieren (1. Klick voller Wert, 2. Klick gerundet)">${k&&k!=='t'?fmt(b,k):b}</div>`).join('')};
+const kv=(el,rows)=>{el._rows=rows;el.innerHTML=rows.map(([a,b,k,x],i)=>`<div${x?' class="big"':''}>${html(a)}</div><div data-i="${i}" class="${x?'big ':''}wert" title="Klicken: kopieren (1. Klick voller Wert, 2. Klick gerundet)">${html(k&&k!=='t'?fmt(b,k):b)}</div>`).join('')};
 
 // ---------- Ansicht ----------
 const views={};for(const [n,a] of Object.entries(ANSICHT))views[n]=new THREE.Vector3(...a.d);
@@ -215,6 +220,7 @@ $('showEdges').onchange=()=>setStil($('showEdges').checked?'kanten':'schattiert'
 const KERN_STUFE={lesen:'Datei wird gelesen …',uebersetzen:'Geometrie wird übersetzt …',heilen:'Geometrie wird aufbereitet …',tessellieren:'Darstellung wird berechnet …'};
 window.__kernStufe=(name,k,n)=>{const t=KERN_STUFE[name];if(!t||$('busy').style.display!=='block')return;const txt=n>0?`${t} ${Math.round(100*k/n)} %`:t;$('busy').textContent=txt;$('status').textContent=txt};
 async function load(buf,name,opt){
+  messauftraege.invalidate();window.__messBereit=null;
   navigationVoll();
   const t0=performance.now();const stufen={};let tS=t0;const stufe=k=>{const n=performance.now();stufen[k]=Math.round(n-tS);tS=n};window.__ladeStufen=stufen;$('status').textContent='Lade '+name+' …';$('drop').style.display='none';const hinweis=$('dropHint');if(hinweis)hinweis.hidden=true;$('busy').style.display='block';$('busy').textContent='Datei wird geladen …';
   let size=buf?buf.byteLength:0;
@@ -263,7 +269,7 @@ async function load(buf,name,opt){
   info.kern=data.kernArt;
   $('status').textContent=`${name} · ${(size/1024).toFixed(0)} KB · ${info.bodies} Körper · ${info.faces} Flächen · Datei: ${U.sym} → Anzeige: mm · ${ms} ms${nativ?' · Messdaten werden vorbereitet …':''}`;
   if(nativ){const st=$('status').textContent;window.__messBereit=inv('kern_brep').then(text=>call('attach',{text})).then(a=>{info.attachMs=a.ms;if($('status').textContent===st)$('status').textContent=st.replace(' · Messdaten werden vorbereitet …',' · nativer Kern')})
-    .catch(e=>{$('status').textContent=st.replace(' · Messdaten werden vorbereitet …',' · Messen nicht verfügbar: '+(e.message||e))})}
+    .catch(e=>{$('status').textContent=st.replace(' · Messdaten werden vorbereitet …',' · Messen nicht verfügbar: '+(e.message||e));throw e});window.__messBereit.catch(()=>{})}
   offenPruefen(data);
   return info}
 function puffer(roh){if(roh instanceof ArrayBuffer)return roh;if(ArrayBuffer.isView(roh))return roh.buffer.slice(roh.byteOffset,roh.byteOffset+roh.byteLength);if(Array.isArray(roh))return new Uint8Array(roh).buffer;throw new Error('Datei konnte nicht gelesen werden')}
@@ -353,7 +359,7 @@ async function modellAktualisieren(){if(!data||!bodies.length)return;const ids=b
   if(ids.length===bodies.length&&data.modelAlle){data.model=data.modelAlle;showModel();return}
   try{const q=await call('modell',{ids,schnell:data.kernArt==='nativ'||bodies.length>50});if(nr!==modellSeq)return;data.model=q;showModel()}catch(e){console.warn(e)}}
 const nodeOfBody=i=>{let best=null;nodes.forEach(n=>{if(n.bodies.includes(i))best=n});return best};
-function selectNode(n){selNode=n;selMenge=n?new Set([n]):new Set();selAnker=n;sels=[];marks.clear();$('selinfo').textContent='';$('mresult').innerHTML='';
+function selectNode(n){selNode=n;selMenge=n?new Set([n]):new Set();selAnker=n;clearSel();
   if(n)for(let x=n.parent;x;x=x.parent)x.open=true;
   renderTree();hervorheben();const row=document.querySelector(`.trow[data-id="${n?.id}"]`);row?.scrollIntoView({block:'nearest'});needs=true}
 function hervorheben(){if(!wahlMark)return;wahlMark.clear();const ids=zielIds().filter(i=>bodies[i]?.visible);wahlMark.userData.ids=ids;if(ids.length)wahlMark.add(bodyHi(ids,0x1f8fd0));needs=true}
@@ -482,29 +488,33 @@ $('axis').onchange=setCut;$('cut').oninput=setCut;window.__setCut=(a,v)=>{$('axi
 
 // ---------- Fangen / Auswahl ----------
 const ray=new THREE.Raycaster();let sels=[],hov=null;
-function pickAt(cx,cy,opt){if(!model)return null;if(nurFl()&&!(opt&&opt.verdeckt))opt={...(opt||{}),nurFlaeche:true};const r=renderer.domElement.getBoundingClientRect();const ndc=new THREE.Vector2(((cx-r.left)/r.width)*2-1,-((cy-r.top)/r.height)*2+1);
+function pickAt(cx,cy,opt){if(!model)return null;
+  const explizit=!$('messenPanel').hidden&&messart!=='auto'&&!abm&&!festWahl;
+  const arten=explizit?messartInfo(messart).arten:null,fang=k=>arten?arten.includes(k):$('snap'+({vertex:'V',mid:'M',center:'C',edge:'E',face:'F',axis:'A'}[k])).checked;
+  if((!explizit&&nurFl()&&!(opt&&opt.verdeckt))||(arten?.length===1&&arten[0]==='face'))opt={...(opt||{}),nurFlaeche:true};const r=renderer.domElement.getBoundingClientRect();const ndc=new THREE.Vector2(((cx-r.left)/r.width)*2-1,-((cy-r.top)/r.height)*2+1);
   ray.setFromCamera(ndc,camera);
   const clipOk=p=>!renderer.localClippingEnabled||plane.distanceToPoint(p)>=0;
   const liste=(opt&&opt.verdeckt)?bodies:bodies.filter(b=>b.visible);
   const fh=ray.intersectObjects(liste,false).filter(h=>clipOk(h.point))[0];
+  if(explizit&&messart==='koerper'&&fh){const b=fh.object;return {k:'solid',inst:b.userData.inst,body:b}}
   if(opt&&opt.nurFlaeche){if(!fh)return null;const b=fh.object;return {k:'face',id:b.geometry.userData.face[fh.faceIndex],inst:b.userData.inst,p:model.worldToLocal(fh.point.clone()).toArray(),body:b}}
   const dist=fh?fh.distance:camera.position.distanceTo(controls.target);
   const wpp=2*dist*Math.tan(camera.fov*Math.PI/360)/r.height;// Welt pro Pixel
   const toScreen=p=>{const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*r.width+r.left,(1-w.y)/2*r.height+r.top]};
   const px=p=>{const s=toScreen(p);return Math.hypot(s[0]-cx,s[1]-cy)};
   let eh=null;
-  if(edgeObjs.length&&$('showEdges').checked&&($('snapE').checked||$('snapV').checked||$('snapC').checked)){ray.params.Line.threshold=7*wpp;
+  if(edgeObjs.length&&($('showEdges').checked||explizit)&&(fang('edge')||fang('vertex')||fang('center')||fang('mid'))){ray.params.Line.threshold=7*wpp;
     // nur Kanten von Teilen nahe am Strahl prüfen (schnell bei großen Baugruppen)
     const cand=edgeObjs.filter(el=>el.parent.visible&&(!fh||el.parent===fh.object||ray.ray.intersectsSphere((el.geometry.boundingSphere||(el.geometry.computeBoundingSphere(),el.geometry.boundingSphere)).clone().applyMatrix4(el.matrixWorld))));
     const hs=ray.intersectObjects(cand,false).filter(h=>clipOk(h.point)&&(!fh||h.distance<=fh.distance+10*wpp));
     if(hs.length){const h=hs[0],inst=h.object.userData.inst,u=data.inst[inst].u;const eid=h.object.geometry.userData.edge[h.index/2|0];eh={id:eid,inst,u,e:data.uniq[u].edges[eid],p:model.worldToLocal(h.point.clone()).toArray()}}}
   if(eh){const e=eh.e,inst=eh.inst;
-    if($('snapV').checked)for(const p of [e.pts[0],e.pts[e.pts.length-1]]){const pm=toModel(inst,p);if(px(pm)<10){const vi=vIndexOf(eh.u).get(key(p));if(vi!=null)return {k:'vertex',id:vi,inst,p:pm,body:bodies[inst]}}}
-    if($('snapM').checked&&e.mid&&!(e.type==='Kreis'&&near(e.pts[0],e.pts.at(-1)))){const pm=toModel(inst,e.mid);if(px(pm)<10)return {k:'mid',id:eh.id,inst,p:pm,body:bodies[inst]}}
-    if($('snapC').checked&&e.type==='Kreis')return {k:'center',id:eh.id,inst,p:toModel(inst,e.c),body:bodies[inst]};
-    if($('snapE').checked)return {k:'edge',id:eh.id,inst,p:eh.p,body:bodies[inst]}}
-  if(fh&&$('snapA').checked){const b=fh.object;const fid=b.geometry.userData.face[fh.faceIndex];const f=data.uniq[data.inst[b.userData.inst].u].faces[fid];if(f.ax)return {k:'axis',src:'face',id:fid,inst:b.userData.inst,p:model.worldToLocal(fh.point.clone()).toArray(),body:b}}
-  if(fh&&$('snapF').checked){const b=fh.object;const fid=b.geometry.userData.face[fh.faceIndex];return {k:'face',id:fid,inst:b.userData.inst,p:model.worldToLocal(fh.point.clone()).toArray(),body:b}}
+    if(fang('vertex'))for(const p of [e.pts[0],e.pts[e.pts.length-1]]){const pm=toModel(inst,p);if(px(pm)<10){const vi=vIndexOf(eh.u).get(key(p));if(vi!=null)return {k:'vertex',id:vi,inst,p:pm,body:bodies[inst]}}}
+    if(fang('mid')&&e.mid&&!(e.type==='Kreis'&&near(e.pts[0],e.pts.at(-1)))){const pm=toModel(inst,e.mid);if(px(pm)<10)return {k:'mid',id:eh.id,inst,p:pm,body:bodies[inst]}}
+    if(fang('center')&&e.type==='Kreis')return {k:'center',id:eh.id,inst,p:toModel(inst,e.c),body:bodies[inst]};
+    if(fang('edge'))return {k:'edge',id:eh.id,inst,p:eh.p,body:bodies[inst]}}
+  if(fh&&fang('axis')&&(!explizit||!fang('face'))){const b=fh.object;const fid=b.geometry.userData.face[fh.faceIndex];const f=data.uniq[data.inst[b.userData.inst].u].faces[fid];if(f.ax)return {k:'axis',src:'face',id:fid,inst:b.userData.inst,p:model.worldToLocal(fh.point.clone()).toArray(),body:b}}
+  if(fh&&fang('face')){const b=fh.object;const fid=b.geometry.userData.face[fh.faceIndex];return {k:'face',id:fid,inst:b.userData.inst,p:model.worldToLocal(fh.point.clone()).toArray(),body:b}}
   return null}
 const near=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2])<1e-9;
 const names={face:'Fläche',edge:'Kante',vertex:'Ecke',center:'Kreismittelpunkt',mid:'Kantenmitte',axis:'Achse'};
@@ -518,7 +528,7 @@ function hiObj(s,color){const g=new THREE.Group();
       if(out.length){const gg=new THREE.BufferGeometry();gg.setAttribute('position',new THREE.Float32BufferAttribute(out,3));g.add(atInst(new THREE.Mesh(gg,new THREE.MeshBasicMaterial({color,transparent:true,opacity:.55,side:THREE.DoubleSide,depthTest:true,clippingPlanes:renderer.localClippingEnabled?[plane]:[]}))))}}}
   if(s.k==='edge'){const p=UQ(s).edges[s.id].pts;const gg=new THREE.BufferGeometry().setFromPoints(p.map(V3));const l=new THREE.Line(gg,new THREE.LineBasicMaterial({color,depthTest:false,linewidth:2}));l.renderOrder=9;g.add(atInst(l))}
   if(s.k==='solid')return bodyHi([s.inst],color);
-  if(s.k==='vertex'||s.k==='center'||s.k==='mid'){g.add(snapSym(s.k,s.p,color));if(s.k==='center'){const e=UQ(s).edges[s.id];const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints(e.pts.map(V3)),new THREE.LineBasicMaterial({color,depthTest:false}));l.renderOrder=9;g.add(atInst(l))}
+  if(s.k==='vertex'||s.k==='center'||s.k==='mid'){g.add(snapSym(s.k,s.p||pointOf(s),color));if(s.k==='center'){const e=UQ(s).edges[s.id];const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints(e.pts.map(V3)),new THREE.LineBasicMaterial({color,depthTest:false}));l.renderOrder=9;g.add(atInst(l))}
     if(s.k==='mid'){const e=UQ(s).edges[s.id];const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints(e.pts.map(V3)),new THREE.LineBasicMaterial({color,depthTest:false}));l.renderOrder=9;g.add(atInst(l))}}
   if(s.k==='axis'){const a=UQ(s).faces[s.id].ax;const L=Math.max(a.r*4,box.getSize(new THREE.Vector3()).length()*0.15);
     const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(a.c).addScaledVector(V3(a.d),-L),V3(a.c).addScaledVector(V3(a.d),L)]),new THREE.LineDashedMaterial({color,dashSize:L/20,gapSize:L/40,depthTest:false}));l.computeLineDistances();l.renderOrder=9;g.add(atInst(l))}
@@ -536,7 +546,7 @@ renderer.domElement.addEventListener('pointerleave',()=>{if(hoverRAF){cancelAnim
 renderer.domElement.addEventListener('pointerup',e=>{if(zugSperre){zugSperre=false;return}if(e.button!==0||werkzeug!=='wahl')return;if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;
   if(festWahl){const f=pickAt(e.clientX,e.clientY,{nurFlaeche:true});if(f)festSetzen(f);return}
   if(abm){const f=pickAt(e.clientX,e.clientY,{nurFlaeche:true});if(f)abmRechnen(f);return}
-  if(e.shiftKey&&!e.ctrlKey&&!e.metaKey){const f=pickAt(e.clientX,e.clientY);if(f&&f.k==='face'&&(reiheBezug||sels[0]?.k==='face')){reiheMessen(f);return}}
+  if(messart==='auto'&&e.shiftKey&&!e.ctrlKey&&!e.metaKey){const f=pickAt(e.clientX,e.clientY);if(f&&f.k==='face'&&(reiheBezug||sels[0]?.k==='face')){reiheMessen(f);return}}
   const s=pickAt(e.clientX,e.clientY);if(!s&&!(e.ctrlKey||e.shiftKey||e.metaKey)){auswahlAufheben();return}if(s){select(s,e.ctrlKey||e.shiftKey||e.metaKey);if(s.body){const n=nodeOfBody(s.body.userData.inst);if(n){selNode=n;selMenge=new Set([n]);selAnker=n;for(let x=n.parent;x;x=x.parent)x.open=true;renderTree();hervorheben();document.querySelector(`.trow[data-id="${n.id}"]`)?.scrollIntoView({block:'nearest'})}}}});
 // Esc wie in eDrawings: 1. Esc löscht die aktuelle Mess-Auswahl samt Ergebnis (Messen bleibt aktiv), 2. Esc hebt die Bauteilauswahl auf.
 // Gespeicherte Bemaßungen bleiben immer erhalten. Nicht beim Tippen in einem Textfeld.
@@ -579,12 +589,42 @@ $('clearSel').onclick=()=>clearSel();
 // Messoptionen: Abstandsmethode und Projektion (Bildschirm = aktuelle Blickrichtung in Modellkoordinaten)
 // Bildschirmrichtungen in Modellkoordinaten: oben, rechts, blick (zum Betrachter hin)
 function sicht(){if(!model)return {};return {oben:camDir(new THREE.Vector3(0,1,0)),rechts:camDir(new THREE.Vector3(1,0,0)),blick:camDir(new THREE.Vector3(0,0,1))}}
-function messOpts(){const art=$('projektion')?.value||'keine';const pj={art};if(art==='bildschirm'&&model)pj.n=camDir(new THREE.Vector3(0,0,1));return {methode:$('methode')?.value||'auto',bogen:$('bogenAbstand')?.value||'mitte',projektion:pj,richtung:$('massRichtung')?.value||'ausgerichtet',sicht:sicht()}}
+function messOpts(){const art=$('projektion')?.value||'keine';const pj={art};if(art==='bildschirm'&&model)pj.n=camDir(new THREE.Vector3(0,0,1));return {messart,methode:$('methode')?.value||'auto',bogen:$('bogenAbstand')?.value||'mitte',projektion:pj,richtung:$('massRichtung')?.value||'ausgerichtet',sicht:sicht()}}
 function messGrafik(r){r.gfx.forEach(([a,b])=>{const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(a),V3(b)]),new THREE.LineBasicMaterial({color:0x1f8fd0,depthTest:false}));l.renderOrder=11;marks.add(l)});
   if(r.delta&&$('deltaZeigen')?.checked)deltaLinien(r.delta[0],r.delta[1]).forEach(d=>{const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(d.von),V3(d.bis)]),new THREE.LineBasicMaterial({color:d.farbe,depthTest:false}));l.renderOrder=11;l.userData.delta=d.achse;marks.add(l)})}
-async function neuMessen(){if(!sels.length)return;const s=sels.slice(),opts=messOpts();try{const r=await call('measure',{sels:s,opts});if(s.length!==sels.length||s.some((x,i)=>x!==sels[i]))return;lastRes={r,sels:s,title:s.map(label).join(' + '),opts};
-  marks.clear();s.forEach(x=>marks.add(hiObj(x,0x1f8fd0)));messGrafik(r);zeigeMessung(r);window.__lastMeasure=r;needs=true;return r}catch(err){$('mresult').innerHTML=`<div>Fehler</div><div>${err.message}</div>`}}
-function clearSel(){sels=[];reiheBezug=null;zeileHi.clear();if(vorschauLinie){vorschauLinie.removeFromParent();vorschauLinie=null}marks.clear();$('selinfo').textContent='';$('mresult').innerHTML='';messLabels=[];ergebnisZeigen([]);try{drawDims()}catch{}window.__lastMeasure=null;needs=true}
+function messartAnzeige(){
+  const m=messartInfo(messart);$('messart').value=messart;
+  const linear=messart==='auto'||messart==='abstand';$('bogenOptionen').hidden=!linear;$('linWahl').hidden=!linear;$('ghKnopf').parentElement.hidden=messart!=='auto';
+  $('messHinweis').textContent=m.hint;
+  document.querySelectorAll('[data-messart]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.messart===messart)));
+  const el=$('messAuswahl');el.replaceChildren();
+  sels.forEach((s,i)=>{const b=document.createElement('button');b.type='button';b.textContent=`${i+1}. ${label(s)} ×`;b.title='Dieses Element aus der Messung entfernen';b.onclick=()=>{sels.splice(i,1);if(sels.length)void neuMessen();else clearSel()};el.appendChild(b)});
+}
+function messartSetzen(art){
+  if(!MESSARTEN.some(m=>m.id===art))return;
+  messart=art;setWerkzeug('wahl');messauftraege.invalidate();lastRes=null;window.__lastMeasure=null;
+  const m=messartInfo(art);
+  if(sels.length>m.max||m.arten&&sels.some(s=>!m.arten.includes(s.k)))clearSel();
+  messartAnzeige();if(sels.length)return neuMessen();
+  ergebnisZeigen([]);
+}
+{const gruppen=new Map();for(const m of MESSARTEN){if(!gruppen.has(m.gruppe)){const g=document.createElement('optgroup');g.label=m.gruppe;$('messart').appendChild(g);gruppen.set(m.gruppe,g)}const o=document.createElement('option');o.value=m.id;o.textContent=m.name;gruppen.get(m.gruppe).appendChild(o)}
+  $('messart').onchange=()=>messartSetzen($('messart').value);document.querySelectorAll('[data-messart]').forEach(b=>b.onclick=()=>messartSetzen(b.dataset.messart));messartAnzeige()}
+async function neuMessen(){
+  if(!sels.length)return;
+  const s=sels.slice(),opts=messOpts();lastRes=null;window.__lastMeasure=null;
+  marks.clear();s.forEach(x=>marks.add(hiObj(x,0x1f8fd0)));messLabels=[];zeileHi.clear();messartAnzeige();
+  return messauftraege.run({bereit:window.__messBereit,
+    ausfuehren:()=>call('measure',{sels:s,opts}),
+    warten:()=>{$('ergebnis').setAttribute('aria-busy','true');ergebnisZeigen(['Messdaten werden vorbereitet / Messung wird berechnet …']);kv($('mresult'),[]);$('keepDim').disabled=$('copySel').disabled=true;needs=true},
+    ergebnis:r=>{lastRes=r.bereit===false?null:{r,sels:s,title:s.map(label).join(' + '),opts};$('ergebnis').setAttribute('aria-busy','false');$('keepDim').disabled=$('copySel').disabled=!lastRes;
+      if(lastRes&&r.messart)$('keepDim').disabled=!baueDim(lastRes,'auto');
+      $('keepDim').title=$('keepDim').disabled?'Für dieses Ergebnis keine grafische Bemaßung; Kopieren und Messprotokoll sind verfügbar.':'Als Bemaßung im 3D behalten';
+      messGrafik(r);zeigeMessung(r);window.__lastMeasure=r;needs=true},
+    fehler:err=>{$('ergebnis').setAttribute('aria-busy','false');kv($('mresult'),[['Fehler',err.message||String(err),'t']]);ergebnisZeigen(['Messen nicht verfügbar: '+(err.message||err)]);needs=true},
+  });
+}
+function clearSel(){messauftraege.invalidate();lastRes=null;sels=[];reiheBezug=null;zeileHi.clear();if(vorschauLinie){vorschauLinie.removeFromParent();vorschauLinie=null}marks.clear();$('selinfo').textContent='';kv($('mresult'),[]);$('mresult')._linien={};messLabels=[];$('ergebnis').setAttribute('aria-busy','false');$('keepDim').disabled=$('copySel').disabled=true;messartAnzeige();ergebnisZeigen([]);try{drawDims()}catch{}window.__lastMeasure=null;needs=true}
 // ---------- Fläche zu Fläche (wie ZW3D „Instant Measure“) ----------
 // Q = nur Flächen fangen (bleibt gespeichert). Erste Fläche wählen, zweite überfahren → Vorschau des Hauptwerts am Cursor.
 // Umschalt+Klick misst gegen die erste Fläche (Bezug) weiter (Reihe). Esc löscht. Strg+C kopiert den Hauptwert.
@@ -600,10 +640,11 @@ function tipEinpassen(){const tip=$('snaptip');if(tip.hidden)return;tip.style.ma
   const grenze=pr&&pr.width&&r.bottom>pr.top&&r.top<pr.bottom?pr.left-6:$('view').getBoundingClientRect().right-6;if(r.right>grenze)tip.style.marginLeft=(grenze-r.right-28)+'px'}
 function vorschauText(v){return v?`${v.name} ${fmt(v.wert,v.einheit)}`:''}
 async function vorschau(h,cx,cy){if(sels.length!==1||sels[0].k!=='face'||!h||h.k!=='face'||(h.id===sels[0].id&&(h.inst??0)===(sels[0].inst??0)))return;
-  const a={k:'face',id:sels[0].id,inst:sels[0].inst??0,p:sels[0].p},b={k:'face',id:h.id,inst:h.inst??0,p:h.p};
+  if(messart!=='auto'&&messart!=='abstand'&&messart!=='winkel')return;
+  const art0=messart,bez0=sels[0];const a={k:'face',id:sels[0].id,inst:sels[0].inst??0,p:sels[0].p},b={k:'face',id:h.id,inst:h.inst??0,p:h.p};
   if(vorschauLauf){vorschauNaechste=[h,cx,cy];return}vorschauLauf=true;
   try{const k=vorschauKey(a,b);let v=vorschauCache.get(k);if(!v||v.linie){v=await call('vorschau',{a,b});if(v&&!v.linie)vorschauCache.set(k,v)}
-    if(hov===h){const tip=$('snaptip');tip.textContent=label(h)+(v?' · '+vorschauText(v):'');tipEinpassen();window.__vorschau=v;
+    if(hov===h&&messart===art0&&sels[0]===bez0){const tip=$('snaptip');tip.textContent=label(h)+(v?' · '+vorschauText(v):'');tipEinpassen();window.__vorschau=v;
       if(vorschauLinie){vorschauLinie.removeFromParent();vorschauLinie=null}
       if(v&&v.linie){const g=new THREE.BufferGeometry().setFromPoints(v.linie.map(V3));vorschauLinie=new THREE.Line(g,new THREE.LineDashedMaterial({color:0xff6a00,dashSize:2,gapSize:1.5,depthTest:false}));
         vorschauLinie.computeLineDistances();vorschauLinie.renderOrder=11;hoverObj.add(vorschauLinie)}needs=true}}
@@ -660,8 +701,13 @@ if($('abmKnopf'))$('abmKnopf').onclick=()=>abmUmschalten();if($('abmGrund'))$('a
 async function offenPruefen(d0){try{await (window.__messBereit||Promise.resolve());const o=await call('offen',{});if(data!==d0)return;data.offen=o;showMass();showModel()}catch{}}
 let lastRes=null;
 function zeigeMessung(r){const namen=[...new Set(sels.map(teilName).filter(Boolean))];
-  kv($('mresult'),ohneFlaeche(namen.length?[['Bauteil',namen.join(' · '),'t'],...r.rows]:r.rows));$('mresult')._linien=r.linien||{};zeileHi.clear();betonung();
-  try{const e=edrwAuswertung(r,sels);messLabels=e.labels;ergebnisZeigen(e.zeilen)}catch(err){messLabels=[];ergebnisZeigen([])}needs=true}
+  const rows=namen.length?[['Bauteil',namen.join(' · '),'t'],...r.rows]:r.rows;
+  kv($('mresult'),r.messart?rows:ohneFlaeche(rows));$('mresult')._linien=r.linien||{};zeileHi.clear();betonung();
+  if(r.hinweis){messLabels=[];ergebnisZeigen([r.hinweis])}
+  else if(r.messart){const h=r.label,z=[h,...r.rows.filter(x=>x!==h&&['L','W','A','V'].includes(x[2])).slice(0,2)].filter(Boolean).map(rowText);
+    const warn=r.rows.filter(x=>x[0]==='Hinweis').map(x=>x[1]);ergebnisZeigen(z.concat(warn));
+    const p=r.messpunkt||(r.gfx[0]&&mitteP(...r.gfx[0]))||sels[0]?.p;messLabels=p?[{p,zeilen:z.slice(0,1)}]:[];
+  }else try{const e=edrwAuswertung(r,sels);messLabels=e.labels;ergebnisZeigen(e.zeilen)}catch(err){messLabels=[];ergebnisZeigen([])}needs=true}
 function linLabelsNachBemassung(){try{if(lastRes)messLabels=messLabels.concat(linLabels(lastRes.r,lastRes.sels))}catch{}needs=true}
 // ---------- Ergebnis wie eDrawings: Text im Feld „Ergebnisse“ und Werte direkt am Element im 3D ----------
 let messLabels=[];const LILA='#7b3fd0';
@@ -729,7 +775,7 @@ function edrwAuswertung(r,ss){const z=[],L=[];const W=(n,v,k)=>n+': '+fmt(v,k);
     L.push({p:mitteP(...e.abstandPaar),zeilen:[W('Abst.',e.abstand,'L')]});if(e.winkel!=null&&e.abstand<1e-9&&r.gfx[0])L[0].zeilen=[W('Winkel',e.winkel,'W')]}
   else{const h=mainRow(r);if(h)z.push(W(h[0],h[1],h[2]));const d=r.delta;if(d){dl([0,1,2].map(j=>Math.abs(d[1][j]-d[0][j])));L.push({p:mitteP(d[0],d[1]),zeilen:[W('Abst.',h&&h[2]==='L'?h[1]:Math.hypot(...[0,1,2].map(j=>d[1][j]-d[0][j])),'L')]})}}
   return {zeilen:z,labels:ss.length===2&&!edrwFlaechen()?[]:L}}
-function ergebnisZeigen(zeilen){const el=$('ergebnis');if(!el)return;if(!zeilen.length){el.textContent='Kante, Fläche oder Punkt anklicken.';return}
+function ergebnisZeigen(zeilen){const el=$('ergebnis');if(!el)return;if(!zeilen.length){el.textContent=messartInfo(messart).hint;return}
   el.innerHTML=zeilen.map((t,i)=>{const h=t.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));return /^Normaler/.test(t)?`<span class="lila">${h}</span>`:i===0?`<b>${h}</b>`:h}).join('\n')}
 // Kästen der Messwerte nicht übereinander (ΔX/ΔY/ΔZ an kurzen oder fast deckungsgleichen Teilstrecken): überlappende Kästen
 // rücken nach oben weg, die Führungslinie zeigt weiter auf ihren Punkt.
@@ -743,14 +789,19 @@ function zeichneMesslabels(c){messLabelKaesten=[];if(!messLabels.length||!model)
     c.fillStyle='rgba(255,255,255,.95)';c.strokeStyle=l.farbe||'#2c333a';c.lineWidth=1.2;c.beginPath();if(c.roundRect)c.roundRect(x,y,w,h,4);else c.rect(x,y,w,h);c.fill();c.stroke();
     c.beginPath();c.moveTo(q[0],q[1]);c.lineTo(x,y+h);c.stroke();c.fillStyle=l.farbe||'#1b2127';l.zeilen.forEach((t,i)=>c.fillText(t,x+7,y+3+8+i*16))}
   messLabelKaesten=K.map(k=>({zeilen:k.l.zeilen.slice(),x:k.x,y:k.y,w:k.w,h:k.h}));c.restore()}
-async function select(s,add=false){if(sels.length>=2&&!add)clearSel();const clean={k:s.k,id:s.id,inst:s.inst,p:s.p};if(s.src)clean.src=s.src;sels.push(clean);marks.add(hiObj(clean,0x1f8fd0));
+async function select(s,add=false){if(!data)return;
+  const m=messartInfo(messart);if(m.arten&&!m.arten.includes(s.k)){$('status').textContent=m.hint;return}
+  const clean={k:s.k,id:s.id,inst:s.inst,p:s.p};if(s.src)clean.src=s.src;
+  if(messart==='summe'&&sels.length&&sels[0].k!==clean.k){$('status').textContent='Kanten und Flächen bitte getrennt summieren.';return}
+  const gleich=sels.findIndex(x=>gleicheMessauswahl(x,clean));
+  if(gleich>=0){if(messart==='summe'){sels.splice(gleich,1);if(!sels.length){clearSel();return}}else return}
+  else{if(messart==='auto'?sels.length>=2&&!add:sels.length>=m.max)clearSel();sels.push(clean)}
   $('selinfo').textContent=sels.map(label).join('  +  ');needs=true;
-  try{const opts=messOpts();const r=await call('measure',{sels:sels.slice(),opts});if(!sels.includes(clean))return;lastRes={r,sels:sels.slice(),title:sels.map(label).join(' + '),opts};zeigeMessung(r);
-    messGrafik(r);
+  const r=await neuMessen();if(r&&lastRes?.r===r){
     // Zwei Flächen: wie eDrawings nur Werte an den Flächen (keine bleibende Bemaßung). Andere Paare und „Nur Flächen“ (Q, wie ZW3D): Bemaßung bleibt stehen
-    if(sels.length===2&&!add&&!edrwFlaechen()){keepDim();linLabelsNachBemassung()}
-    if(sels.length===1&&clean.k==='solid')gesamtHoehe(clean.inst??0);
-    window.__lastMeasure=r;needs=true;return r}catch(err){$('mresult').innerHTML=`<div>Fehler</div><div>${err.message}</div>`}}
+    if(messart==='auto'&&sels.length===2&&!add&&!edrwFlaechen()){keepDim();linLabelsNachBemassung()}
+    if(messart==='auto'&&sels.length===1&&clean.k==='solid')gesamtHoehe(clean.inst??0);
+  }return r}
 // ---------- Bemaßungen (bleiben im 3D stehen) ----------
 const dimGroup=new THREE.Group();dimGroup.renderOrder=20;let dims=[],dimNo=0;
 const rowText=r=>`${r[0]}: ${r[2]&&r[2]!=='t'?fmt(r[1],r[2]):r[1]}`;
@@ -773,8 +824,11 @@ const lineOf=s=>{if(s.k!=='edge')return null;const e=UQ(s).edges[s.id];if(e.type
 const pointOf=s=>{const U=UQ(s),m=IM(s);if(s.k==='vertex')return TP(m,U.verts[s.id]);if(s.k==='mid')return TP(m,U.edges[s.id].mid);if(s.k==='center'){const e=U.edges[s.id];return e.c?TP(m,e.c):null}if(s.k==='point')return s.p;return null};
 const letzteLinear=()=>{const sel=dims.find(x=>x.no===dimSel);if(sel&&BM.LINEAR.includes(sel.typ))return sel;for(let i=dims.length-1;i>=0;i--)if(BM.LINEAR.includes(dims[i].typ))return dims[i];return null};
 function baueDim(res,typ,refDim){const sl=res.sels,r=res.r,size=box.getSize(new THREE.Vector3()).length();const d={typ:null,einheit:'L',tol:{art:'keine',o:0,u:0},praefix:'',suffix:'',text:''};
+  if(['sehne','bogenhoehe','laenge'].includes(r.messart))d.art=r.label[0];
+  if(typ==='auto'&&r.messart){if(!r.bemassungstyp)return null;typ=r.bemassungstyp}
+  if(typ==='winkel'&&r.winkelMass){const w=r.winkelMass;return Object.assign(d,{typ:'winkel',v:w.v,u1:w.u1,u2:w.u2,einheit:'W',wert:w.wert,off:BM.V.mul(w.u1,size*0.08)})}
   if(typ==='auto'&&r.ff?.winkelMass){const w=r.ff.winkelMass;Object.assign(d,{typ:'winkel',v:w.v,u1:w.u1,u2:w.u2,einheit:'W'});d.wert=Math.acos(Math.max(-1,Math.min(1,BM.V.dot(w.u1,w.u2))))*180/Math.PI;d.off=BM.V.mul(BM.V.norm(BM.V.add(w.u1,w.u2)),size*0.08);return d}
-  if(typ==='auto'){if(sl.length===1){const ci=circleOf(sl[0]);typ=ci?(ci.voll?'durchmesser':'radius'):r.fase?'fase':(pointOf(sl[0])?'koordinate':null)}else typ=r.gfx.length?(r.richtung&&BM.RICHTUNG_TYP[r.richtung.art]||'linear'):null}
+  if(typ==='auto'){if(sl.length===1){const ci=r.messkreis||circleOf(sl[0]);typ=ci?(ci.voll?'durchmesser':'radius'):r.fase?'fase':(pointOf(sl[0])?'koordinate':null)}else typ=r.gfx.length?(r.richtung&&BM.RICHTUNG_TYP[r.richtung.art]||'linear'):null}
   if(!typ)return null;d.typ=typ;
   if(typ==='kette'||typ==='basislinie'){const p=sl.length===1?pointOf(sl[0]):(r.gfx[0]&&r.gfx[0][1]);const ref=refDim||letzteLinear();if(!p||!ref)return null;
     const g=BM.folgeMass(ref,p,typ,size*0.05);if(!g)return null;return Object.assign(d,g)}
@@ -792,18 +846,18 @@ function baueDim(res,typ,refDim){const sl=res.sels,r=res.r,size=box.getSize(new 
     const t=(a*e-dd)/den,u=(e-a*dd)/den;const v=BM.V.mul(BM.V.add(BM.V.add(L1[0],BM.V.mul(d1,t)),BM.V.add(L2[0],BM.V.mul(d2,u))),0.5);
     const far=L=>BM.V.len(BM.V.sub(L[0],v))>BM.V.len(BM.V.sub(L[1],v))?L[0]:L[1];d.v=v;d.u1=BM.V.norm(BM.V.sub(far(L1),v));d.u2=BM.V.norm(BM.V.sub(far(L2),v));
     d.einheit='W';d.wert=Math.acos(Math.max(-1,Math.min(1,BM.V.dot(d.u1,d.u2))))*180/Math.PI;d.off=BM.V.mul(d.u1,Math.min(BM.V.len(BM.V.sub(far(L1),v)),BM.V.len(BM.V.sub(far(L2),v)))*0.6);return d}
-  const ci=circleOf(sl[0]);
+  const ci=r.messkreis||(!r.messart?circleOf(sl[0]):null);
   if(typ==='radius'||typ==='durchmesser'){if(!ci)return null;Object.assign(d,{c:ci.c,n:ci.n,rad:ci.r,ang:0.7});d.wert=typ==='radius'?ci.r:2*ci.r;return d}
-  if(typ==='bogen'){if(!ci||!ci.p0)return null;const [a0,a1]=BM.bogenWinkel(ci.c,ci.n,ci.p0,ci.p1,ci.voll);Object.assign(d,{c:ci.c,n:ci.n,rad:ci.r,a0,a1,offR:ci.r*0.25});d.wert=rowVal(r,'Bogenlänge')??ci.r*(a1-a0);return d}
+  if(typ==='bogen'){if(!ci||!ci.p0)return null;const [a0,ende]=BM.bogenWinkel(ci.c,ci.n,ci.p0,ci.p1,ci.voll);const a1=ci.winkel!=null?a0+ci.winkel:ende;Object.assign(d,{c:ci.c,n:ci.n,rad:ci.r,a0,a1,offR:ci.r*0.25});d.wert=rowVal(r,'Bogenlänge')??ci.r*(a1-a0);return d}
   if(typ==='koordinate'){const p=pointOf(sl[0]);if(!p)return null;d.p=p;d.off=[size*0.05,size*0.05,0];d.wert=0;return d}
   return null}
 const dimText=d=>`Bemaßung ${d.no} (${d.title})\n`+d.r.rows.map(rowText).join('\n');
 function renderDims(){if(dimSel&&!dims.some(d=>d.no===dimSel)){dimSel=null;$('dimedit').hidden=true}
   $('dimcount').textContent=dims.length?`(${dims.length})`:'';
-  $('dimlist').innerHTML=dims.map(d=>{const r=mainRow(d.r);return `<div class="dim" data-no="${d.no}"><b>${d.no}</b><span title="${d.title}"><span class="t">${r[0]}</span> <b>${fmt(r[1],r[2])}</b></span><button data-a="edit" title="Bearbeiten">Bearbeiten</button><button data-a="copy" title="Kopieren">Kopieren</button><button data-a="del" title="Löschen">Löschen</button></div>`}).join('')||'<p class="hint">Noch keine Bemaßungen.</p>';
+  $('dimlist').innerHTML=dims.map(d=>{const r=mainRow(d.r);return `<div class="dim" data-no="${d.no}"><b>${d.no}</b><span title="${html(d.title)}"><span class="t">${html(r[0])}</span> <b>${html(fmt(r[1],r[2]))}</b></span><button data-a="edit" title="Bearbeiten">Bearbeiten</button><button data-a="copy" title="Kopieren">Kopieren</button><button data-a="del" title="Löschen">Löschen</button></div>`}).join('')||'<p class="hint">Noch keine Bemaßungen.</p>';
   window.__dims=dims.map(d=>({no:d.no,title:d.title,text:dimText(d)}));needs=true}
 async function copyText(t){window.__lastCopy=t;try{await navigator.clipboard.writeText(t)}catch{const a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();try{document.execCommand('copy')}catch{}a.remove()}$('status').textContent='In die Zwischenablage kopiert'}
-function keepDim(typ){if(!lastRes)return false;typ=typ||$('dimtyp').value;const g=baueDim(lastRes,typ);if(typ!=='auto'&&!g){$('status').textContent='Diese Bemaßungsart passt nicht zur Auswahl.';return false}
+function keepDim(typ){if(!lastRes)return false;typ=typ||$('dimtyp').value;const g=baueDim(lastRes,typ);if((typ!=='auto'||lastRes.r.messart)&&!g){$('status').textContent='Für diese Auswahl gibt es keine grafische Bemaßung. Messwert kopieren oder als Messprotokoll ausgeben.';return false}
   // Gleicher Bezugspunkt wie eine vorhandene Bemaßung: weiter nach außen versetzen, damit sich nichts überlappt
   if(g&&g.off&&!['kette','basislinie'].includes(g.typ)){const tol=box.getSize(new THREE.Vector3()).length()*0.04,ref=dimRef(g);const k=dims.filter(d=>d.typ&&BM.V.len(BM.V.sub(dimRef(d),ref))<tol).length;if(k)g.off=BM.V.mul(g.off,1+k*0.9)}
   dims.push({no:++dimNo,...lastRes,...(g||{})});renderDims();return true}
@@ -873,7 +927,7 @@ $('dimLaden').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(
 $('dimCopyAll').onclick=()=>copyText(dims.map(dimText).join('\n\n'));
 if($('flaecheZeigen')){$('flaecheZeigen').checked=localStorage.getItem('flaecheZeigen')==='1';
   $('flaecheZeigen').onchange=()=>{localStorage.setItem('flaecheZeigen',flaecheAn()?'1':'0');if(data){showModel?.()}if(lastRes)zeigeMessung(lastRes.r)}}
-$('prec').value=String(PREC);$('prec').onchange=()=>{PREC=+$('prec').value;localStorage.setItem('genauigkeit',PREC);renderDims();if(lastRes)kv($('mresult'),ohneFlaeche(lastRes.r.rows));if(data){showModel?.();showMass?.()}if(sheetCache)calcSheet()};
+$('prec').value=String(PREC);$('prec').onchange=()=>{PREC=+$('prec').value;localStorage.setItem('genauigkeit',PREC);renderDims();if(lastRes)zeigeMessung(lastRes.r);if(data){showModel?.();showMass?.()}if(sheetCache)calcSheet()};
 
 // ---------- Tabs / Blech ----------
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===t));
@@ -1052,7 +1106,7 @@ $('btnReset').onclick=()=>animiereAnsicht('iso');
 function setAutodrehen(an){drehen=!!an;const b=document.querySelector('[data-aktion="drehen"]');if(b)b.setAttribute('aria-pressed',String(drehen));needs=true}
 $('btnDreh').onclick=()=>{setAutodrehen(false);setWerkzeug(werkzeug==='drehen'?'wahl':'drehen')};
 renderer.domElement.addEventListener('pointerdown',()=>{if(drehen)setAutodrehen(false)},true);
-renderer.domElement.addEventListener('wheel',()=>{if(drehen)setAutodrehen(false)},{capture:true,passive:true});
+controls.addEventListener('start',()=>{if(drehen)setAutodrehen(false)});
 // Messen ist ein Schalter wie in eDrawings: zweiter Klick schließt das Feld wieder (Start immer ohne offenes Werkzeugfeld)
 function werkzeugFelderZu(){$('messenPanel').hidden=true;$('blechPanel').hidden=true;$('btnMessen')?.classList.remove('on');$('btnBlech')?.classList.remove('on');triadeAktualisieren()}
 $('btnMessen').onclick=()=>{if(!$('messenPanel').hidden&&!dockZustand.zu)werkzeugFelderZu();else tabTo('messen')};
@@ -1151,13 +1205,13 @@ function zahlFeld(id){const el=$(id);if(!el)return 0;const v=parseFloat(String(e
 function zeigeDelta(d,grad){if($('dx')){$('dx').value=(d?.x||0).toFixed(3);$('dy').value=(d?.y||0).toFixed(3);$('dz').value=(d?.z||0).toFixed(3)}
   if(grad!=null&&$('dWinkel'))$('dWinkel').value=grad.toFixed(3)}
 async function nachBewegung(){if(!bodies.length)return;const lagen=bodies.map((_,i)=>lies34(i));lagen.forEach((m,i)=>{if(data)data.inst[i].m=m});
+  messauftraege.invalidate();const aktuellesModell=data;
   triadeAktualisieren();hervorheben();
   try{await call('lagen',{m:lagen})}catch(e){console.warn(e)}
-  if(sels.length){try{const gehalten=sels.map(s=>({k:s.k,id:s.id,inst:s.inst,p:s.p,...(s.src?{src:s.src}:{})}));
-    const opts=messOpts();const r=await call('measure',{sels:gehalten,opts});lastRes={r,sels:gehalten,title:gehalten.map(label).join(' + '),opts};
-    marks.clear();gehalten.forEach(s=>marks.add(hiObj(s,0x1f8fd0)));
-    messGrafik(r);
-    $('selinfo').textContent=gehalten.map(label).join('  +  ');zeigeMessung(r);window.__lastMeasure=r}catch(err){$('mresult').innerHTML=`<div>Fehler</div><div>${err.message}</div>`}}
+  if(data!==aktuellesModell)return;
+  // Punkte aus BREP-IDs neu bestimmen; alte Raycast-Anker gehören zur vorigen Lage.
+  sels=sels.map(s=>({...s,p:s.k==='point'?s.p:undefined}));
+  if(sels.length){$('selinfo').textContent=sels.map(label).join('  +  ');await neuMessen()}
   await dimsAktualisieren();needs=true}
 async function dimsAktualisieren(){if(!dims.length){renderDims();return}
   for(const d of dims){if(!d.sels||!d.typ)continue;try{const r=await call('measure',{sels:d.sels,opts:d.opts||{}});
@@ -1310,7 +1364,7 @@ window.__app={messLabelKaesten:()=>messLabelKaesten,messLabels:()=>messLabels.ma
   drehe:(name,achse,grad)=>bewege((knotenNachName(name)||selNode)?.all||[],0,0,0,achse,grad),
   rueckgaengig,wiederholen,resetPos:name=>resetPos(name?((knotenNachName(name)||{all:[]}).all):bodies.map((_,i)=>i)),resetAlle:()=>resetPos(bodies.map((_,i)=>i)),
   gizmo:()=>!!(triade&&triade.visible),triadePixel,triadeSkala:()=>triade?.scale.x,auswahlAufheben,sels:()=>sels.slice(),triadePos:()=>triade?triade.position.toArray():null,
-  oeffneBewegen:()=>selNode&&act('move',selNode),modell:()=>data?.model,neuMessen,messOpts,bemassungenText,bemassungenEinlesen,festSetzen,fest:()=>fest,letzteMessung:()=>lastRes,blech:()=>sheetCache,
+  oeffneBewegen:()=>selNode&&act('move',selNode),modell:()=>data?.model,neuMessen,messOpts,messartSetzen,bemassungenText,bemassungenEinlesen,festSetzen,fest:()=>fest,letzteMessung:()=>lastRes,blech:()=>sheetCache,
   deltaLinien:()=>marks.children.filter(o=>o.userData.delta).map(o=>o.userData.delta),namen:()=>nodes.map(n=>n.name),ausgeblendet:()=>nodes.filter(n=>!visible(n)).map(n=>n.name)};
 window.__toggleMeasure=()=>{};
 window.__dateienBereit=dateienStarten().catch(dateiFehler);

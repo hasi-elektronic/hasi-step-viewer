@@ -108,5 +108,15 @@ try {
     await page.mouse.up({button:'middle'});
   }
   assert.deepEqual(errors,[]);
+  // Auch in einer großen Baugruppe muss eine Messung die gewählte Instanz behalten.
+  const gemessen=await page.evaluate(async()=>{
+    const a=window.__app,d=a.data(),inst=d.inst.length-1,u=d.uniq[d.inst[inst].u];
+    const id=u.edges.findIndex(e=>e.r&&Math.abs(e.r-5)<1e-5);if(id<0)return null;
+    if(document.getElementById('messenPanel').hidden)document.getElementById('btnMessen').click();
+    await a.messartSetzen('radius');await a.select({k:'edge',id,inst});
+    return {sels:a.sels(),r:window.__lastMeasure};
+  });
+  if(gemessen){assert.equal(gemessen.sels[0].inst,result.bodies-1);assert.equal(gemessen.r.label[0],'Radius R');assert(Math.abs(gemessen.r.label[1]-5)<1e-6)}
+  else if(process.env.NAV_MESSUNG_PFLICHT==='1')assert.fail('Synthetische Radius-Geometrie fehlt');
   console.log(JSON.stringify(result,null,2));
 } finally { await browser.close(); }

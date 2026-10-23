@@ -195,12 +195,25 @@ html[data-marke="sickinger"] #drop{flex-direction:column;gap:4px}
 .hint.klein{font-size:11px;margin:2px 0 6px}
 #abmKnopf.on{background:var(--a,#0a8f5a);color:#fff}
 .dunkel .kv div.big{color:#fff!important}
-/* Messen kompakt wie eDrawings: unten links, höchstens 280 px breit und halbe Höhe; alles Weitere unter „Erweitert“ */
+/* Messen: unten links, höchstens 280 px breit; die Messartwahl bleibt im Hauptfeld. */
 #dock.kompakt{width:min(280px,calc(45% - 12px))}
-#messenPanel.kompakt .pbody{max-height:min(38vh,340px)}
-#dock.kompakt>#messenPanel .pbody{max-height:min(38vh,340px)}
 #messenPanel select{max-width:100%}
 #messenPanel #bogenAbstand{width:100%}
+#messenPanel #messart{width:100%;padding:7px 8px;font-weight:600}
+.messkopf{display:flex;justify-content:space-between;align-items:center;margin:0 0 6px;font-weight:700}
+.messkopf span{font-size:11px;font-weight:400;color:#c2ced9}
+.messschnell{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:8px}
+.messschnell button{font:inherit;font-size:11px;min-height:32px;border:1px solid #55616c;border-radius:6px;color:#eff5fb;background:#39434c;cursor:pointer;padding:5px 3px}
+.messschnell button[aria-pressed=true]{background:var(--a-dunkel);border-color:var(--a);color:#fff}
+.messschnell button:focus-visible,#messart:focus-visible,#messAuswahl button:focus-visible{outline:2px solid var(--a);outline-offset:2px}
+#messenPanel .messhinweis{font-size:11px;line-height:1.5;color:#d4dfe9;margin:8px 0}
+#messAuswahl{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:5px}
+#messAuswahl:empty{display:none}
+#messAuswahl button{font:inherit;font-size:11px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid #536676;background:#223747;border-radius:5px;color:#deefff;padding:4px 6px;cursor:pointer}
+#messenPanel.kompakt .pbody,#dock.kompakt>#messenPanel .pbody{max-height:min(70vh,700px)}
+#messenPanel [aria-busy=true]{opacity:.75}
+#messenPanel [hidden]{display:none}
+#messenPanel .ergebnis b{font-size:14px}
 #messenPanel .ergebnis{background:#1f252b;border:1px solid #3a434c;border-radius:6px;padding:6px 8px;font-size:12px;line-height:1.45;white-space:pre-line;margin:4px 0 6px;min-height:2.6em}
 #messenPanel .ergebnis b{color:#fff}
 #messenPanel .ergebnis .lila{color:#c9a2ff}

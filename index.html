@@ -98,11 +98,17 @@
 <input id="cut" type="range" min="0" max="1000" value="500" disabled title="Schnittposition verschieben"></div></div>
 <div id="messenPanel" class="schweb dunkel kompakt" hidden><div class="ptitel">Messen <button type="button" class="tab on" data-tab="messen">Messen</button><button type="button" class="zuKnopf" id="messenZu" title="Einklappen">–</button></div>
 <div class="pbody"><section id="tab-messen">
-<div class="ahead">Einheiten</div>
-<div class="row"><label for="einheitLaenge">Länge</label> <select id="einheitLaenge" title="Längen einheit" disabled><option>Millimeter</option></select></div>
-<div class="row"><label for="einheitWinkel">Winkel</label> <select id="einheitWinkel" title="Winkel einheit" disabled><option>Grad</option></select></div>
-<div class="row"><label for="bogenAbstand">Bogen-/Kreismessungen</label></div>
+<div class="messkopf"><label for="messart">Messart</label><span>mm · Grad</span></div>
+<select id="messart" aria-describedby="messHinweis" title="Was möchten Sie messen?"></select>
+<div class="messschnell" aria-label="Häufige Messarten">
+<button type="button" data-messart="abstand" aria-pressed="false">↔ Abstand</button><button type="button" data-messart="radius" aria-pressed="false">R Radius</button><button type="button" data-messart="durchmesser" aria-pressed="false">Ø Durchmesser</button><button type="button" data-messart="bogen" aria-pressed="false">⌒ Bogenlänge</button><button type="button" data-messart="winkel" aria-pressed="false">∠ Winkel</button><button type="button" data-messart="summe" aria-pressed="false">∑ Summe</button>
+</div>
+<p id="messHinweis" class="hint messhinweis"></p>
+<div id="messAuswahl" aria-label="Gewählte Messelemente"></div>
+<div class="row"><label for="prec">Nachkommastellen</label> <select id="prec" title="Nachkommastellen"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option></select></div>
+<div id="bogenOptionen"><div class="row"><label for="bogenAbstand">Bogen-/Kreismessungen</label></div>
 <div class="row"><select id="bogenAbstand" title="Abstand, sobald ein Bogen, Kreis oder Zylinder beteiligt ist"><option value="mitte" selected>Abstand Mitte zu Mitte</option><option value="min">Mindestabstand</option><option value="max">Maximalabstand</option></select></div>
+</div>
 <div class="ahead">Ergebnisse</div>
 <div id="ergebnis" class="ergebnis" aria-live="polite">Kante, Fläche oder Punkt anklicken.</div>
 <div id="selinfo" class="sel"></div>
@@ -134,8 +140,6 @@
 <p class="hint">Kettenmaß und Basislinienmaß: einen Punkt wählen (Ecke, Kantenmitte, Kreismittelpunkt) und „Bemaßen“ – es geht von der letzten linearen Bemaßung weiter. Fase: Fasenfläche wählen.</p>
 <div class="ahead">Maßstil</div>
 <div class="row"><label>Textgröße <input id="stGroesse" type="number" min="8" max="40" style="width:4em"> px</label> <label>Pfeil <select id="stPfeil"></select></label> <label>Stellen <input id="stStellen" type="number" min="0" max="4" style="width:3em"></label></div>
-<div class="ahead">Genauigkeit</div>
-<div class="row"><label for="prec">Stellen</label> <select id="prec" title="Nachkommastellen"><option value="0">0 (1)</option><option value="1">1 (0,1)</option><option value="2">2 (0,01)</option><option value="3" selected>3 (0,001)</option><option value="4">4 (0,0001)</option></select> <span class="m">alle Maße in mm</span></div>
 <div class="ahead">Masse</div>
 <div class="row"><select id="mat" title="Werkstoff wählen"><option value="7.85">Stahl (7,85 g/cm³)</option><option value="7.90">Edelstahl (7,90 g/cm³)</option><option value="2.70">Aluminium (2,70 g/cm³)</option><option value="8.96">Kupfer (8,96 g/cm³)</option><option value="8.50">Messing (8,50 g/cm³)</option><option value="custom">Eigene Dichte</option></select>
 <input id="dens" type="number" step="0.01" min="0" value="7.85" title="Dichte in g/cm³"> <span class="m">g/cm³</span></div>

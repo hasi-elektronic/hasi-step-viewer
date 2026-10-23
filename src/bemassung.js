@@ -92,7 +92,11 @@ export function zeichne(ctx,d,P,stil,farbe='#0a6fb0'){ctx.strokeStyle=farbe;ctx.
 export function geomLinear(d){const dir=d.typ==='ausgerichtet'||!d.dir?V.norm(V.sub(d.p2,d.p1)):V.norm(d.dir);let off=d.off||[0,0,0];off=V.sub(off,V.mul(dir,V.dot(off,dir)));
   const l1=V.add(d.p1,off),l2=V.add(l1,V.mul(dir,V.dot(V.sub(d.p2,d.p1),dir)));return {dir,off,l1,l2,mid:V.mul(V.add(d.p1,d.p2),0.5)}}
 export function bogenPunkte(v,u1,u2,rr,N=32){const a=V.norm(u1),b=V.norm(u2);const om=Math.acos(Math.max(-1,Math.min(1,V.dot(a,b))));const out=[];
-  for(let i=0;i<=N;i++){const t=i/N;let w;if(om<1e-6)w=a;else{const s=Math.sin(om);w=V.add(V.mul(a,Math.sin((1-t)*om)/s),V.mul(b,Math.sin(t*om)/s))}out.push(V.add(v,V.mul(w,rr)))}return out}
+  // Orthonormale Basis statt slerp / sin(π): auch 0° und 180° bleiben endlich.
+  let quer=V.sub(b,V.mul(a,V.dot(a,b)));
+  if(V.len(quer)<1e-10){const achse=Math.abs(a[0])<0.8?[1,0,0]:[0,1,0];quer=V.cross(a,achse)}
+  quer=V.norm(quer);
+  for(let i=0;i<=N;i++){const t=om*i/N,w=V.add(V.mul(a,Math.cos(t)),V.mul(quer,Math.sin(t)));out.push(V.add(v,V.mul(w,rr)))}return out}
 /** Ziehen: Bemaßung so versetzen, dass sie durch den Modellpunkt M geht. */
 export function ziehe(d,M,sicht){
   // Linear wie AutoCAD BEMLINEAR: Richtung folgt der Zugrichtung, bis sie mit H / V / A gesperrt wird (d.sperre)

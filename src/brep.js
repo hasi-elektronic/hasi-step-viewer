@@ -2,6 +2,7 @@ import {biegung} from './kfaktor.js';
 import {abwicklungLage,geoSchreiben,bogenZerlegen} from './geo.js';
 import {faltePunkt} from './falten.js';
 import {biegungenGruppieren} from './biegungen.js';
+import {gezieltMessen} from './messauswertung.js';
 import {methodenZeile,projiziere,normalAbstand,PROJ_NORMALE,RICHTUNGEN,richtungsVektor,COS_PARALLEL,SIN_PARALLEL,ebeneEbene,lotPaar,aufEbene,aufAchse,ebeneAchse,achseAchse,innenWinkel} from './messen-hilfen.js';
 // B-Rep-Kern: Einlesen, Topologie, Messen, Blech. Läuft im Worker (Browser) und in Node (Tests).
 // Alle Längen intern in mm (OCCT rechnet STEP-Dateien beim Import in mm um).
@@ -238,7 +239,7 @@ export function createBrep(ocIn){
     const u0=a.FirstUParameter(),u1=a.LastUParameter(),v0=a.FirstVParameter(),v1=a.LastVParameter();
     o.mid=P(a.Value((u0+u1)/2,(v0+v1)/2));
     if(t===ST.GeomAbs_Plane){const pl=a.Plane();let n=D(pl.Axis().Direction());if(rev)n=V.mul(n,-1);o.type='eben';o.plane={o:P(pl.Location()),n}}
-    else if(t===ST.GeomAbs_Cylinder){const c=a.Cylinder();o.type='zylindrisch';o.cyl={c:P(c.Location()),d:D(c.Axis().Direction()),r:c.Radius(),ang:u1-u0,v0,v1,rev}}
+    else if(t===ST.GeomAbs_Cylinder){const c=a.Cylinder();o.type='zylindrisch';o.cyl={c:P(c.Location()),d:D(c.Axis().Direction()),r:c.Radius(),ang:u1-u0,v0,v1,rev,p0:P(a.Value(u0,(v0+v1)/2)),p1:P(a.Value(u1,(v0+v1)/2)),pm:P(a.Value((u0+u1)/2,(v0+v1)/2))}}
     else if(t===ST.GeomAbs_Cone){const k=a.Cone(),al=k.SemiAngle(),R0=k.RefRadius();o.type='kegelig';
       // Kegelpunkt(u,v) = Ort + (R0 + v·sin α)·(cos u·X + sin u·Y) + v·cos α·Z  → Radien und Höhe aus dem v-Bereich der Fläche
       const ra=Math.abs(R0+v0*Math.sin(al)),rb=Math.abs(R0+v1*Math.sin(al));
@@ -250,7 +251,7 @@ export function createBrep(ocIn){
     const a=new oc.BRepAdaptor_Curve_2(e);const t=a.GetType();const u0=a.FirstParameter(),u1=a.LastParameter();
     const o={shape:e,faces:[],type:'Kurve'};let _l;Object.defineProperty(o,'len',{get:()=>_l??=props('L',e).mass,enumerable:true});
     let n=24;if(t===CT.GeomAbs_Line){o.type='Gerade';n=1;o.line={p:P(a.Value(u0)),d:V.norm(V.sub(P(a.Value(u1)),P(a.Value(u0))))}}
-    else if(t===CT.GeomAbs_Circle){const c=a.Circle();o.type='Kreis';o.circle={c:P(c.Location()),n:D(c.Axis().Direction()),r:c.Radius(),ang:Math.abs(u1-u0)};n=Math.max(8,Math.ceil(o.circle.ang/(Math.PI/24)))}
+    else if(t===CT.GeomAbs_Circle){const c=a.Circle();o.type='Kreis';o.circle={c:P(c.Location()),n:D(c.Axis().Direction()),r:c.Radius(),ang:Math.abs(u1-u0),p0:P(a.Value(u0)),p1:P(a.Value(u1)),pm:P(a.Value((u0+u1)/2))};n=Math.max(8,Math.ceil(o.circle.ang/(Math.PI/24)))}
     o.pts=[];for(let i=0;i<=n;i++)o.pts.push(P(a.Value(u0+(u1-u0)*i/n)));o.mid=P(a.Value((u0+u1)/2));
     return o};
 
@@ -259,9 +260,9 @@ export function createBrep(ocIn){
   // Arten: solid, face, edge, vertex, center (Kreismittelpunkt), mid (Kantenmitte), axis (Achse einer Zylinderfläche/Kreiskante), point
   const RES=s=>{if(s._r)return s._r;const I=M.inst[s.inst??0],U=M.uniq[I.u],m=I.m;const o={};
     if(s.k==='solid'){o.shape=U.shape.Moved(I.loc)}
-    const cylW=c=>c&&{...c,c:T.p(m,c.c),d:T.d(m,c.d)};
+    const cylW=c=>c&&{...c,c:T.p(m,c.c),d:T.d(m,c.d),p0:T.p(m,c.p0),p1:T.p(m,c.p1),pm:T.p(m,c.pm)};
     if(s.k==='face'||(s.k==='axis'&&s.src==='face')){const f=U.faces[s.id];o.f={type:f.type,area:f.area,plane:f.plane&&{o:T.p(m,f.plane.o),n:T.d(m,f.plane.n)},cyl:cylW(f.cyl),cone:f.cone&&{...f.cone,c:T.p(m,f.cone.c),d:T.d(m,f.cone.d),apex:T.p(m,f.cone.apex)},sph:f.sph&&{...f.sph,c:T.p(m,f.sph.c)}};o.shape=f.shape.Moved(I.loc)}
-    if(s.k==='edge'||s.k==='center'||s.k==='mid'||(s.k==='axis'&&s.src!=='face')){const e=U.edges[s.id];o.e={type:e.type,len:e.len,mid:T.p(m,e.mid),line:e.line&&{p:T.p(m,e.line.p),d:T.d(m,e.line.d)},circle:e.circle&&{...e.circle,c:T.p(m,e.circle.c),n:T.d(m,e.circle.n)}};o.shape=e.shape.Moved(I.loc)}
+    if(s.k==='edge'||s.k==='center'||s.k==='mid'||(s.k==='axis'&&s.src!=='face')){const e=U.edges[s.id];o.e={type:e.type,len:e.len,mid:T.p(m,e.mid),line:e.line&&{p:T.p(m,e.line.p),d:T.d(m,e.line.d)},circle:e.circle&&{...e.circle,c:T.p(m,e.circle.c),n:T.d(m,e.circle.n),p0:T.p(m,e.circle.p0),p1:T.p(m,e.circle.p1),pm:T.p(m,e.circle.pm)}};o.shape=e.shape.Moved(I.loc)}
     if(s.k==='vertex'){o.p=T.p(m,U.verts[s.id].p);o.shape=U.verts[s.id].shape.Moved(I.loc)}
     if(s.k==='center'){o.p=o.e.circle.c;o.shape=mkVertex(o.p)}
     if(s.k==='mid'){o.p=o.e.mid;o.shape=mkVertex(o.p)}
@@ -484,7 +485,7 @@ export function createBrep(ocIn){
     if(za&&zb){const aa=achseAchse(za,zb);if(aa.parallel){const q1=aufAchse(b.p||zb.c,za);return aa.koaxial?{art:'koaxial',name:'Radiusdifferenz',wert:Math.abs(za.r-zb.r),einheit:'L'}:{art:'achse',name:'Achsabstand',wert:aa.abstand,einheit:'L',linie:[q1,V.add(q1,V.mul(aa.quer,aa.abstand))]}}
       return {art:'winkel',name:'Achswinkel',wert:aa.winkel,einheit:'W'}}
     return null};
-  M.measure=(sels,opts={})=>{
+  const measureAuto=(sels,opts={})=>{
     const rows=[],gfx=[];
     if(sels.length===1){const s0=sels[0],out={rows:M.describe(s0),gfx};
       // Fase: Anker (Mitte der Fasenfläche im Querschnitt, Modellkoordinaten) für die Fasenbemaßung „2 × 45°“
@@ -551,6 +552,7 @@ export function createBrep(ocIn){
       else if(winkelZ)ed.winkel=winkelZ[1];
       out.edrw=ed}
     return out};
+  M.measure=(sels,opts={})=>gezieltMessen(sels,opts,{auto:measureAuto,resolve:RES,punkt:selPoint});
   const meshVA=u=>{const U=M.uniq[u];if(U.mva)return U.mva;const p=U.p,ix=U.i;let v=0,A=0,cx=0,cy=0,cz=0;
     for(let t=0;t<ix.length;t+=3){const a=ix[t]*3,b=ix[t+1]*3,c=ix[t+2]*3;const ax=p[a],ay=p[a+1],az=p[a+2],bx=p[b],by=p[b+1],bz=p[b+2],qx=p[c],qy=p[c+1],qz=p[c+2];
       const dv=(ax*(by*qz-bz*qy)-ay*(bx*qz-bz*qx)+az*(bx*qy-by*qx))/6;v+=dv;cx+=dv*(ax+bx+qx)/4;cy+=dv*(ay+by+qy)/4;cz+=dv*(az+bz+qz)/4;

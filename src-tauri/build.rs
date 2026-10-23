@@ -22,8 +22,12 @@ fn main() {
             }
         }
     }
-    let wasm = PathBuf::from("../dist/ocjs/opencascade.wasm.wasm");
-    let bytes = fs::read(&wasm).expect("Messkern fehlt: zuerst npm run build ausführen");
+    let wasm = PathBuf::from(if tauri_build::is_dev() {
+        "../public/ocjs/opencascade.wasm.wasm"
+    } else {
+        "../dist/ocjs/opencascade.wasm.wasm"
+    });
+    let bytes = fs::read(&wasm).expect("Messkern fehlt: npm run predev (Entwicklung) bzw. npm run build (Paket) ausführen");
     assert!(bytes.starts_with(b"\0asm\x01\0\0\0"), "Messkern ist keine gültige WASM-Datei");
     println!("cargo:rerun-if-changed={}", wasm.display());
     println!("cargo:rustc-env=HASI_WASM_SHA256={:x}", Sha256::digest(&bytes));

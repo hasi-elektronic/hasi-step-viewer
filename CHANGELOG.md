@@ -1,5 +1,16 @@
 # Änderungen
 
+## 0.1.4
+
+- Messen mit gezielter Messartwahl und Schnellzugriff: Radius, Durchmesser, Bogenlänge, Sehne, Bogenhöhe, Kantenlänge, Abstand, Winkel, Fläche, Umfang und Körperwerte.
+- Kreisbogendaten kommen aus der B-Rep: tatsächlicher Sweep auch über 180°, Kreissektor- und Kreissegmentfläche; volle Kreise erhalten keine willkürliche Sehne/Bogenhöhe.
+- Drei definierte Punkte bestimmen einen Winkel (zweiter Punkt = Scheitel) oder einen Kreis mit Radius, Durchmesser und Mittelpunkt. Degenerierte Kreise werden abgewiesen.
+- Summenmodus addiert bereits zwei Kanten oder zwei Flächen; erneuter Klick entfernt ein Element. Fangarten folgen vorübergehend der Messart, gespeicherte Fangoptionen bleiben erhalten.
+- Späte Messantworten können neue Auswahl, neue Messart oder Esc nicht mehr überschreiben. Frühe Auswahl wartet auf die nativen BREP-Messdaten.
+- Bemaßungen übernehmen dieselbe Kreis-/Winkelgeometrie wie das Ergebnis; 180°-Winkel bleiben stabil. Nicht grafisch bemaßbare Ergebnisse bleiben über Kopieren und Messprotokoll verfügbar.
+- Wheel-Zoom beendet Autodrehen. Desktop-Entwicklung verwendet den vorbereiteten Messkern aus public statt ein vorhandenes dist vorauszusetzen.
+- CI bindet Paketierung an die Tests, prüft NSIS/MSI/DMG separat und testet die neuen Messarten auch im Windows-WebView2 sowie mit einer synthetischen Baugruppe aus 512 Körpern.
+
 ## 0.1.3
 
 - Zoom per Rad und Zoom-Werkzeug behält auch bei großen Baugruppen alle Kantenlinien. Ein Zoom während des Drehens stellt die volle Detaildarstellung sofort her.
