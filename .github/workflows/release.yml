@@ -435,9 +435,17 @@ jobs:
           ls -la ${{ matrix.out }} 2>/dev/null || true
       - name: Unicode-Pfade im nativen Kern (Import, Export, erneutes Öffnen)
         shell: bash
-        env:
-          HASI_KERN: ${{ runner.os == 'Windows' && 'kern/build/Release/hasi-kern.exe' || 'kern/build/hasi-kern' }}
-        run: node tools/test-unicode-kern.mjs
+        run: |
+          set -e
+          # Den gepackten Kern mit seinen Bibliotheken testen; das Build-Verzeichnis
+          # enthält unter Windows keine OCCT-DLLs.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export HASI_KERN=src-tauri/target/release/hasi-kern.exe
+          else
+            APP=$(ls -d src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app)
+            export HASI_KERN="$APP/Contents/MacOS/hasi-kern"
+          fi
+          node tools/test-unicode-kern.mjs
       # Vorschau-Installer von #13 (41a8b06, alter Produktname und alte Programmdatei)
       - uses: actions/download-artifact@v4
         id: alt
