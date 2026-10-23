@@ -5,8 +5,11 @@ import {parseStepHierarchy} from './stephier.js';
 const B=createBrep(null);let initP=null;
 function init(base){
   if(!initP)initP=(async()=>{const {default:f}=await import(/* @vite-ignore */ base+'ocjs/opencascade.wasm.js');
-    const wasmBinary=await (await fetch(base+'ocjs/opencascade.wasm.wasm')).arrayBuffer();
-    B.setOC(await new f({wasmBinary,print:()=>{},printErr:()=>{}}))})();
+    const response=await fetch(base+'ocjs/opencascade.wasm.wasm');
+    if(!response.ok)throw new Error('Messkern konnte nicht geladen werden (HTTP '+response.status+').');
+    const wasmBinary=await response.arrayBuffer(),header=new Uint8Array(wasmBinary,0,Math.min(8,wasmBinary.byteLength));
+    if(header.length<8||![0,97,115,109,1,0,0,0].every((value,i)=>header[i]===value))throw new Error('Messkern im Programm ist beschädigt oder fehlt. Bitte die aktuelle vollständige Version installieren.');
+    B.setOC(await new f({wasmBinary,print:()=>{},printErr:()=>{}}))})().catch(error=>{initP=null;throw error});
   return initP}
 self.onmessage=async e=>{const {id,cmd,args}=e.data;
   try{

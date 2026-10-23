@@ -36,6 +36,17 @@ try {
   await page.waitForFunction(() => window.__oeffnePfad);
   await page.evaluate(() => window.__oeffnePfad('navigation.step'));
   await page.waitForFunction(() => window.__lastLoad && window.__app.animFertig(),null,{timeout:120000});
+  // Sofort im selben Ereignis prüfen: eine verzögerte Wiederherstellung nach
+  // 120 ms darf den sichtbaren Qualitätsverlust während des Zoomens nicht kaschieren.
+  const zoomDetails = await page.evaluate(() => {
+    const canvas=document.getElementById('buehne'), rect=canvas.getBoundingClientRect();
+    return [-20,-20,20,20].map(deltaY => {
+      canvas.dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY,
+        clientX:rect.x+rect.width/2,clientY:rect.y+rect.height/2}));
+      return !window.__steuerung().schnell;
+    });
+  });
+  assert(zoomDetails.every(Boolean),'Zoom darf Kantenlinien auch nicht vorübergehend ausblenden');
   const before = await page.evaluate(() => window.__app.matrizen());
   const rect = await page.locator('#buehne').boundingBox();
   await page.mouse.move(rect.x+rect.width/2,rect.y+rect.height/2);
@@ -74,6 +85,22 @@ try {
   if (result.bodies >= 500) {
     assert(result.interaction,'Große Baugruppe verwendet keine interaktive Darstellung');
     assert(result.restoredDrawCalls > result.drawCalls,'Kanten nach dem Loslassen nicht wiederhergestellt');
+    await page.locator('[data-werkzeug="zoom"]').click();
+    await page.mouse.move(rect.x+rect.width/2,rect.y+rect.height/2);
+    await page.mouse.down();
+    assert.equal(await page.evaluate(() => window.__steuerung().schnell),false,'Zoom-Werkzeug darf keine Kanten ausblenden');
+    await page.mouse.move(rect.x+rect.width/2,rect.y+rect.height/2+30,{steps:4});
+    await page.mouse.up();
+    await page.locator('[data-werkzeug="wahl"]').click();
+    await page.mouse.down({button:'middle'});
+    const zoomBeimDrehen=await page.evaluate(() => {
+      const canvas=document.getElementById('buehne'),rect=canvas.getBoundingClientRect();
+      canvas.dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-20,
+        clientX:rect.x+rect.width/2,clientY:rect.y+rect.height/2}));
+      return window.__steuerung().schnell;
+    });
+    assert.equal(zoomBeimDrehen,false,'Zoom während des Drehens muss die vollständige Darstellung herstellen');
+    await page.mouse.up({button:'middle'});
     await page.selectOption('#stilWahl','draht');
     await page.mouse.down({button:'middle'});
     await page.mouse.move(rect.x+rect.width/2+50,rect.y+rect.height/2,{steps:4});

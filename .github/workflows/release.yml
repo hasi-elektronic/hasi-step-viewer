@@ -61,6 +61,7 @@ jobs:
           node tools/smoke-datei-oeffnen.mjs
           SHOT=docs/hasi-oberflaeche.png node tools/smoke-ui.mjs
           node tools/smoke-drehen.mjs
+          node tools/smoke-messkern-fehler.mjs
           node tools/smoke-messen.mjs
           SHOTDIR=docs/flaeche/hasi node tools/smoke-flaeche.mjs
           SHOTDIR=docs/edrw/hasi node tools/smoke-edrw.mjs
@@ -382,6 +383,7 @@ jobs:
             if [ "$MARKE" = "sickinger" ]; then NAME=MS3D; BIN=ms3d; else NAME='Hasi 3D'; BIN=hasi-3d; fi
             test "$(basename "$APP")" = "$NAME.app"
             test -x "$APP/Contents/MacOS/$BIN"
+            node tools/test-messkern-paket.mjs "$APP/Contents/MacOS/$BIN"
             test "$(plutil -extract CFBundleExecutable raw "$APP/Contents/Info.plist")" = "$BIN"
             test $(ls "$APP/Contents/Resources/kern" | wc -l) -ge $n
             otool -L "$APP/Contents/MacOS/hasi-kern" | grep -q '@rpath/'
@@ -422,6 +424,7 @@ jobs:
             grep -q "!define MAINBINARYNAME \"$BIN\"" "$NSI"
             grep -q 'hooks.nsh' "$NSI"
             test -f "src-tauri/target/release/$BIN.exe"
+            node tools/test-messkern-paket.mjs "$D/$BIN.exe"
             WXS=$(find src-tauri/target/release/wix -name '*.wxs' -print -quit)
             test -n "$WXS"
             grep -q "Extension Id=\"step\"" "$WXS"

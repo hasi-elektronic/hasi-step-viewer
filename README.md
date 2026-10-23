@@ -1,4 +1,4 @@
-# Hasi 3D / MS3D 0.1.2
+# Hasi 3D / MS3D 0.1.3
 
 Produktnamen ab 20.10.2026: **Hasi 3D** (Marke Hasi, vorher „Hasi STEP-Betrachter“) und **MS3D** (Marke Sickinger, vorher „Sickinger STEP-Viewer“). Kennungen, Programmkennungen der Dateizuordnung und MSI-Upgrade-Codes bleiben gleich, damit ein Update die Vorschau-Installation ersetzt.
 
@@ -28,6 +28,8 @@ Linux-Voraussetzungen: libwebkit2gtk-4.1-dev, libgtk-3-dev, librsvg2-dev, Rust >
 
 ## Installer über CI
 `.github/workflows/release.yml`: Jobs auf `windows-latest` (NSIS-.exe + .msi) und `macos-latest` (Universal-.dmg), je Marke `hasi` und `sickinger`. Start über Tag `v*` oder manuell (workflow_dispatch); Ergebnisse als Actions-Artefakte.
+
+Vor der Auslieferung prüft `node tools/test-messkern-paket.mjs <Programmdatei>` den tatsächlich eingebetteten WASM-Messkern gegen die SHA256-Prüfsumme der Quelldatei. Die Prüfung läuft auch gegen die aus MSI bzw. `.app` entpackten Programme; ein erfolgreicher nativer STEP-Import allein reicht nicht zur Freigabe des Messens.
 
 ## Marke Sickinger (MS3D)
 Dieselbe App, zweite Marke für Manfred Sickinger Apparatebau. Ohne Variable bleibt der Hasi-Build unverändert.

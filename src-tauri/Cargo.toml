@@ -1,16 +1,19 @@
 [package]
 name = "hasi-step-viewer"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 rust-version = "1.85"
 license = "UNLICENSED"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+brotli = "8"
+sha2 = "0.10"
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "=2.4.5"
 serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
 [profile.release]
 lto = true
 opt-level = "s"

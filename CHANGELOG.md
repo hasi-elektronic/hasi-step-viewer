@@ -1,5 +1,12 @@
 # Änderungen
 
+## 0.1.3
+
+- Zoom per Rad und Zoom-Werkzeug behält auch bei großen Baugruppen alle Kantenlinien. Ein Zoom während des Drehens stellt die volle Detaildarstellung sofort her.
+- Unvollständig geschriebene Brotli-Assets nach einem abgebrochenen Build werden vor der Wiederverwendung geprüft und neu erzeugt.
+- Der paketierte WASM-Messkern wird aus der gebauten Programmdatei entpackt und mit SHA256 gegen die Quelle geprüft; Installer-Tests unter Windows und macOS führen diese Prüfung aus.
+- Ungültige WASM-Antworten erhalten eine verständliche Fehlermeldung; ein erneuter Start nach einem Ladefehler ist möglich.
+
 ## 0.1.2
 
 - Freies Drehen mit Trackball-Navigation: keine feste Hochachse und kein Anschlag an den Polen; Rückseite und Unterseite lassen sich mit der Maus erreichen.

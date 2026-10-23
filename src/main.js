@@ -30,7 +30,7 @@ let ersteZeichnung=0,anim=null,drehen=false,mausUnten=false,werkzeug='wahl',tria
 // Kanten verdoppeln sonst die Draw Calls. Nach dem Loslassen volle Darstellung.
 let navigationKanten=null,navigationEnde=0;
 function navigationVoll(){clearTimeout(navigationEnde);navigationEnde=0;if(!navigationKanten)return;for(const [kante,sichtbar] of navigationKanten)kante.visible=sichtbar;navigationKanten=null;needs=true}
-controls.addEventListener('start',event=>{if(controls.state<0&&!event.cursorZoom)return;clearTimeout(navigationEnde);if(navigationKanten||bodies.length<500||drahtModus||!edgeObjs.some(k=>k.visible))return;navigationKanten=edgeObjs.map(k=>[k,k.visible]);for(const [kante] of navigationKanten)kante.visible=false;needs=true});
+controls.addEventListener('start',event=>{if(event.cursorZoom||controls.state===THREE.MOUSE.DOLLY){navigationVoll();return}if(controls.state<0)return;clearTimeout(navigationEnde);if(navigationKanten||bodies.length<500||drahtModus||!edgeObjs.some(k=>k.visible))return;navigationKanten=edgeObjs.map(k=>[k,k.visible]);for(const [kante] of navigationKanten)kante.visible=false;needs=true});
 controls.addEventListener('end',()=>{if(controls.state>=0)return;clearTimeout(navigationEnde);navigationEnde=setTimeout(navigationVoll,120)});
 const ACHSEN=[new THREE.Vector3(1,0,0),new THREE.Vector3(-1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,-1,0),new THREE.Vector3(0,0,1),new THREE.Vector3(0,0,-1)];
 const ANSICHT={iso:{d:[.8,.6,1],up:[0,1,0]},vorne:{d:[0,0,1],up:[0,1,0]},hinten:{d:[0,0,-1],up:[0,1,0]},links:{d:[-1,0,0],up:[0,1,0]},rechts:{d:[1,0,0],up:[0,1,0]},oben:{d:[0,1,0],up:[0,0,-1]},unten:{d:[0,-1,0],up:[0,0,-1]}};

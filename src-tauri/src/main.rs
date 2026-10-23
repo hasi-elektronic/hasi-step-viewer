@@ -1,6 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    let context = tauri::generate_context!();
+    // Prüft die tatsächlich eingebetteten Bytes des gebauten Programms, ohne
+    // Fenster/Single-Instance-Weiterleitung. Auch aus einem Installer ausführbar.
+    let args: Vec<_> = std::env::args_os().collect();
+    if args.get(1).is_some_and(|a| a == "--pruefe-messkern") {
+        let result = pruefe_messkern(&context);
+        let text = result.as_deref().unwrap_or_else(|e| e.as_str());
+        let written = args.get(2).is_some_and(|p| std::fs::write(p, text).is_ok());
+        std::process::exit(if result.is_ok() && written { 0 } else { 1 });
+    }
     // Das Plugin muss zuerst stehen: ein zweiter Start (Doppelklick) reicht die Argumente hierher und beendet sich.
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
@@ -19,7 +29,7 @@ fn main() {
             mac_menu(app)?;
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Fehler beim Starten von Hasi 3D");
     app.run(|app, event| match event {
         tauri::RunEvent::Ready => {
@@ -53,6 +63,16 @@ fn main() {
         }
         _ => {}
     });
+}
+
+fn pruefe_messkern<R: tauri::Runtime>(context: &tauri::Context<R>) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let key = "/ocjs/opencascade.wasm.wasm".into();
+    let bytes = context.assets().get(&key).ok_or("Messkern fehlt im Paket oder ist beschädigt")?;
+    if !bytes.starts_with(b"\0asm\x01\0\0\0") { return Err("Messkern im Paket hat einen ungültigen WASM-Header".into()); }
+    let sha = format!("{:x}", Sha256::digest(&bytes));
+    if sha != env!("HASI_WASM_SHA256") { return Err("Messkern im Paket stimmt nicht mit der Quelldatei überein".into()); }
+    Ok(format!("OK: Messkern im Paket, {} Bytes, SHA256 {sha}\n", bytes.len()))
 }
 
 // ---------- Nativer Kern (Sidecar hasi-kern, OCCT dynamisch gelinkt) ----------
