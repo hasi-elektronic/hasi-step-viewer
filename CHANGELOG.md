@@ -1,5 +1,13 @@
 # Änderungen
 
+## 0.1.6
+
+- Mehrere STEP-Dateien gleichzeitig in Dokumentreitern öffnen; Dateiauswahl, Drag & Drop und Programmstart verarbeiten alle ausgewählten Dateien der Reihe nach. Bereits geöffnete Pfade aktivieren ihren Reiter.
+- Kamera, Schnitt, Sichtbarkeit, Messungen, Informationsfelder, Bauteillagen und Rückgängig-Verlauf bleiben je Dokument erhalten. Reiterwechsel importiert die Datei nicht erneut. Strg+O öffnet weitere Dateien, Strg+Tab wechselt, Strg+W schließt den aktiven Reiter.
+- Automatische Messart aus der exakten CAD-Geometrie: Gerade → Länge, Kreisbogen → Radius/Bogenlänge, geschlossener Kreis → Durchmesser/Radius; passende grafische Bemaßung und sichtbare Erkennungsanzeige. Manuelle Messarten bleiben verfügbar.
+- Native Mess-/Export-Geometrie ist je Dokument getrennt und vor Cache-Bereinigung geschützt. Geschlossene Dokumente können nicht durch späte Kernantworten wiederhergestellt werden; Export hält seine eigene Geometrie-Referenz.
+- Beim Schließen werden Dokument-Worker und zugehörige GPU-Ressourcen freigegeben; alle Reiter nutzen denselben Renderer.
+
 ## 0.1.5
 
 - Informationsfelder merken Abstand/Normalabstand, Achsanteile, Winkel, Kreis- und Flächenwerte direkt am Modell. Flächenpaare können zusätzlich zwei eigene Karten mit Fläche und Umfang erhalten. Karten sind verschiebbar, werden in der Begleitdatei gespeichert, neu gemessen und vollständig ins Messprotokoll übernommen.

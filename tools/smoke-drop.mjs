@@ -33,10 +33,13 @@ await p.waitForFunction(() => document.getElementById('status').textContent.incl
 await p.evaluate(() => window.__oeffnePfad('/tmp/teil.step'));
 await p.waitForFunction(() => document.getElementById('status').textContent.includes('Öffnen per Pfad nur in der Desktop-App'));
 await p.evaluate(bytes=>{
-  const dataTransfer=new DataTransfer();dataTransfer.items.add(new File([new Uint8Array(bytes)],'große Şasi.STP'));
+  const dataTransfer=new DataTransfer();dataTransfer.items.add(new File([new Uint8Array(bytes)],'große Şasi.STP'));dataTransfer.items.add(new File([new Uint8Array(bytes)],'Zweite.step'));
   document.querySelector('header').dispatchEvent(new DragEvent('drop',{dataTransfer,bubbles:true,cancelable:true}));
 },Array.from(fs.readFileSync('public/testblech.step')));
-await p.waitForFunction(()=>window.__lastLoad?.name==='große Şasi.STP',null,{timeout:60000});
+await p.waitForFunction(()=>window.__lastLoad?.name==='Zweite.step',null,{timeout:60000});
+if(JSON.stringify(await p.evaluate(()=>window.__dokumente().map(d=>d.name)))!==JSON.stringify(['große Şasi.STP','Zweite.step']))throw new Error('Mehrfach-Drop verliert eine Datei');
+await p.locator('#file').setInputFiles([{name:'Auswahl A.step',mimeType:'application/octet-stream',buffer:fs.readFileSync('public/testblech.step')},{name:'Auswahl B.step',mimeType:'application/octet-stream',buffer:fs.readFileSync('public/testblech.step')}]);
+await p.waitForFunction(()=>window.__dokumente().length===4&&window.__lastLoad?.name==='Auswahl B.step',null,{timeout:60000});
 if(await p.locator('#tree .trow').count()===0)throw new Error('Gültiger Drop zeigt kein Modell');
 if (errs.length) throw new Error(errs.join(' | '));
 await b.close();

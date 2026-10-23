@@ -64,6 +64,7 @@ jobs:
           node tools/smoke-drop.mjs
           node tools/smoke-datei-oeffnen.mjs
           SHOT=docs/hasi-oberflaeche.png node tools/smoke-ui.mjs
+          PORT=4173 node tools/smoke-dokumente.mjs
           node tools/smoke-drehen.mjs
           node tools/smoke-oberflaeche.mjs
           node tools/smoke-messkern-fehler.mjs
@@ -104,6 +105,7 @@ jobs:
           grep -q 'STEP-Datei hier ablegen' dist/index.html
           PORT=4174 node tools/smoke-marke.mjs
           PORT=4174 MARKE=sickinger node tools/smoke-oberflaeche.mjs
+          PORT=4174 node tools/smoke-dokumente.mjs
           PORT=4174 node tools/smoke-drop.mjs
           PORT=4174 SHOT=docs/sickinger-baugruppe.png node tools/smoke-baugruppe-ui.mjs
           PORT=4174 SHOTDIR=docs/werkzeugleiste node tools/smoke-werkzeugleiste.mjs

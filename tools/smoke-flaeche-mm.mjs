@@ -10,7 +10,7 @@ const p=await b.newPage({viewport:{width:1500,height:900}});const errs=[];p.on('
 for(const n of ['haube-6mm','welle','bock'])await p.route('**/'+n+'-teil.step',r=>r.fulfill({status:200,body:fs.readFileSync('testdaten/'+n+'.step'),headers:{'content-type':'application/octet-stream'}}));
 await p.goto(`http://localhost:${port}/`);await p.evaluate(()=>{localStorage.clear()});await p.reload();await p.waitForFunction(()=>window.__app&&window.__loadUrl);
 const A=(f,a)=>p.evaluate(f,a);const bild=async n=>{if(dir){await p.waitForTimeout(300);await p.locator('#view').screenshot({path:`${dir}/${n}.png`})}};
-const laden=async n=>{await A(n=>{window.__lastLoad=null;return window.__loadUrl('./'+n+'-teil.step')},n);await p.waitForFunction(()=>window.__lastLoad&&window.__lastLoad.bodies>0,null,{timeout:180000});await p.waitForTimeout(500)};
+const laden=async n=>{await A(n=>{return window.__loadUrl('./'+n+'-teil.step')},n);await p.waitForFunction(()=>window.__lastLoad&&window.__lastLoad.bodies>0,null,{timeout:180000});await p.waitForTimeout(500)};
 // Fläche anklicken (Punkt = Schwerpunkt des ersten Dreiecks der Fläche), Zeilen der Messung zurück
 const flaeche=(id)=>A(async id=>{const a=window.__app,D=a.data(),U=D.uniq[D.inst[0].u];let t=0;while(t<U.f.length&&U.f[t]!==id)t++;
   const P=[0,1,2].map(j=>{const k=U.i[3*t+j]*3;return [U.p[k],U.p[k+1],U.p[k+2]]});const q=[0,1,2].map(c=>(P[0][c]+P[1][c]+P[2][c])/3);

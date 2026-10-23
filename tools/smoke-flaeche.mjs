@@ -15,7 +15,7 @@ if(nativ){const exe=process.env.HASI_KERN||'kern/build/hasi-kern',tmp=fs.mkdtemp
     return {bin:fs.readFileSync(path.join(d,'modell.bin')).toString('base64'),brep:fs.readFileSync(path.join(d,'modell.brep'),'latin1')}});
   await ctx.exposeFunction('__dateiLesen',async pfad=>fs.readFileSync(pfad).toString('base64'));
   await ctx.addInitScript(()=>{const ab=s=>{const t=atob(s);const u=new Uint8Array(t.length);for(let i=0;i<t.length;i++)u[i]=t.charCodeAt(i);return u.buffer};let letzt=null;
-    window.__TAURI_INTERNALS__={transformCallback:()=>0,invoke:async(cmd,args)=>{if(cmd==='plugin:event|listen')return 0;if(cmd==='kern_verfuegbar')return true;if(cmd==='start_pfad')return null;
+    window.__TAURI_INTERNALS__={transformCallback:()=>0,invoke:async(cmd,args)=>{if(cmd==='dokumente_zuruecksetzen'||cmd==='dokument_schliessen')return true;if(cmd==='dokument_neu')return 'mock-'+Math.random();if(cmd==='plugin:event|listen')return 0;if(cmd==='kern_verfuegbar')return true;if(cmd==='start_pfad')return null;
       if(cmd==='kern_laden_pfad'){letzt=await window.__kernPfad(args.pfad);return ab(letzt.bin)}if(cmd==='datei_lesen')return ab(await window.__dateiLesen(args.pfad));
       if(cmd==='kern_brep')return letzt.brep;throw new Error('unbekannt '+cmd)},transformCallback:()=>0}})}
 await ctx.addInitScript(()=>{localStorage.removeItem('nurFlaechen')});
@@ -24,7 +24,7 @@ await p.goto(`http://localhost:${port}/`);await p.waitForFunction(()=>window.__a
 await p.evaluate(()=>{document.querySelectorAll('#messenErweitert,#blechDetails').forEach(d=>d.open=true);if(document.getElementById('messenPanel').hidden)document.getElementById('btnMessen').click()}); // Start ohne offenes Feld: für diesen Test Messen öffnen, „Erweitert“/„Details“ aufklappen
 if(marke==='ms3d'){const t=await p.title();if(t!=='MS3D')fail('Titel MS3D erwartet, ist '+t);ok('Marke MS3D')}
 const bild=async n=>{if(shot){await p.waitForTimeout(250);await p.screenshot({path:path.join(shot,n+'.png')});console.log('  bild '+path.join(shot,n+'.png'))}};
-async function laden(t){await p.evaluate(()=>{window.__lastLoad=null});
+async function laden(t){await p.evaluate(()=>{});
   if(nativ)await p.evaluate(f=>window.__oeffnePfad(f),path.resolve(`testdaten/${t}.step`));else await p.evaluate(u=>window.__loadUrl(u),`./${t}.step`);
   await p.waitForFunction(()=>window.__lastLoad&&window.__lastLoad.bodies>0,null,{timeout:90000});if(nativ){await p.evaluate(()=>window.__messBereit);const k=await p.evaluate(()=>window.__lastLoad.kern);if(k!=='nativ')fail('nativer Pfad nicht benutzt: '+k)}
   await p.waitForTimeout(900)}

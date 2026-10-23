@@ -1,18 +1,17 @@
 /**
- * Serialisiert Dateiwechsel: Ein neuer Auftrag wartet auf die Messdaten des alten
- * Modells. Währenddessen bleibt nur der zuletzt angeforderte Dateiwechsel übrig.
+ * Serialisiert Datei-Aufträge, ohne wartende Dateien zu verwerfen.
  * Identische gleichzeitige OS-/Webview-Ereignisse öffnen die Datei genau einmal.
  * @template T
  * @param {(error: unknown) => void} onError
  */
 export function createOpenQueue(onError) {
   /** @type {{key: unknown, run: () => Promise<T>, promise: Promise<T|null>, resolve: (value: T|null) => void} | null} */
-  let active = null, pending = null;
+  let active = null;
+  const pending = [];
 
   async function drain() {
-    while (pending) {
-      active = pending;
-      pending = null;
+    while (pending.length) {
+      active = pending.shift();
       try { active.resolve(await active.run()); }
       catch (error) { onError(error); active.resolve(null); }
       active = null;
@@ -21,16 +20,12 @@ export function createOpenQueue(onError) {
 
   /** @param {unknown} key @param {() => Promise<T>} run */
   return function enqueue(key, run) {
-    if (pending?.key === key) return pending.promise;
-    if (active?.key === key) {
-      if (pending) pending.resolve(null);
-      pending = null;
-      return active.promise;
-    }
-    if (pending) pending.resolve(null);
+    if (active?.key === key) return active.promise;
+    const existing = pending.find(item => item.key === key);
+    if (existing) return existing.promise;
     let resolve;
     const promise = new Promise(res => { resolve = res; });
-    pending = { key, run, promise, resolve };
+    pending.push({ key, run, promise, resolve });
     if (!active) void drain();
     return promise;
   };
@@ -57,8 +52,8 @@ export function installFileDrop(doc, handlers) {
     event.preventDefault();
     reset();
     const files = Array.from(event.dataTransfer?.files || []);
-    const file = files.find(file => isStepFile(file.name));
-    if (file) handlers.open(file);
+    const steps = files.filter(file => isStepFile(file.name));
+    if (steps.length) steps.forEach(file => handlers.open(file));
     else handlers.invalid();
   };
   for (const [type, listener] of Object.entries({dragenter:enter, dragover:over, dragleave:leave, drop})) doc.addEventListener(type, listener);

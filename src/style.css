@@ -239,6 +239,19 @@ header .ueber-knopf{display:inline-flex;align-items:center;gap:7px;flex-shrink:0
 header .ueber-knopf:hover{background:#586878;border-color:var(--a)}
 .info-symbol{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1.5px solid currentColor;border-radius:50%;font:700 12px Georgia,serif}
 body #reiterleiste{min-height:44px;gap:6px;padding-top:5px}
+body #reiterleiste{align-items:stretch;min-width:0;padding-right:10px}
+.dokumentreiter{display:flex;align-items:stretch;gap:5px;min-width:0;overflow-x:auto;scrollbar-width:thin}
+body .dokumentreiter .dateitab{flex:0 0 auto;min-width:140px;max-width:300px;padding:3px 4px 3px 0;gap:2px;background:#46515d;color:#e3ebf4;border-color:#667583;opacity:.88}
+body .dokumentreiter .dateitab.aktiv{background:#f8fafc;color:#273b50;border-color:#8fc5e6;opacity:1;box-shadow:inset 0 3px 0 var(--a)}
+.datei-aktivieren{display:flex;align-items:center;min-width:0;flex:1;border:0;background:transparent;color:inherit;padding:4px 10px 4px 14px;font:inherit;cursor:pointer;text-align:left}
+.dateiname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.datei-schliessen{width:32px;height:32px;flex:0 0 32px;border:1px solid transparent;border-radius:8px;background:transparent;color:inherit;font-size:23px;cursor:pointer;padding:0}
+.datei-schliessen:hover{background:#91b8d344;border-color:#8cabc6}
+.neuer-reiter{align-self:center;flex:0 0 34px;width:34px;height:34px;border:1px solid #728293;border-radius:10px;background:#465361;color:#eff7ff;font-size:25px;cursor:pointer}
+.neuer-reiter:hover{background:#57718b}
+.auto-erkannt{padding:9px 11px;margin:8px 0;border:1px solid #2788b2;border-radius:9px;background:#173e51;color:#d7f3ff;font-weight:600}
+.auto-erkannt[hidden]{display:none}
+.datei-aktivieren:focus-visible,.datei-schliessen:focus-visible,.neuer-reiter:focus-visible{outline:2px solid var(--a);outline-offset:-2px}
 body .dateitab{min-height:39px;padding:4px 5px 4px 14px;gap:14px;max-width:min(560px,calc(100vw - 20px));border:1px solid #566573;border-bottom:0;border-radius:12px 12px 0 0;background:#f8fafc;font-weight:500}
 body #dateiname{min-width:0}
 body #dateiZu{width:32px;height:32px;flex:0 0 32px;display:grid;place-items:center;font-size:23px;border:1px solid transparent;border-radius:8px;color:#657483;padding:0}

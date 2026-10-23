@@ -12,7 +12,7 @@ const p=await b.newPage({viewport:{width:1500,height:900}});const errs=[];p.on('
 await p.route('**/'+NAME,r=>r.fulfill({status:200,body:fs.readFileSync(quelle),headers:{'content-type':'application/octet-stream'}}));
 await p.goto(`http://localhost:${port}/`);await p.evaluate(()=>{localStorage.clear()});await p.reload();await p.waitForFunction(()=>window.__app&&window.__loadUrl&&window.__dock);
 const A=(f,a)=>p.evaluate(f,a);const bild=async n=>{if(dir){await p.waitForTimeout(250);await p.locator('#view').screenshot({path:`${dir}/${n}.png`})}};
-await A(n=>{window.__lastLoad=null;return window.__loadUrl('./'+n)},NAME);await p.waitForFunction(()=>window.__lastLoad&&window.__lastLoad.bodies>0,null,{timeout:180000});await p.waitForTimeout(800);
+await A(n=>{return window.__loadUrl('./'+n)},NAME);await p.waitForFunction(()=>window.__lastLoad&&window.__lastLoad.bodies>0,null,{timeout:180000});await p.waitForTimeout(800);
 // 1) Start: kein Feld offen, Modell ganz im Bild und unter der Werkzeugleiste
 {const d=await A(()=>window.__dock());const leiste=await p.locator('#werkzeugleiste').boundingBox(),v=await p.locator('#view').boundingBox();
   if(d.dock||!(await p.locator('#messenPanel').isHidden())||!(await p.locator('#blechPanel').isHidden()))fail('Start: Werkzeugfeld offen');

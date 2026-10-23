@@ -22,7 +22,7 @@ try {
     return route.fulfill({body:data[command],contentType:'application/octet-stream'});
   });
   await page.addInitScript(() => {
-    window.__TAURI_INTERNALS__ = {transformCallback:()=>0, invoke:async command => {
+    window.__TAURI_INTERNALS__ = {transformCallback:()=>0, invoke:async command => {if(command==='dokumente_zuruecksetzen'||command==='dokument_schliessen')return true;if(command==='dokument_neu')return 'mock-'+Math.random();
       if (command === 'plugin:event|listen') return 0;
       if (command === 'kern_verfuegbar') return true;
       if (command === 'start_pfad') return null;

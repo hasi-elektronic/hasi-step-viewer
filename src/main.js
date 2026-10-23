@@ -13,9 +13,14 @@ import { createMessauftraege } from './messauftraege.js';
 import {ladeEinstellungen,bildPixelRatio} from './einstellungen.js';
 import {installOberflaeche} from './oberflaeche.js';
 import {informationsZeilen,pruefeInfoOptionen} from './messinformationen.js';
+import {createDocumentTabs,captureDocumentUi,restoreDocumentUi,disposeDocumentScene,clearVisualChildren} from './dokumentreiter.js';
 const $=id=>document.getElementById(id), view=$('view');
+const SICHT_OBEN=62,SICHT_UNTEN=14; // Werkzeugleiste oben, Rand unten (px)
+const dokumente=[],dokumentAuftraege=new Set();let aktivesDokument=null,dokumentWechsel=false,dokumentNummer=0;
+const cadTastenGesperrt=e=>dokumentWechsel||e.hasiDokumentTaste||document.querySelector('dialog[open]')||!$('einzelDlg').hidden;
+function dokumentAuftrag(run){let p;try{p=Promise.resolve(run())}catch(e){return Promise.reject(e)}dokumentAuftraege.add(p);p.then(()=>dokumentAuftraege.delete(p),()=>dokumentAuftraege.delete(p));return p}
 const messauftraege=createMessauftraege();
-let messart='auto';
+let messart='auto',lastRes=null;
 const html=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 if(MARKE.id==='sickinger'){document.documentElement.dataset.marke='sickinger';document.title=MARKE.produkt}
 let logoZusage=null;
@@ -92,7 +97,7 @@ function freiraum(){if(!dockBereit)return;const w=view.clientWidth,h=view.client
   // Bildmitte um die Werkzeugleiste oben nach unten versetzt: hohe Teile stoßen nach dem Einpassen nicht oben an
   if(w>0&&h>0)camera.setViewOffset(w,h,D>0?(dockZustand.seite==='links'?-D/2:D/2):0,-(SICHT_OBEN-SICHT_UNTEN)/2,w,h);else camera.clearViewOffset();
   camera.updateProjectionMatrix();needs=true;
-  if(model&&!anim&&!dockZug&&Math.abs(D-alt)>1&&(modellUnterDock()||modellAusserhalb()))fit()}
+  if(model&&!dokumentWechsel&&!anim&&!dockZug&&Math.abs(D-alt)>1&&(modellUnterDock()||modellAusserhalb()))fit()}
 function modellAusserhalb(){const m=modellRechteck(),w=view.clientWidth,h=view.clientHeight;return !!(m&&(m.x0<-1||m.y0<-1||m.x1>w+1||m.y1>h+1))}
 let dockZug=null;
 dock.addEventListener('pointerdown',e=>{const kopf=e.target.closest('.ptitel,.dhead');if(!kopf||e.button!==0||e.target.closest('button,select,input,label,a'))return;
@@ -112,7 +117,6 @@ function wuerfelSync(){if(!vr)return;const dir=camera.position.clone().sub(contr
   const q=camera.quaternion.clone().invert();const set=(id,v)=>{const p=v.clone().applyQuaternion(q);const el=$(id);if(!el)return;el.style.left=(50+p.x*46)+'%';el.style.top=(50-p.y*46)+'%'};
   set('kN',new THREE.Vector3(0,0,-1));set('kO',new THREE.Vector3(1,0,0));set('kS',new THREE.Vector3(0,0,1));set('kW',new THREE.Vector3(-1,0,0))}
 // Abstand fürs Einpassen; bei schmalem freiem Bereich (neben der Seitenleiste) zählt auch die freie Breite
-const SICHT_OBEN=62,SICHT_UNTEN=14; // Werkzeugleiste oben, Rand unten (px)
 // Einpassen wie eDrawings: Abstand so, dass der projizierte Hüllquader in die freie Fläche passt (unter der Werkzeugleiste, neben dem Feld)
 function einpassAbstand(c,d,up,s){let dist=sichtDistanz(s);const tar=c.clone();const w=view.clientWidth,h=view.clientHeight;if(!camera.isPerspectiveCamera||!w||!h||box.isEmpty())return {dist,tar};
   const k=camera.clone();k.up.copy(up);const v=new THREE.Vector3(),aH=Math.max(80,h-SICHT_OBEN-SICHT_UNTEN),aW=Math.max(80,w-freiD-32);
@@ -131,19 +135,18 @@ function animSchritt(){const t=Math.min(1,(performance.now()-anim.t0)/anim.ms);c
   camera.lookAt(tar);controls.target.copy(tar);controls.update();
   if(t>=1){camera.up.copy(anim.bUp);const look2=controls.target.clone().sub(camera.position).normalize();camera.up.addScaledVector(look2,-camera.up.dot(look2));if(camera.up.lengthSq()<1e-6)camera.up.set(0,1,0);camera.up.normalize();camera.lookAt(controls.target);controls.update();anim=null}
   needs=true}
-(function loop(){requestAnimationFrame(loop);
+function loop(){requestAnimationFrame(loop);
   if(anim)animSchritt();
   else{if(drehen&&model){const achse=new THREE.Vector3(0,1,0);const off=camera.position.clone().sub(controls.target).applyAxisAngle(achse,0.005);camera.position.copy(controls.target).add(off);camera.up.applyAxisAngle(achse,0.005);needs=true}controls.update()}
   if(needs||drehen){const tB=ersteZeichnung?performance.now():0;if(triade&&triade.visible)triadeSkalieren();renderer.render(scene,camera);drawDims();wuerfelSync();needs=false;
-    if(ersteZeichnung){const st=window.__ladeStufen;if(st){st.erstesBild=Math.round(performance.now()-tB);st.bisErstesBild=Math.round(performance.now()-ersteZeichnung)}ersteZeichnung=0}}})();
+    if(ersteZeichnung){const st=window.__ladeStufen;if(st){st.erstesBild=Math.round(performance.now()-tB);st.bisErstesBild=Math.round(performance.now()-ersteZeichnung)}ersteZeichnung=0}}}
 
 // ---------- Worker ----------
-const worker=new Worker(new URL('./worker.js',import.meta.url),{type:'module'});const base=new URL('./',location.href).href;
-let seq=0;const pend=new Map();
-worker.onmessage=e=>{if(e.data.progress){$('busy').textContent=e.data.progress;$('status').textContent=e.data.progress;return}const p=pend.get(e.data.id);if(!p)return;pend.delete(e.data.id);e.data.ok?p.res(e.data.r):p.rej(new Error(e.data.error))};
-worker.onerror=()=>{for(const p of pend.values())p.rej(new Error('Fehler: Der Geometrie-Kern konnte nicht gestartet werden.'));pend.clear()};
-const call=(cmd,args={},tr=[])=>new Promise((res,rej)=>{const id=++seq;pend.set(id,{res,rej});worker.postMessage({id,cmd,args:{...args,base}},tr)});
-call('init').catch(()=>{});
+let worker=null,pend=new Map();const base=new URL('./',location.href).href;let seq=0;
+function messWorker(){const w=new Worker(new URL('./worker.js',import.meta.url),{type:'module'}),pending=pend;
+  w.onmessage=e=>{if(e.data.progress){if(worker===w){$('busy').textContent=e.data.progress;$('status').textContent=e.data.progress}return}const p=pending.get(e.data.id);if(!p)return;pending.delete(e.data.id);e.data.ok?p.res(e.data.r):p.rej(new Error(e.data.error))};
+  w.onerror=()=>{for(const p of pending.values())p.rej(new Error('Fehler: Der Geometrie-Kern konnte nicht gestartet werden.'));pending.clear()};return w}
+const call=(cmd,args={},tr=[])=>dokumentAuftrag(()=>new Promise((res,rej)=>{if(!worker)worker=messWorker();const id=++seq;pend.set(id,{res,rej});try{worker.postMessage({id,cmd,args:{...args,base}},tr)}catch(e){pend.delete(id);rej(e)}}));
 
 // ---------- Einheiten / Formatierung ----------
 // Der Kern rechnet intern immer in mm (OCCT rechnet cm/m/Zoll beim Import um).
@@ -200,13 +203,15 @@ function farbGeometrie(g,ff,rest,instFF){const f=g.userData.face,n=f.length,a=ne
   for(let t=0;t<n;t++){const fi=f[t];const c=instFF&&instFF[fi]!=null?instFF[fi]:(ff&&ff[fi]?ff[fi]&0xffffff:rest);let v=cache.get(c);if(!v){const k=zuFarbe(c);v=[k.r,k.g,k.b];cache.set(c,v)}a.set(v,t*9);a.set(v,t*9+3);a.set(v,t*9+6)}
   const gc=new THREE.BufferGeometry();gc.setAttribute('position',g.attributes.position);gc.setAttribute('normal',g.attributes.normal);gc.setAttribute('color',new THREE.BufferAttribute(a,3));gc.userData=g.userData;gc.boundingBox=g.boundingBox;gc.boundingSphere=g.boundingSphere;return gc}
 function transpVon(m){if(!m.userData.transp){const t=m.clone();t.transparent=true;t.opacity=.3;t.depthWrite=false;m.userData.transp=t}return m.userData.transp}
-function farbenAnwenden(){if(!data||!bodies.length)return;const geteilt=new Map();
+function farbenAnwenden(){if(!data||!bodies.length)return;const geteilt=new Map(),alteGeometrien=new Set(bodies.filter(b=>b.geometry!==b.userData.geo).map(b=>b.geometry));
   bodies.forEach((b,i)=>{const I=data.inst[i],u=data.uniq[I.u],g=b.userData.geo;let geo=g,mat=baseMat;
     if(farbenAn){const hatFF=!!(u.ff&&u.ff.some(x=>x)),instFF=I.ff&&Object.keys(I.ff).length?I.ff:null;
       if(hatFF||instFF){mat=vcMat();if(!instFF&&I.farbe==null){if(!geteilt.has(I.u))geteilt.set(I.u,farbGeometrie(g,u.ff,u.farbe??GRUNDFARBE,null));geo=geteilt.get(I.u)}
         else geo=farbGeometrie(g,u.ff,I.farbe??u.farbe??GRUNDFARBE,instFF)}
       else{const c=I.farbe??u.farbe;if(c!=null)mat=farbMat(c)}}
     b.geometry=geo;b.userData.mat=mat;b.material=b.userData.transp?transpVon(mat):mat});
+  for(const g of alteGeometrien)g.dispose();
+  hervorheben();
   koerperMats().forEach(m=>{m.clippingPlanes=baseMat.clippingPlanes;m.transparent=drahtModus;m.opacity=drahtModus?0.04:1;m.depthWrite=!drahtModus;m.needsUpdate=true});
   const hat=data.uniq.some(u=>u.farbe!=null||u.ff)||data.inst.some(I=>I.farbe!=null||I.ff);const mb=$('menuFarben');
   if(mb){mb.textContent=(farbenAn?'✓ ':'')+'STEP-Farben anzeigen';mb.title=hat?'Farben aus der STEP-Datei zeigen oder einheitlich grau darstellen':(data.kernArt==='nativ'?'Diese Datei enthält keine Farben':'Farben werden nur mit dem nativen Kern (Desktop-App) gelesen')}
@@ -234,8 +239,8 @@ async function load(buf,name,opt){
     if(inv&&localStorage.getItem('kern')!=='wasm'&&await inv('kern_verfuegbar').catch(()=>false)){
       try{$('busy').textContent='Datei wird geladen …';
         // Pfad: Kern und Lesen der Rohdaten (Einheit, Teilenamen) laufen gleichzeitig
-        let bin;if(opt&&opt.pfad){const r=await Promise.all([inv('kern_laden_pfad',{pfad:opt.pfad}),opt.roh]);bin=r[0];buf=r[1];size=buf.byteLength}
-        else bin=await inv('kern_laden',new Uint8Array(buf),{headers:{'x-name':encodeURIComponent(name)}});
+        let bin;if(opt&&opt.pfad){const r=await Promise.all([inv('kern_laden_pfad',{pfad:opt.pfad,dokument:aktivesDokument.nativeId}),opt.roh]);bin=r[0];buf=r[1];size=buf.byteLength}
+        else bin=await inv('kern_laden',new Uint8Array(buf),{headers:{'x-name':encodeURIComponent(name),'x-dokument':aktivesDokument.nativeId}});
         stufe('kern');$('busy').textContent='Modell wird angezeigt …';data=await call('loadNative',{bin,step:buf,name},[bin]);nativ=true;stufe('worker')}
       catch(e){console.warn('Nativer Kern fehlgeschlagen, WASM-Kern übernimmt:',e);$('busy').textContent='Nativer Kern nicht verfügbar – WASM-Kern lädt …'}}
     if(!nativ){if(!buf&&opt&&opt.roh){buf=await opt.roh;size=buf.byteLength}data=await call('load',{buf,name},[buf])}
@@ -265,15 +270,16 @@ async function load(buf,name,opt){
   ursprung=data.inst.map(I=>I.m.slice());undoStapel=[];redoStapel=[];isoSnap=null;selNode=null;selMenge=new Set();selAnker=null;bewegenOffen=false;
   stufe('instanzen');scene.add(model);model.updateMatrixWorld(true);box.setFromObject(model);stufe('box');
   vIdx=new Map();
-  buildTree();clearSel();hov=null;hoverObj.clear();$('snaptip').hidden=true;dims=[];dimSel=null;$('dimedit').hidden=true;dimNo=0;lastRes=null;renderDims();sheetSolid=null;fit(views.iso);setCut();showModel();zeigeReiter(name);sheetCache=null;$('sheeterr').innerHTML='';$('sheetinfo').innerHTML='';$('bends').innerHTML='';$('flatprev').innerHTML='';$('dxf').disabled=true;$('sheetwarn').textContent='';
-  stufe('baumUndPanel');if(!$('tab-blech').hidden)calcSheet();
+  buildTree();clearSel();hov=null;clearVisualChildren(hoverObj);$('snaptip').hidden=true;dims=[];dimSel=null;$('dimedit').hidden=true;dimNo=0;lastRes=null;renderDims();sheetSolid=null;fit(views.iso);setCut();showModel();zeigeReiter(name);sheetCache=null;$('sheeterr').innerHTML='';$('sheetinfo').innerHTML='';$('bends').innerHTML='';$('flatprev').innerHTML='';$('dxf').disabled=true;$('sheetwarn').textContent='';
+  stufe('baumUndPanel');
   ersteZeichnung=performance.now();needs=true;
   const ms=Math.round(performance.now()-t0);const tris=data.inst.reduce((s,I)=>s+data.uniq[I.u].i.length/3,0);
   const info={name,bytes:size,bodies:data.inst.length,unique:data.uniq.length,faces:data.model.faces,edges:data.model.edges,triangles:tris,totalMs:ms,unit:U.sym,times:data.times,stats:data.stats};window.__lastLoad=info;
   info.kern=data.kernArt;
   $('status').textContent=`${name} · ${(size/1024).toFixed(0)} KB · ${info.bodies} Körper · ${info.faces} Flächen · Datei: ${U.sym} → Anzeige: mm · ${ms} ms${nativ?' · Messdaten werden vorbereitet …':''}`;
-  if(nativ){const st=$('status').textContent;window.__messBereit=inv('kern_brep').then(text=>call('attach',{text})).then(a=>{info.attachMs=a.ms;if($('status').textContent===st)$('status').textContent=st.replace(' · Messdaten werden vorbereitet …',' · nativer Kern')})
+  if(nativ){const st=$('status').textContent;window.__messBereit=inv('kern_brep',{dokument:aktivesDokument.nativeId}).then(text=>call('attach',{text})).then(a=>{info.attachMs=a.ms;if($('status').textContent===st)$('status').textContent=st.replace(' · Messdaten werden vorbereitet …',' · nativer Kern')})
     .catch(e=>{$('status').textContent=st.replace(' · Messdaten werden vorbereitet …',' · Messen nicht verfügbar: '+(e.message||e));throw e});window.__messBereit.catch(()=>{})}
+  if(!$('tab-blech').hidden)void calcSheet();
   offenPruefen(data);
   return info}
 function puffer(roh){if(roh instanceof ArrayBuffer)return roh;if(ArrayBuffer.isView(roh))return roh.buffer.slice(roh.byteOffset,roh.byteOffset+roh.byteLength);if(Array.isArray(roh))return new Uint8Array(roh).buffer;throw new Error('Datei konnte nicht gelesen werden')}
@@ -288,13 +294,13 @@ async function loadPath(pfad){
 const dateiFehler=e=>{$('status').textContent=e?.message||String(e)};
 const dateiAuftrag=createOpenQueue(dateiFehler);
 async function mitMessdaten(oeffnen){const info=await oeffnen();await window.__messBereit;return info}
-function oeffnePfad(pfad){if(!pfad)return Promise.resolve(null);return dateiAuftrag(pfad,()=>mitMessdaten(()=>loadPath(pfad)))}
-function oeffneDatei(file){return dateiAuftrag(file,()=>mitMessdaten(async()=>load(await file.arrayBuffer(),file.name)))}
+function oeffnePfad(pfad){if(!pfad)return Promise.resolve(null);if(!/\.(step|stp)$/i.test(pfad)){$('status').textContent='Nur STEP-Dateien (.step, .stp)';return Promise.resolve(null)}let key=String(pfad).replaceAll('\\','/');if(/^[a-z]:\/|^\/\//i.test(key))key=key.toLowerCase();return dokumentOeffnen(key,String(pfad).split(/[/\\]/).pop(),()=>loadPath(pfad),pfad)}
+function oeffneDatei(file){return dokumentOeffnen(file,file.name,async()=>load(await file.arrayBuffer(),file.name))}
 let dateiDialog=null;
 function oeffnenDialog(){const inv=window.__TAURI_INTERNALS__?.invoke;
   if(!inv){$('file').click();return}
   if(dateiDialog)return dateiDialog;
-  dateiDialog=(async()=>{try{const pfad=await inv('datei_waehlen');if(pfad)return await oeffnePfad(pfad)}catch(e){dateiFehler(e)}finally{dateiDialog=null}})();
+  dateiDialog=(async()=>{try{const pfade=await inv('datei_waehlen');return await Promise.all((Array.isArray(pfade)?pfade:pfade?[pfade]:[]).map(oeffnePfad))}catch(e){dateiFehler(e)}finally{dateiDialog=null}})();
   return dateiDialog}
 window.__oeffnePfad=oeffnePfad;
 window.__dateiZiehen=an=>{const h=$('dropHint');if(h)h.hidden=!an};
@@ -302,12 +308,13 @@ window.__dateiZiehen=an=>{const h=$('dropHint');if(h)h.hidden=!an};
 // Erst am Modulende registrieren: vor dem ersten OS-Auftrag muss die gesamte Oberfläche bereit sein.
 async function dateienStarten(){
   const inv=window.__TAURI_INTERNALS__?.invoke;
-  const abholen=async()=>{const pfad=await inv('start_pfad');if(pfad)return oeffnePfad(pfad)};
+  if(inv)await inv('dokumente_zuruecksetzen');
+  const abholen=async()=>{const pfade=await inv('start_pfad');return Promise.all((Array.isArray(pfade)?pfade:pfade?[pfade]:[]).map(oeffnePfad))};
   if(inv){await listen('datei-oeffnen',()=>{abholen().catch(dateiFehler)});await listen('datei-dialog',()=>{oeffnenDialog()})}
   const startParam=new URLSearchParams(location.search);
   if(startParam.get('datei'))await oeffnePfad(startParam.get('datei'));
   else if(startParam.get('oeffnen')){const u=startParam.get('oeffnen'),nm=startParam.get('name')||'Einzelteil.step';
-    try{const r=await fetch(u);if(!r.ok)throw new Error('Einzelteil nicht gefunden');await dateiAuftrag(u,()=>mitMessdaten(async()=>load(await r.arrayBuffer(),nm)))}finally{URL.revokeObjectURL(u)}}
+    try{const r=await fetch(u);if(!r.ok)throw new Error('Einzelteil nicht gefunden');const buf=await r.arrayBuffer();await dokumentOeffnen(u,nm,()=>load(buf,nm))}finally{URL.revokeObjectURL(u)}}
   if(inv)await abholen();
 }
 const key=p=>p.map(x=>x.toFixed(5)).join(',');let vIdx=new Map();
@@ -358,18 +365,19 @@ $('treeSearch').oninput=()=>renderTree();
 function visible(n){for(let x=n;x;x=x.parent)if(!x.checked)return false;return true}
 function applyVis(){const vis=new Array(bodies.length).fill(false);
   const walk=n=>{if(visible(n))n.bodies.forEach(b=>vis[b]=true);n.children.forEach(walk)};if(treeRoot)walk(treeRoot);
-  bodies.forEach((b,i)=>b.visible=vis[i]);hoverObj.clear();hervorheben();needs=true;modellAktualisieren()}
+  bodies.forEach((b,i)=>b.visible=vis[i]);clearVisualChildren(hoverObj);hervorheben();needs=true;modellAktualisieren()}
 // Ausgeblendete Bauteile zählen nicht zu Volumen, Oberfläche, Masse und Schwerpunkt (wie ZW3D „Mass Properties“)
 let modellSeq=0;
-async function modellAktualisieren(){if(!data||!bodies.length)return;const ids=bodies.map((b,i)=>b.visible?i:-1).filter(i=>i>=0);const nr=++modellSeq;
+function modellAktualisieren(...args){return dokumentAuftrag(()=>modellAktualisierenImpl(...args))}
+async function modellAktualisierenImpl(){if(!data||!bodies.length)return;const ids=bodies.map((b,i)=>b.visible?i:-1).filter(i=>i>=0);const nr=++modellSeq;
   if(ids.length===bodies.length&&data.modelAlle){data.model=data.modelAlle;showModel();return}
   try{const q=await call('modell',{ids,schnell:data.kernArt==='nativ'||bodies.length>50});if(nr!==modellSeq)return;data.model=q;showModel()}catch(e){console.warn(e)}}
 const nodeOfBody=i=>{let best=null;nodes.forEach(n=>{if(n.bodies.includes(i))best=n});return best};
 function selectNode(n){selNode=n;selMenge=n?new Set([n]):new Set();selAnker=n;clearSel();
   if(n)for(let x=n.parent;x;x=x.parent)x.open=true;
   renderTree();hervorheben();const row=document.querySelector(`.trow[data-id="${n?.id}"]`);row?.scrollIntoView({block:'nearest'});needs=true}
-function hervorheben(){if(!wahlMark)return;wahlMark.clear();const ids=zielIds().filter(i=>bodies[i]?.visible);wahlMark.userData.ids=ids;if(ids.length)wahlMark.add(bodyHi(ids,0x1f8fd0));needs=true}
-function bodyHi(ids,color){const g=new THREE.Group();const mat=new THREE.MeshBasicMaterial({color,transparent:true,opacity:.45,depthTest:true,side:THREE.DoubleSide,clippingPlanes:renderer.localClippingEnabled?[plane]:[]});ids.forEach(i=>{const b=bodies[i];if(!b.visible)return;const m=new THREE.Mesh(b.geometry,mat);m.matrixAutoUpdate=false;m.matrix.copy(b.matrix);m.renderOrder=5;g.add(m)});return g}
+function hervorheben(){if(!wahlMark)return;clearVisualChildren(wahlMark);const ids=zielIds().filter(i=>bodies[i]?.visible);wahlMark.userData.ids=ids;if(ids.length)wahlMark.add(bodyHi(ids,0x1f8fd0));needs=true}
+function bodyHi(ids,color){const g=new THREE.Group();const mat=new THREE.MeshBasicMaterial({color,transparent:true,opacity:.45,depthTest:true,side:THREE.DoubleSide,clippingPlanes:renderer.localClippingEnabled?[plane]:[]});ids.forEach(i=>{const b=bodies[i];if(!b.visible)return;const m=new THREE.Mesh(b.geometry,mat);m.userData.sharedGeometry=true;m.matrixAutoUpdate=false;m.matrix.copy(b.matrix);m.renderOrder=5;g.add(m)});return g}
 function boxOf(ids){const b=new THREE.Box3();ids.forEach(i=>{if(bodies[i].visible)b.expandByObject(bodies[i])});return b}
 function zielKnoten(){const ns=[...selMenge].filter(Boolean);if(!ns.length&&selNode)ns.push(selNode);return ns}
 function zielIds(){return [...new Set(zielKnoten().flatMap(n=>n.all||[]))]}
@@ -377,7 +385,8 @@ function umkehren(){const alt=new Map(nodes.map(n=>[n,visible(n)]));
   const braucht=n=>!alt.get(n)||n.children.some(braucht);
   const setz=n=>{if(alt.get(n)&&!n.children.some(braucht)){n.checked=false;return}n.checked=true;n.children.forEach(setz)};
   if(treeRoot)setz(treeRoot)}
-async function act(a,n){
+function act(...args){return dokumentAuftrag(()=>actImpl(...args))}
+async function actImpl(a,n){
   if(a==='toggle'){const ziel=n&&selMenge.has(n)&&selMenge.size?[...selMenge]:[n];const wert=!n.checked;ziel.forEach(x=>{x.checked=wert;if(wert)for(let p=x.parent;p;p=p.parent)p.checked=true});applyVis();renderTree()}
   if(a==='isolate'){isoSnap=nodes.map(x=>[x.id,x.checked]);nodes.forEach(x=>x.checked=false);for(let x=n;x;x=x.parent)x.checked=true;const on=x=>{x.checked=true;x.children.forEach(on)};on(n);applyVis();renderTree();zoomTo(n)}
   if(a==='isoEnde'){if(!isoSnap)return;const map=new Map(isoSnap);nodes.forEach(x=>{if(map.has(x.id))x.checked=map.get(x.id)});isoSnap=null;applyVis();renderTree()}
@@ -417,16 +426,18 @@ function viewMenu(x,y){const s=pickAt(x,y);const n=s&&s.body?nodeOfBody(s.body.u
       if(a==='shot')screenshot();
       if(a==='alleStep')einzelDialog('alleStep',null)})}
 let lastAxis='';$('axis').addEventListener('change',()=>{if($('axis').value)lastAxis=$('axis').value});
-async function screenshot(){const url=ansichtBild().toDataURL('image/png');
+function screenshot(...args){return dokumentAuftrag(()=>screenshotImpl(...args))}
+async function screenshotImpl(){const url=ansichtBild().toDataURL('image/png');
   const bin=atob(url.split(',')[1]);const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
   const name=(window.__lastLoad?.name||'ansicht').replace(/\.(step|stp)$/i,'')+'-ansicht.png';await saveBytes(name,bytes,'PNG-Bild','png','image/png')}
 let rdown=null;
 renderer.domElement.addEventListener('pointerdown',e=>{if(e.button===2)rdown=[e.clientX,e.clientY]});
 renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
 renderer.domElement.addEventListener('pointerup',e=>{if(e.button!==2||!rdown)return;const moved=Math.hypot(e.clientX-rdown[0],e.clientY-rdown[1])>4;rdown=null;if(!moved&&model)viewMenu(e.clientX,e.clientY)});
-const closeCtx=()=>document.getElementById('ctx')?.remove();addEventListener('pointerdown',e=>{if(!e.target.closest('#ctx'))closeCtx();if(!e.target.closest('.menu')&&!e.target.closest('#exportMenue')&&!e.target.closest('#exportKnopf'))menueZu()});addEventListener('keydown',e=>{if(document.querySelector('dialog[open]'))return;if(e.key==='Escape'){const offen=!!document.getElementById('ctx')||!$('props').hidden||!$('hilfeDlg').hidden||!!document.querySelector('.menu.offen,.menu.open');
+const closeCtx=()=>document.getElementById('ctx')?.remove();addEventListener('pointerdown',e=>{if(dokumentWechsel)return;if(!e.target.closest('#ctx'))closeCtx();if(!e.target.closest('.menu')&&!e.target.closest('#exportMenue')&&!e.target.closest('#exportKnopf'))menueZu()});addEventListener('keydown',e=>{if(cadTastenGesperrt(e))return;if(e.key==='Escape'){const offen=!!document.getElementById('ctx')||!$('props').hidden||!$('hilfeDlg').hidden||!!document.querySelector('.menu.offen,.menu.open');
   closeCtx();$('props').hidden=true;$('hilfeDlg').hidden=true;menueZu();if(offen)e.hasiDialogZu=true}});
-async function showProps(n){const sicht=n.all.filter(i=>bodies[i]?.visible);const ids=sicht.length?sicht:n.all;const q=await call('props',{ids});const d=parseFloat($('dens').value)||0;const s=V3(q.bbox.max).sub(V3(q.bbox.min));
+function showProps(...args){return dokumentAuftrag(()=>showPropsImpl(...args))}
+async function showPropsImpl(n){const sicht=n.all.filter(i=>bodies[i]?.visible);const ids=sicht.length?sicht:n.all;const q=await call('props',{ids});const d=parseFloat($('dens').value)||0;const s=V3(q.bbox.max).sub(V3(q.bbox.min));
   $('propsTitle').textContent='Eigenschaften: '+n.name;const aus=n.all.length-sicht.length;
   kv($('propsBody'),ohneFlaeche([['Typ',isAsm(n)?'Baugruppe':'Teil'],['Körper',q.bodies],...(sicht.length&&aus?[['Ausgeblendet (nicht gerechnet)',aus+' Körper']]:[]),...(!sicht.length?[['Hinweis','Teil ist ausgeblendet – Werte des ausgeblendeten Teils']]:[]),['Volumen',q.volume,'V'],['Oberfläche',q.area,'A'],['Dichte',nf(d,2)+' g/cm³'],['Masse',q.volume/1000*d,'M'],['Bounding-Box X',s.x,'L'],['Bounding-Box Y',s.y,'L'],['Bounding-Box Z',s.z,'L']]));
   $('props').hidden=false;window.__lastProps=q;return q}
@@ -442,7 +453,8 @@ $('mat').onchange=()=>{if($('mat').value!=='custom')$('dens').value=$('mat').val
 let huelle=null,huellObj=null,spObj=null;
 const sichtbareIds=()=>bodies.map((b,i)=>b.visible||b.userData.faltVersteckt?i:-1).filter(i=>i>=0);
 const huellBezug=()=>sels.find(x=>x.k==='face'||x.k==='edge'||x.k==='axis');
-async function huelleRechnen(art){if(!data)return null;art=art||$('huellArt').value;$('huellArt').value=art;const bez=huellBezug();
+function huelleRechnen(...args){return dokumentAuftrag(()=>huelleRechnenImpl(...args))}
+async function huelleRechnenImpl(art){if(!data)return null;art=art||$('huellArt').value;$('huellArt').value=art;const bez=huellBezug();
   if(art==='bezug'&&!bez){$('status').textContent='Bitte zuerst eine ebene Fläche oder eine Kante als Bezug wählen.';return null}
   const ids=sichtbareIds(),netze={};ids.forEach(i=>{const u=data.inst[i].u;netze[u]=data.uniq[u].p});
   const r=await call('huelle',{opts:{ids,netze,bezug:bez?{k:bez.k,id:bez.id,inst:bez.inst??0}:null}});huelle=r;window.__huelle=r;
@@ -454,7 +466,7 @@ async function huelleRechnen(art){if(!data)return null;art=art||$('huellArt').va
   rows.push(['Rohmaß Block',`${nf(b.masse[0],PREC)} × ${nf(b.masse[1],PREC)} × ${nf(b.masse[2],PREC)} mm`]);if(z)rows.push(['Rohmaß Zylinder',`Ø ${nf(z.d,PREC)} × ${nf(z.l,PREC)} mm`]);
   rows.push(['Rohmaß Empfehlung',r.rohmass.empfehlung+' (kleineres Volumen)']);
   kv($('huellinfo'),rows);huellZeichnen(q);return r}
-function huellZeichnen(q){if(huellObj){huellObj.removeFromParent();huellObj.geometry.dispose();huellObj=null}if(!q||!$('huellZeigen').checked||!model){needs=true;return}
+function huellZeichnen(q){if(huellObj){disposeDocumentScene(huellObj);huellObj=null}if(!q||!$('huellZeigen').checked||!model){needs=true;return}
   const E=[[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]],a=[];E.forEach(([i,j])=>a.push(...q.ecken[i],...q.ecken[j]));
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(a,3));huellObj=new THREE.LineSegments(g,new THREE.LineDashedMaterial({color:0xe07b00,dashSize:3,gapSize:2,depthTest:false,transparent:true}));
   huellObj.computeLineDistances();huellObj.renderOrder=5;model.add(huellObj);needs=true}
@@ -467,7 +479,8 @@ $('huellRechnen').onclick=()=>huelleRechnen();$('huellArt').onchange=()=>{if(hue
 $('huellZeigen').onchange=()=>{if(huelle){const a=$('huellArt').value;huellZeichnen(a==='bezug'?huelle.bezug:a==='achsparallel'?huelle.achsparallel:huelle.minimal)}};
 $('schwerpunktZeigen').onchange=()=>schwerpunktZeigen();
 const EINHEIT={L:'mm',W:'°',A:'mm²',V:'mm³',M:'g'};
-async function protokollDatenSammeln(){if(!data)return null;if(!huelle||!huelle.ok)await huelleRechnen($('huellArt').value==='bezug'&&!huellBezug()?'minimal':$('huellArt').value);
+function protokollDatenSammeln(...args){return dokumentAuftrag(()=>protokollDatenSammelnImpl(...args))}
+async function protokollDatenSammelnImpl(){if(!data)return null;if(!huelle||!huelle.ok)await huelleRechnen($('huellArt').value==='bezug'&&!huellBezug()?'minimal':$('huellArt').value);
   const d=parseFloat($('dens').value)||0;const m=data.model;
   const wert=(v,k)=>k==='P'?v.map(x=>nf(x,PREC)).join(' / '):k==='M'?v:typeof v==='number'?v:v;
   const bem=dims.flatMap(x=>{const rows=x.typ==='info'?informationsZeilen(x.r.rows,x.infoOptionen,x.title):[mainRow(x.r)];const tol=x.tol&&x.tol.art&&x.tol.art!=='keine'?BM.massText(x,{...STIL,stellen:PREC}).filter(Boolean).join(' '):'–';
@@ -480,7 +493,7 @@ $('protPdf').onclick=async()=>{const D=await protokollDatenSammeln();if(!D)retur
   if(MARKE.logo)Object.assign(meta,{kopfFarbe:MARKE.akzentRgb,logo:await logoDaten()});await saveBytes(baseName()+'_Messprotokoll.pdf',PM.protokollPdf(D,meta),'PDF-Dokument','pdf','application/pdf')};
 $('protXlsx').onclick=async()=>{const D=await protokollDatenSammeln();if(!D)return;const PM=await import('./messprotokoll.js');await saveBytes(baseName()+'_Messprotokoll.xlsx',await PM.protokollXlsx(D),'Excel-Arbeitsmappe','xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')};$('dens').oninput=()=>{$('mat').value='custom';showMass()};
 $('file').onclick=e=>{if(window.__TAURI_INTERNALS__){e.preventDefault();void oeffnenDialog()}};
-$('file').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)void oeffneDatei(f)};
+$('file').onchange=e=>{const files=Array.from(e.target.files);e.target.value='';files.forEach(f=>{if(/\.(step|stp)$/i.test(f.name))void oeffneDatei(f)})};
 installFileDrop(document,{open:oeffneDatei,hint:window.__dateiZiehen,invalid:()=>{$('status').textContent='Nur STEP-Dateien (.step, .stp)'}});
 
 // ---------- Schnitt ----------
@@ -516,6 +529,9 @@ function pickAt(cx,cy,opt){if(!model)return null;
     if(hs.length){const h=hs[0],inst=h.object.userData.inst,u=data.inst[inst].u;const eid=h.object.geometry.userData.edge[h.index/2|0];eh={id:eid,inst,u,e:data.uniq[u].edges[eid],p:model.worldToLocal(h.point.clone()).toArray()}}}
   if(eh){const e=eh.e,inst=eh.inst;
     if(fang('vertex'))for(const p of [e.pts[0],e.pts[e.pts.length-1]]){const pm=toModel(inst,p);if(px(pm)<10){const vi=vIndexOf(eh.u).get(key(p));if(vi!=null)return {k:'vertex',id:vi,inst,p:pm,body:bodies[inst]}}}
+    // Auto misst die angeklickte Kurve. Abstand/Punkt-Modi behalten dagegen
+    // die expliziten Mittelpunkt-Fänge für Punkt-zu-Punkt-Messungen.
+    if(!$('messenPanel').hidden&&messart==='auto'&&fang('edge'))return {k:'edge',id:eh.id,inst,p:eh.p,body:bodies[inst]};
     if(fang('mid')&&e.mid&&!(e.type==='Kreis'&&near(e.pts[0],e.pts.at(-1)))){const pm=toModel(inst,e.mid);if(px(pm)<10)return {k:'mid',id:eh.id,inst,p:pm,body:bodies[inst]}}
     if(fang('center')&&e.type==='Kreis')return {k:'center',id:eh.id,inst,p:toModel(inst,e.c),body:bodies[inst]};
     if(fang('edge'))return {k:'edge',id:eh.id,inst,p:eh.p,body:bodies[inst]}}
@@ -546,9 +562,9 @@ const symTex={};function symTexture(k){if(symTex[k])return symTex[k];const c=doc
 function snapSym(k,p,color){const gg=new THREE.BufferGeometry();gg.setAttribute('position',new THREE.Float32BufferAttribute(p,3));const pt=new THREE.Points(gg,new THREE.PointsMaterial({color,size:20,map:symTexture(k),transparent:true,alphaTest:.3,sizeAttenuation:false,depthTest:false}));pt.renderOrder=12;return pt}
 let down=null,hoverRAF=0;
 renderer.domElement.addEventListener('pointerdown',e=>down=[e.clientX,e.clientY]);
-renderer.domElement.addEventListener('pointermove',e=>{letzteMaus=[e.clientX,e.clientY];if(e.buttons||hoverRAF||zug)return;hoverRAF=requestAnimationFrame(()=>{hoverRAF=0;hov=pickAt(e.clientX,e.clientY);hoverObj.clear();if(hov)hoverObj.add(hiObj(hov,0xff6a00));
+renderer.domElement.addEventListener('pointermove',e=>{letzteMaus=[e.clientX,e.clientY];if(e.buttons||hoverRAF||zug)return;hoverRAF=requestAnimationFrame(()=>{hoverRAF=0;hov=pickAt(e.clientX,e.clientY);clearVisualChildren(hoverObj);if(hov)hoverObj.add(hiObj(hov,0xff6a00));
   const tip=$('snaptip'),r=$('view').getBoundingClientRect();tip.hidden=!hov;if(hov){tip.textContent=label(hov);tip.style.left=(e.clientX-r.left)+'px';tip.style.top=(e.clientY-r.top)+'px';tipEinpassen()}window.__vorschau=null;if(hov&&!abm)vorschau(hov,e.clientX,e.clientY);needs=true})});
-renderer.domElement.addEventListener('pointerleave',()=>{if(hoverRAF){cancelAnimationFrame(hoverRAF);hoverRAF=0}$('snaptip').hidden=true;hov=null;hoverObj.clear();$('hover').textContent='';needs=true});
+renderer.domElement.addEventListener('pointerleave',()=>{if(hoverRAF){cancelAnimationFrame(hoverRAF);hoverRAF=0}$('snaptip').hidden=true;hov=null;clearVisualChildren(hoverObj);$('hover').textContent='';needs=true});
 renderer.domElement.addEventListener('pointerup',e=>{if(zugSperre){zugSperre=false;return}if(e.button!==0||werkzeug!=='wahl')return;if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;
   if(festWahl){const f=pickAt(e.clientX,e.clientY,{nurFlaeche:true});if(f)festSetzen(f);return}
   if(abm){const f=pickAt(e.clientX,e.clientY,{nurFlaeche:true});if(f)abmRechnen(f);return}
@@ -561,16 +577,18 @@ function textFeld(){const t=document.activeElement;if(!t)return false;if(t.tagNa
 function auswahlAufheben(){if(zug)return null;
   if(abm){abmEnde();return 'abmessungen'}
   if(festWahl){festWahl=false;festAnzeigen();return 'feste Fläche'}
-  if(sels.length||lastRes||$('mresult').textContent.trim()){clearSel();lastRes=null;hoverObj.clear();needs=true;$('status').textContent='Auswahl aufgehoben – nächste Messung wählen';return 'messung'}
+  if(sels.length||lastRes||$('mresult').textContent.trim()){clearSel();lastRes=null;clearVisualChildren(hoverObj);needs=true;$('status').textContent='Auswahl aufgehoben – nächste Messung wählen';return 'messung'}
   if(selNode||selMenge.size){selectNode(null);triadeAktualisieren();return 'bauteil'}
   return null}
 addEventListener('keydown',e=>{
+  if(cadTastenGesperrt(e))return;
   if(document.querySelector('dialog[open]')||e.isComposing)return;
   if(e.target.closest?.('button,input,select,textarea,[contenteditable="true"]')&&['Tab','Space','Enter'].includes(e.code))return;
   if(e.key==='Escape'){if(e.hasiDialogZu||textFeld()||e.repeat)return;const t=document.activeElement;if(t&&['SELECT','BUTTON'].includes(t.tagName))t.blur();
     if(auswahlAufheben())e.preventDefault();return}
   if(tippt())return;
   if(e.key==='Tab'){e.preventDefault();tabSicht(e);return}
+  if((e.ctrlKey||e.metaKey)&&e.shiftKey&&!e.altKey&&e.code==='KeyH'){e.preventDefault();void act('showall');return}
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.code==='KeyZ'&&!e.shiftKey){e.preventDefault();rueckgaengig();return}
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&(e.code==='KeyY'||(e.code==='KeyZ'&&e.shiftKey))){e.preventDefault();wiederholen();return}
   if(e.code==='Space'){e.preventDefault();clearSel();return}
@@ -591,7 +609,6 @@ function teilAnCursor(auchVerdeckt){if(!letzteMaus||!model)return null;const [cx
   const h=auchVerdeckt?hits.find(x=>!x.object.visible):hits.find(x=>x.object.visible);
   return h?nodeOfBody(h.object.userData.inst):null}
 function tabSicht(e){if(!model)return;
-  if(e.ctrlKey&&e.shiftKey){act('showall');return}
   if(e.shiftKey){const n=teilAnCursor(true);if(!n)return;n.checked=true;for(let p=n.parent;p;p=p.parent)p.checked=true;applyVis();renderTree();return}
   const n=teilAnCursor(false);if(!n)return;n.checked=false;applyVis();renderTree()}
 $('clearSel').onclick=()=>clearSel();
@@ -605,6 +622,7 @@ function messartAnzeige(){
   const m=messartInfo(messart);$('messart').value=messart;
   const linear=messart==='auto'||messart==='abstand';$('bogenOptionen').hidden=!linear;$('linWahl').hidden=!linear;$('ghKnopf').parentElement.hidden=messart!=='auto';
   $('messHinweis').textContent=m.hint;
+  const erkannt=$('autoErkannt');erkannt.hidden=messart!=='auto'||!lastRes?.r?.automatik;erkannt.textContent=erkannt.hidden?'':'Automatisch erkannt: '+lastRes.r.automatik.name;
   document.querySelectorAll('[data-messart]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.messart===messart)));
   const el=$('messAuswahl');el.replaceChildren();
   sels.forEach((s,i)=>{const b=document.createElement('button');b.type='button';b.textContent=`${i+1}. ${label(s)} ×`;b.title='Dieses Element aus der Messung entfernen';b.onclick=()=>{sels.splice(i,1);if(sels.length)void neuMessen();else clearSel()};el.appendChild(b)});
@@ -619,27 +637,28 @@ function messartSetzen(art){
 }
 {const gruppen=new Map();for(const m of MESSARTEN){if(!gruppen.has(m.gruppe)){const g=document.createElement('optgroup');g.label=m.gruppe;$('messart').appendChild(g);gruppen.set(m.gruppe,g)}const o=document.createElement('option');o.value=m.id;o.textContent=m.name;gruppen.get(m.gruppe).appendChild(o)}
   $('messart').onchange=()=>messartSetzen($('messart').value);document.querySelectorAll('[data-messart]').forEach(b=>b.onclick=()=>messartSetzen(b.dataset.messart));messartAnzeige()}
-async function neuMessen(){
+function neuMessen(...args){return dokumentAuftrag(()=>neuMessenImpl(...args))}
+async function neuMessenImpl(){
   if(!sels.length)return;
   const s=sels.slice(),opts=messOpts();lastRes=null;window.__lastMeasure=null;
-  marks.clear();s.forEach(x=>marks.add(hiObj(x,0x1f8fd0)));messLabels=[];zeileHi.clear();messartAnzeige();
+  clearVisualChildren(marks);s.forEach(x=>marks.add(hiObj(x,0x1f8fd0)));messLabels=[];clearVisualChildren(zeileHi);messartAnzeige();
   return messauftraege.run({bereit:window.__messBereit,
     ausfuehren:()=>call('measure',{sels:s,opts}),
     warten:()=>{$('ergebnis').setAttribute('aria-busy','true');ergebnisZeigen(['Messdaten werden vorbereitet / Messung wird berechnet …']);kv($('mresult'),[]);$('keepInfo').disabled=$('keepDim').disabled=$('copySel').disabled=true;needs=true},
     ergebnis:r=>{lastRes=r.bereit===false?null:{r,sels:s,title:s.map(label).join(' + '),opts};$('ergebnis').setAttribute('aria-busy','false');$('keepInfo').disabled=$('keepDim').disabled=$('copySel').disabled=!lastRes;
       if(lastRes&&r.messart)$('keepDim').disabled=!baueDim(lastRes,'auto');
       $('keepDim').title=$('keepDim').disabled?'Für dieses Ergebnis keine grafische Bemaßung; Kopieren und Messprotokoll sind verfügbar.':'Als Bemaßung im 3D behalten';
-      messGrafik(r);zeigeMessung(r);window.__lastMeasure=r;needs=true},
+      messartAnzeige();messGrafik(r);zeigeMessung(r);window.__lastMeasure=r;needs=true},
     fehler:err=>{$('ergebnis').setAttribute('aria-busy','false');kv($('mresult'),[['Fehler',err.message||String(err),'t']]);ergebnisZeigen(['Messen nicht verfügbar: '+(err.message||err)]);needs=true},
   });
 }
-function clearSel(){messauftraege.invalidate();lastRes=null;sels=[];reiheBezug=null;zeileHi.clear();if(vorschauLinie){vorschauLinie.removeFromParent();vorschauLinie=null}marks.clear();$('selinfo').textContent='';kv($('mresult'),[]);$('mresult')._linien={};messLabels=[];$('ergebnis').setAttribute('aria-busy','false');$('keepInfo').disabled=$('keepDim').disabled=$('copySel').disabled=true;messartAnzeige();ergebnisZeigen([]);try{drawDims()}catch{}window.__lastMeasure=null;needs=true}
+function clearSel(){messauftraege.invalidate();lastRes=null;sels=[];reiheBezug=null;clearVisualChildren(zeileHi);if(vorschauLinie){vorschauLinie.removeFromParent();vorschauLinie=null}clearVisualChildren(marks);$('selinfo').textContent='';kv($('mresult'),[]);$('mresult')._linien={};messLabels=[];$('ergebnis').setAttribute('aria-busy','false');$('keepInfo').disabled=$('keepDim').disabled=$('copySel').disabled=true;messartAnzeige();ergebnisZeigen([]);try{drawDims()}catch{}window.__lastMeasure=null;needs=true}
 // ---------- Fläche zu Fläche (wie ZW3D „Instant Measure“) ----------
 // Q = nur Flächen fangen (bleibt gespeichert). Erste Fläche wählen, zweite überfahren → Vorschau des Hauptwerts am Cursor.
 // Umschalt+Klick misst gegen die erste Fläche (Bezug) weiter (Reihe). Esc löscht. Strg+C kopiert den Hauptwert.
 const nurFl=()=>!!$('nurFlaechen')?.checked;
 function nurFlaechenSetzen(an){const c=$('nurFlaechen');if(!c)return;c.checked=an;localStorage.setItem('nurFlaechen',an?'1':'0');
-  $('status').textContent=an?'Fläche zu Fläche: nur Flächen werden gefangen (Q schaltet um)':'Alle Fangarten aktiv (Q = nur Flächen)';hov=null;hoverObj.clear();needs=true}
+  $('status').textContent=an?'Fläche zu Fläche: nur Flächen werden gefangen (Q schaltet um)':'Alle Fangarten aktiv (Q = nur Flächen)';hov=null;clearVisualChildren(hoverObj);needs=true}
 if($('nurFlaechen')){$('nurFlaechen').checked=localStorage.getItem('nurFlaechen')==='1';$('nurFlaechen').onchange=()=>nurFlaechenSetzen($('nurFlaechen').checked)}
 // Vorschau: höchstens eine Anfrage gleichzeitig, die jeweils letzte gewinnt
 let vorschauLauf=false,vorschauNaechste=null,vorschauLinie=null;
@@ -648,7 +667,8 @@ const vorschauKey=(a,b)=>`${a.inst??0}:${a.id}|${b.inst??0}:${b.id}`;const vorsc
 function tipEinpassen(){const tip=$('snaptip');if(tip.hidden)return;tip.style.marginLeft='0px';const r=tip.getBoundingClientRect(),pn=$('messenPanel'),pr=pn&&!pn.hidden?pn.getBoundingClientRect():null;
   const grenze=pr&&pr.width&&r.bottom>pr.top&&r.top<pr.bottom?pr.left-6:$('view').getBoundingClientRect().right-6;if(r.right>grenze)tip.style.marginLeft=(grenze-r.right-28)+'px'}
 function vorschauText(v){return v?`${v.name} ${fmt(v.wert,v.einheit)}`:''}
-async function vorschau(h,cx,cy){if(sels.length!==1||sels[0].k!=='face'||!h||h.k!=='face'||(h.id===sels[0].id&&(h.inst??0)===(sels[0].inst??0)))return;
+function vorschau(...args){return dokumentAuftrag(()=>vorschauImpl(...args))}
+async function vorschauImpl(h,cx,cy){if(sels.length!==1||sels[0].k!=='face'||!h||h.k!=='face'||(h.id===sels[0].id&&(h.inst??0)===(sels[0].inst??0)))return;
   if(messart!=='auto'&&messart!=='abstand'&&messart!=='winkel')return;
   const art0=messart,bez0=sels[0];const a={k:'face',id:sels[0].id,inst:sels[0].inst??0,p:sels[0].p},b={k:'face',id:h.id,inst:h.inst??0,p:h.p};
   if(vorschauLauf){vorschauNaechste=[h,cx,cy];return}vorschauLauf=true;
@@ -660,17 +680,18 @@ async function vorschau(h,cx,cy){if(sels.length!==1||sels[0].k!=='face'||!h||h.k
   catch{}finally{vorschauLauf=false;if(vorschauNaechste){const n=vorschauNaechste;vorschauNaechste=null;if(n[0]===hov)vorschau(...n)}}}
 // Reihe: Umschalt+Klick auf eine weitere Fläche misst gegen die Bezugsfläche (erste Fläche) und behält jedes Maß als Bemaßung
 let reiheBezug=null;
-async function reiheMessen(s){const bez=reiheBezug||sels[0];reiheBezug=bez;sels=[bez];marks.clear();marks.add(hiObj(bez,0x2e9d4f));
+function reiheMessen(...args){return dokumentAuftrag(()=>reiheMessenImpl(...args))}
+async function reiheMessenImpl(s){const bez=reiheBezug||sels[0];reiheBezug=bez;sels=[bez];clearVisualChildren(marks);marks.add(hiObj(bez,0x2e9d4f));
   const r=await select(s,true);if(r){keepDim();const n=dims.filter(d=>d.sels?.[0]===bez||(d.sels?.[0]?.id===bez.id&&d.sels?.[0]?.inst===bez.inst)).length;
     $('status').textContent=`Reihe gegen Bezugsfläche: ${n} Maß${n===1?'':'e'} – Umschalt+Klick für das nächste, Esc beendet`}return r}
 // Ergebniswerte: Klick kopiert (1. Klick voller Wert, 2. Klick gerundet wie angezeigt); Überfahren hebt die Strecke im 3D hervor
-let kopierZuletzt=null;const zeileHi=new THREE.Group();zeileHi.renderOrder=13;
+let kopierZuletzt=null,zeileHi=new THREE.Group();zeileHi.renderOrder=13;
 function zeileWert(row){const [, v, k]=row;if(k==='P')return v.map(x=>kopierWert(x,PREC,false)).join(' / ');if(typeof v==='number'&&k&&k!=='t')return v;return String(v)}
 function ergebnisKopieren(el,i){const rows=el._rows;if(!rows||!rows[i])return;const row=rows[i];const v=zeileWert(row);const key=el.id+':'+i;
   const zweiter=kopierZuletzt&&kopierZuletzt.key===key&&performance.now()-kopierZuletzt.t<4000;
   const stellen=row[2]==='W'?Math.max(PREC,1):PREC;const t=typeof v==='number'?kopierWert(v,stellen,zweiter):v;kopierZuletzt=zweiter?null:{key,t:performance.now()};
   copyText(t).then(()=>{$('status').textContent=`${row[0]}: ${t} kopiert (${zweiter?'gerundet':'voller Wert – nochmal klicken für gerundet'})`})}
-function zeileHervorheben(el,i){zeileHi.clear();const row=el?._rows?.[i];const L=row&&el._linien?.[row[0]];
+function zeileHervorheben(el,i){clearVisualChildren(zeileHi);const row=el?._rows?.[i];const L=row&&el._linien?.[row[0]];
   if(L&&model){const g=new THREE.BufferGeometry().setFromPoints(L.map(V3));const m=new THREE.Line(g,new THREE.LineBasicMaterial({color:0xff2d95,depthTest:false,linewidth:3}));m.renderOrder=13;zeileHi.add(m);
     const s=(box.getSize(new THREE.Vector3()).length()||100)*0.006;L.forEach(p=>{const k=new THREE.Mesh(new THREE.SphereGeometry(s,12,8),new THREE.MeshBasicMaterial({color:0xff2d95,depthTest:false}));k.position.set(...p);k.renderOrder=13;zeileHi.add(k)})}
   window.__zeileHi=L?{name:row[0],linie:L}:null;needs=true}
@@ -681,7 +702,7 @@ for(const id of ['mresult','abminfo'])if($(id)){const el=$(id);
 function hauptwertKopieren(){if(!lastRes)return false;const rows=$('mresult')._rows||[];const i=rows.findIndex(r=>r[3]);const j=i>=0?i:rows.findIndex(r=>r===lastRes.r.label);if(j<0)return false;ergebnisKopieren($('mresult'),j);return true}
 // ---------- Abmessungen (D): Länge × Breite × Höhe an der Grundfläche, Klick auf eine Fläche richtet neu aus ----------
 let abm=null,abmObj=null,abmDims=[];
-function abmZeichnen(){if(abmObj){abmObj.removeFromParent();abmObj.geometry.dispose();abmObj=null}abmDims=[];if(!abm||!abm.ok||!model){needs=true;return}
+function abmZeichnen(){if(abmObj){disposeDocumentScene(abmObj);abmObj=null}abmDims=[];if(!abm||!abm.ok||!model){needs=true;return}
   const q=abm,E=[[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]],a=[];E.forEach(([i,j])=>a.push(...q.ecken[i],...q.ecken[j]));
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(a,3));abmObj=new THREE.LineSegments(g,new THREE.LineBasicMaterial({color:0x0a8f5a,depthTest:false,transparent:true,opacity:.9}));abmObj.renderOrder=5;model.add(abmObj);
   const iL=Math.abs(BM.V.dot(q.richtung.laenge,q.achsen[0]))>0.5?0:1,iB=1-iL,C=q.ecken,size=box.getSize(new THREE.Vector3()).length()*0.07;
@@ -699,24 +720,26 @@ function abmAnzeigen(){const r=abm;if(!r){$('abminfo').innerHTML='';$('abminfo')
   const m=r.modellachsen;const rows=[['Abmessungen',`${nf(r.laenge,PREC)} × ${nf(r.breite,PREC)} × ${nf(r.hoehe,PREC)} mm`,'t','!'],['Länge',r.laenge,'L'],['Breite',r.breite,'L'],['Höhe',r.hoehe,'L'],
     ['Ausgerichtet an',r.quelle],['In Modellachsen X × Y × Z',`${nf(m.x,PREC)} × ${nf(m.y,PREC)} × ${nf(m.z,PREC)} mm`]];
   kv($('abminfo'),rows);const C=r.ecken,iL=Math.abs(BM.V.dot(r.richtung.laenge,r.achsen[0]))>0.5?0:1,iB=1-iL;$('abminfo')._linien={'Länge':[C[0],C[1<<iL]],'Breite':[C[1<<iL],C[(1<<iL)|(1<<iB)]],'Höhe':[C[0],C[4]]}}
-async function abmRechnen(bezug){if(!data)return null;const ids=sichtbareIds();
+function abmRechnen(...args){return dokumentAuftrag(()=>abmRechnenImpl(...args))}
+async function abmRechnenImpl(bezug){if(!data)return null;const ids=sichtbareIds();
   try{const r=await call('abmessungen',{opts:{ids,bezug:bezug?{k:'face',id:bezug.id,inst:bezug.inst??0}:null}});const g=abm?.gesamt;abm=r;if(g){abm.gesamt=true;ergebnisZeigen(gesamtZeilen(r))}window.__abm=r;abmAnzeigen();abmZeichnen();$('abmGrund').hidden=!bezug;
     if(r.ok)$('status').textContent=`Abmessungen ${nf(r.laenge,PREC)} × ${nf(r.breite,PREC)} × ${nf(r.hoehe,PREC)} mm (${r.quelle}) – Fläche anklicken richtet neu aus, Esc beendet`;return r}
   catch(e){$('abminfo').innerHTML=`<div>Fehler</div><div>${e.message}</div>`;return null}}
 function abmEnde(){if(!abm)return false;const g=abm.gesamt;abm=null;$('ghKnopf')?.classList.remove('on');if(g)ergebnisZeigen([]);abmZeichnen();abmAnzeigen();$('abmGrund').hidden=true;$('abmKnopf')?.classList.remove('on');$('status').textContent='Abmessungen beendet';return true}
-async function abmUmschalten(){if(abm){abmEnde();return}$('abmKnopf')?.classList.add('on');return abmRechnen(null)}
+function abmUmschalten(...args){return dokumentAuftrag(()=>abmUmschaltenImpl(...args))}
+async function abmUmschaltenImpl(){if(abm){abmEnde();return}$('abmKnopf')?.classList.add('on');return abmRechnen(null)}
 if($('abmKnopf'))$('abmKnopf').onclick=()=>abmUmschalten();if($('abmGrund'))$('abmGrund').onclick=()=>abmRechnen(null);
 // Offener Körper: Hinweis bei Volumen/Masse
-async function offenPruefen(d0){try{await (window.__messBereit||Promise.resolve());const o=await call('offen',{});if(data!==d0)return;data.offen=o;showMass();showModel()}catch{}}
-let lastRes=null;
+function offenPruefen(...args){return dokumentAuftrag(()=>offenPruefenImpl(...args))}
+async function offenPruefenImpl(d0){try{await (window.__messBereit||Promise.resolve());const o=await call('offen',{});if(data!==d0)return;data.offen=o;showMass();showModel()}catch{}}
 function zeigeMessung(r){const namen=[...new Set(sels.map(teilName).filter(Boolean))];
   const rows=namen.length?[['Bauteil',namen.join(' · '),'t'],...r.rows]:r.rows;
-  kv($('mresult'),r.messart?rows:ohneFlaeche(rows));$('mresult')._linien=r.linien||{};zeileHi.clear();betonung();
+  kv($('mresult'),r.messart?rows:ohneFlaeche(rows));$('mresult')._linien=r.linien||{};clearVisualChildren(zeileHi);betonung();
   if(r.hinweis){messLabels=[];ergebnisZeigen([r.hinweis])}
   else if(r.messart){const h=r.label,z=[h,...r.rows.filter(x=>x!==h&&['L','W','A','V'].includes(x[2])).slice(0,2)].filter(Boolean).map(rowText);
     const warn=r.rows.filter(x=>x[0]==='Hinweis').map(x=>x[1]);ergebnisZeigen(z.concat(warn));
     const p=r.messpunkt||(r.gfx[0]&&mitteP(...r.gfx[0]))||sels[0]?.p;messLabels=p?[{p,zeilen:z.slice(0,1)}]:[];
-  }else try{const e=edrwAuswertung(r,sels);messLabels=e.labels;ergebnisZeigen(e.zeilen)}catch(err){messLabels=[];ergebnisZeigen([])}needs=true}
+  }else try{const e=edrwAuswertung(r,sels);if(r.automatik?.id==='winkel'&&r.winkelMass){const text='Winkel: '+fmt(r.winkelMass.wert,'W');e.zeilen=[text,...e.zeilen.filter(z=>!/^Winkel:/.test(z))];e.labels=[{p:r.winkelMass.v,zeilen:[text]}]}messLabels=e.labels;ergebnisZeigen(e.zeilen)}catch(err){messLabels=[];ergebnisZeigen([])}needs=true}
 function linLabelsNachBemassung(){try{if(lastRes)messLabels=messLabels.concat(linLabels(lastRes.r,lastRes.sels))}catch{}needs=true}
 // ---------- Ergebnis wie eDrawings: Text im Feld „Ergebnisse“ und Werte direkt am Element im 3D ----------
 let messLabels=[];const LILA='#7b3fd0';
@@ -745,7 +768,8 @@ function zeigeLinLabels(){if(!lastRes)return;const e=edrwAuswertung(lastRes.r,la
 function gesamtZeilen(r){if(!r||!r.ok)return [r?.msg||'Keine Geometrie.'];const z=['Gesamthöhe (Hüllquader): '+fmt(r.hoehe,'L')];
   if(r.flaechen){const gl=Math.abs(r.flaechen.wert-r.hoehe)<5e-4;z.push('Höhe Fläche–Fläche: '+fmt(r.flaechen.wert,'L')+(gl?' (= Gesamthöhe)':''),'  Fußfläche → Deckfläche, senkrecht wie „Normaler Abstand“')}
   z.push('Länge: '+fmt(r.laenge,'L'),'Breite: '+fmt(r.breite,'L'),'Ausgerichtet an: '+r.quelle);return z}
-async function gesamtHoehe(inst){if(!data)return null;tabTo('messen');const ids=inst!=null?[inst]:sichtbareIds();
+function gesamtHoehe(...args){return dokumentAuftrag(()=>gesamtHoeheImpl(...args))}
+async function gesamtHoeheImpl(inst){if(!data)return null;tabTo('messen');const ids=inst!=null?[inst]:sichtbareIds();
   try{const r=await call('abmessungen',{opts:{ids}});abm=r;abm.gesamt=true;window.__abm=r;abmAnzeigen();abmZeichnen();$('abmKnopf')?.classList.add('on');$('ghKnopf')?.classList.add('on');
     messLabels=[];ergebnisZeigen(gesamtZeilen(r));if(r.ok)$('status').textContent=`Gesamthöhe ${nf(r.hoehe,PREC)} mm (${r.quelle}) – Fläche anklicken richtet neu aus, H oder Esc beendet`;return r}
   catch(e){ergebnisZeigen(['Fehler: '+e.message]);return null}}
@@ -798,7 +822,8 @@ function zeichneMesslabels(c){messLabelKaesten=[];if(!messLabels.length||!model)
     c.fillStyle='rgba(255,255,255,.95)';c.strokeStyle=l.farbe||'#2c333a';c.lineWidth=1.2;c.beginPath();if(c.roundRect)c.roundRect(x,y,w,h,4);else c.rect(x,y,w,h);c.fill();c.stroke();
     c.beginPath();c.moveTo(q[0],q[1]);c.lineTo(x,y+h);c.stroke();c.fillStyle=l.farbe||'#1b2127';l.zeilen.forEach((t,i)=>c.fillText(t,x+7,y+3+8+i*16))}
   messLabelKaesten=K.map(k=>({zeilen:k.l.zeilen.slice(),x:k.x,y:k.y,w:k.w,h:k.h}));c.restore()}
-async function select(s,add=false){if(!data)return;
+function select(...args){return dokumentAuftrag(()=>selectImpl(...args))}
+async function selectImpl(s,add=false){if(!data)return;
   const m=messartInfo(messart);if(m.arten&&!m.arten.includes(s.k)){$('status').textContent=m.hint;return}
   const clean={k:s.k,id:s.id,inst:s.inst,p:s.p};if(s.src)clean.src=s.src;
   if(messart==='summe'&&sels.length&&sels[0].k!==clean.k){$('status').textContent='Kanten und Flächen bitte getrennt summieren.';return}
@@ -835,6 +860,7 @@ const lineOf=s=>{if(s.k!=='edge')return null;const e=UQ(s).edges[s.id];if(e.type
 const pointOf=s=>{const U=UQ(s),m=IM(s);if(s.k==='vertex')return TP(m,U.verts[s.id]);if(s.k==='mid')return TP(m,U.edges[s.id].mid);if(s.k==='center'){const e=U.edges[s.id];return e.c?TP(m,e.c):null}if(s.k==='point')return s.p;return null};
 const letzteLinear=()=>{const sel=dims.find(x=>x.no===dimSel);if(sel&&BM.LINEAR.includes(sel.typ))return sel;for(let i=dims.length-1;i>=0;i--)if(BM.LINEAR.includes(dims[i].typ))return dims[i];return null};
 function baueDim(res,typ,refDim){const sl=res.sels,r=res.r,size=box.getSize(new THREE.Vector3()).length();const d={typ:null,einheit:'L',tol:{art:'keine',o:0,u:0},praefix:'',suffix:'',text:''};
+  if(typ==='auto'&&r.automatik)typ=(r.automatik.id==='abstand'&&r.richtung&&BM.RICHTUNG_TYP[r.richtung.art])||r.automatik.bemassungstyp;
   if(typ==='info') {
     const s=sl[0];if(!s||!r.rows?.some(row=>['L','W','A','V','P'].includes(row[2])))return null;
     let p=r.messpunkt||(r.gfx?.[0]&&mitteP(...r.gfx[0]))||s.p||pointOf(s);
@@ -874,12 +900,13 @@ function renderDims(){if(dimSel&&!dims.some(d=>d.no===dimSel)){dimSel=null;$('di
   $('dimcount').textContent=dims.length?`(${dims.length})`:'';
   $('dimlist').innerHTML=dims.map(d=>{const r=mainRow(d.r);return `<div class="dim" data-no="${d.no}"><b>${d.no}</b><span title="${html(d.title)}"><span class="t">${html(r[0])}</span> <b>${html(fmt(r[1],r[2]))}</b></span><button data-a="edit" title="Bearbeiten">Bearbeiten</button><button data-a="copy" title="Kopieren">Kopieren</button><button data-a="del" title="Löschen">Löschen</button></div>`}).join('')||'<p class="hint">Noch keine Bemaßungen.</p>';
   window.__dims=dims.map(d=>({no:d.no,title:d.title,text:dimText(d)}));needs=true}
-async function copyText(t){window.__lastCopy=t;try{await navigator.clipboard.writeText(t)}catch{const a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();try{document.execCommand('copy')}catch{}a.remove()}$('status').textContent='In die Zwischenablage kopiert'}
+function copyText(...args){return dokumentAuftrag(()=>copyTextImpl(...args))}
+async function copyTextImpl(t){window.__lastCopy=t;try{await navigator.clipboard.writeText(t)}catch{const a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();try{document.execCommand('copy')}catch{}a.remove()}$('status').textContent='In die Zwischenablage kopiert'}
 function keepDim(typ){if(!lastRes)return false;typ=typ||$('dimtyp').value;const g=baueDim(lastRes,typ);if((typ!=='auto'||lastRes.r.messart)&&!g){$('status').textContent='Für diese Auswahl gibt es keine grafische Bemaßung. Messwert kopieren oder als Messprotokoll ausgeben.';return false}
   // Gleicher Bezugspunkt wie eine vorhandene Bemaßung: weiter nach außen versetzen, damit sich nichts überlappt
   if(g&&g.off&&!['kette','basislinie'].includes(g.typ)){const tol=box.getSize(new THREE.Vector3()).length()*0.04,ref=dimRef(g);const k=dims.filter(d=>d.typ&&BM.V.len(BM.V.sub(dimRef(d),ref))<tol).length;if(k)g.off=BM.V.mul(g.off,1+k*0.9)}
   dims.push({no:++dimNo,...lastRes,...(g||{})});renderDims();return true}
-$('keepDim').onclick=()=>keepDim(messart==='auto'?undefined:'auto');
+$('keepDim').onclick=()=>keepDim('auto');
 const infoOptionen=()=>({bezug:$('infoBezug').checked,koordinaten:$('infoKoordinaten').checked,flaechen:$('infoFlaechen').checked});
 for(const id of ['infoBezug','infoKoordinaten','infoFlaechen']){try{const saved=localStorage.getItem(id);if(saved!=null)$(id).checked=saved==='1'}catch{}$(id).onchange=()=>{try{localStorage.setItem(id,$(id).checked?'1':'0')}catch{}}}
 let infoLauf=0;
@@ -927,15 +954,17 @@ renderer.domElement.addEventListener('pointermove',e=>{if(!dimDrag)return;e.stop
 function linearSperren(art,ziel){const d=ziel||dimDrag?.d||dims.find(x=>x.no===dimSel);if(!d||d.typ!=='linear')return false;d.sperre=art||undefined;
   if(art){const dir=art==='ausgerichtet'?BM.V.norm(BM.V.sub(d.p2,d.p1)):richtungsVektor(art,d.p1,d.p2,sicht(),!BM.hochachseSichtbar(sicht()));if(dir){d.dir=dir;d.linArt=art;d.wert=Math.abs(BM.V.dot(BM.V.sub(d.p2,d.p1),dir));if(d.off)BM.ziehe(d,BM.V.add(d.p1,d.off))}}
   $('status').textContent=art?`Bemaßung ${d.no}: ${({horizontal:'horizontal',vertikal:'vertikal (Höhe)',ausgerichtet:'ausgerichtet'})[art]} gesperrt`:`Bemaßung ${d.no}: Richtung folgt wieder dem Ziehen`;renderDims();needs=true;return true}
-addEventListener('keydown',e=>{if(e.ctrlKey||e.metaKey||e.altKey||textFeld())return;const art={KeyH:'horizontal',KeyV:'vertikal',KeyA:'ausgerichtet',KeyL:null}[e.code];if(art===undefined)return;if(linearSperren(art)){e.preventDefault();return}if(e.code==='KeyH'&&!e.shiftKey&&!e.repeat&&data){e.preventDefault();gesamtUmschalten()}});
+addEventListener('keydown',e=>{if(cadTastenGesperrt(e)||e.ctrlKey||e.metaKey||e.altKey||textFeld())return;const art={KeyH:'horizontal',KeyV:'vertikal',KeyA:'ausgerichtet',KeyL:null}[e.code];if(art===undefined)return;if(linearSperren(art)){e.preventDefault();return}if(e.code==='KeyH'&&!e.shiftKey&&!e.repeat&&data){e.preventDefault();gesamtUmschalten()}});
 renderer.domElement.addEventListener('pointerup',e=>{if(!dimDrag)return;e.stopImmediatePropagation();const d=dimDrag.d,mv=dimDrag.moved;dimDrag=null;down=null;if(!mv)editDim(d);needs=true},true);
 // ---- Ansicht mit Bemaßungen exportieren (PNG/PDF) ----
 function ansichtBild(){renderer.render(scene,camera);drawDims();const c=document.createElement('canvas');const pr=renderer.domElement.width/(view.clientWidth||1),fd=Math.round(freiD*pr),sx=dockZustand.seite==='links'?fd:0;c.width=Math.max(1,renderer.domElement.width-fd);c.height=renderer.domElement.height;const x=c.getContext('2d');
   const g=x.createLinearGradient(0,0,0,c.height);const bg=einstellungen.hintergrund==='dunkel'?['#303d4b','#415262','#526578']:einstellungen.hintergrund==='hell'?['#f8fafc','#eef3f8','#e5edf4']:['#e7eef5','#c5d0dc','#b7c5d3'];g.addColorStop(0,bg[0]);g.addColorStop(.55,bg[1]);g.addColorStop(1,bg[2]);x.fillStyle=g;x.fillRect(0,0,c.width,c.height);
   x.drawImage(renderer.domElement,sx,0,c.width,c.height,0,0,c.width,c.height);x.drawImage(overlay,sx*overlay.width/renderer.domElement.width,0,c.width*overlay.width/renderer.domElement.width,overlay.height,0,0,c.width,c.height);return c}
 const toBytes=url=>{const b=atob(url.split(',')[1]);const u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u};
-async function exportPng(){await saveBytes(baseName()+'_Bemaßung.png',toBytes(ansichtBild().toDataURL('image/png')),'PNG-Bild','png','image/png')}
-async function exportPdf(){const c=ansichtBild();const {jsPDF}=await import('jspdf');const pdf=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+function exportPng(...args){return dokumentAuftrag(()=>exportPngImpl(...args))}
+async function exportPngImpl(){await saveBytes(baseName()+'_Bemaßung.png',toBytes(ansichtBild().toDataURL('image/png')),'PNG-Bild','png','image/png')}
+function exportPdf(...args){return dokumentAuftrag(()=>exportPdfImpl(...args))}
+async function exportPdfImpl(){const c=ansichtBild();const {jsPDF}=await import('jspdf');const pdf=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   pdf.setFontSize(12);let bildY=18,maxH=180;
   if(MARKE.logo){const logo=await logoDaten();pdf.addImage(logo,'PNG',12,6,14,14);pdf.setTextColor(...MARKE.primaerRgb);pdf.setFontSize(12);pdf.text(MARKE.produkt,30,12);pdf.setTextColor(110);pdf.setFontSize(8);pdf.text(MARKE.vermerk,30,17);pdf.setTextColor(0);pdf.setFontSize(12);pdf.text(`${window.__lastLoad?.name||'Teil'} – Bemaßung (Maße in mm)`,12,26);bildY=30;maxH=166}
   else pdf.text(`${window.__lastLoad?.name||'Teil'} – Bemaßung (Maße in mm)`,12,12);
@@ -948,7 +977,8 @@ $('dimClear').onclick=()=>{infoLauf++;dims=[];$('keepInfo').disabled=!lastRes;re
 // Begleitdatei *.hasi3d.json: Auswahl-Bezüge (Teil, Fläche/Kante/Ecke), Art, Lage und Toleranz. Die Werte werden beim Laden neu gemessen.
 function modellKennung(){if(!data)return null;return {instanzen:data.inst.length,flaechen:data.inst.reduce((s,I)=>s+data.uniq[I.u].faces.length,0),kanten:data.inst.reduce((s,I)=>s+data.uniq[I.u].edges.length,0)}}
 const bemassungenText=()=>BM.bemassungenSpeichern(dims,{datei:window.__lastLoad?.name||'',modell:modellKennung(),stil:STIL});
-async function bemassungenEinlesen(text){if(!data)throw new Error('Bitte zuerst eine STEP-Datei öffnen.');const j=BM.bemassungenLaden(text,{modell:modellKennung()});
+function bemassungenEinlesen(...args){return dokumentAuftrag(()=>bemassungenEinlesenImpl(...args))}
+async function bemassungenEinlesenImpl(text){if(!data)throw new Error('Bitte zuerst eine STEP-Datei öffnen.');const j=BM.bemassungenLaden(text,{modell:modellKennung()});
   const neu=[];let fehl=0;
   for(const b of j.bemassungen){try{const r=await call('measure',{sels:b.sels,opts:b.opts||{}});const ref=b.refNo!=null?neu.find(x=>x.no===b.refNo):null;
     const g=baueDim({r,sels:b.sels},b.typ,ref);if(!g){fehl++;continue}const d={no:b.no,r,sels:b.sels,title:b.title||'',opts:b.opts,...g};
@@ -972,30 +1002,34 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelect
 let sheetCache=null;$('calcSheet').onclick=()=>calcSheet();
 // Feste Fläche (ZW3D „Set Stationary Face“): anklicken statt automatisch die größte Fläche
 let fest=null,festWahl=false,festMark=null;
-function festAnzeigen(){const info=$('festInfo');if(!info)return;festMark?.clear();
+function festAnzeigen(){const info=$('festInfo');if(!info)return;clearVisualChildren(festMark);
   if(festWahl){info.textContent='Fläche in der 3D-Ansicht anklicken …';return}
   if(!fest){info.textContent='automatisch (größte Blechfläche)';$('festAuto').hidden=true;return}
   info.textContent=`Fläche ${fest.id+1}`+(teilName(fest)?` · ${teilName(fest)}`:'');$('festAuto').hidden=false;festMark?.add(hiObj({k:'face',id:fest.id,inst:fest.inst},0x2e9d4a));needs=true}
-async function festSetzen(s){festWahl=false;fest={inst:s.inst,id:s.id};if(data&&data.inst.length>1)sheetSolid=s.inst;festAnzeigen();tabTo('blech');return calcSheet()}
+function festSetzen(...args){return dokumentAuftrag(()=>festSetzenImpl(...args))}
+async function festSetzenImpl(s){festWahl=false;fest={inst:s.inst,id:s.id};if(data&&data.inst.length>1)sheetSolid=s.inst;festAnzeigen();tabTo('blech');return calcSheet()}
 $('festWaehlen').onclick=()=>{if(!data)return;festWahl=true;setWerkzeug('wahl');festAnzeigen()};
 $('festAuto').onclick=()=>{fest=null;festWahl=false;festAnzeigen();if(data)calcSheet()};
 $('dxfText').onchange=()=>{if(data)calcSheet()};
 $('riAn').onchange=()=>{if(data)calcSheet()};$('riWert').onchange=()=>{if(data&&$('riAn').checked)calcSheet()};
 // Virtueller Riss (ZW3D „Rip“): Kanten geschlossener Ecken auftrennen; gewählt wird in der 3D-Ansicht (auch die Innen- oder Außenkante der Ecke)
 let riss=[],rissMark=null;
-function rissAnzeigen(r){rissMark?.clear();const info=$('rissInfo');if(!info)return;$('rissLoeschen').hidden=!riss.length;
+function rissAnzeigen(r){clearVisualChildren(rissMark);const info=$('rissInfo');if(!info)return;$('rissLoeschen').hidden=!riss.length;
   if(!riss.length){info.textContent='keiner';return}
   const n=r?.rissKanten?.length||0;info.textContent=`${riss.length} gewählt`+(r?.ok?` · ${n} Kante(n) aufgetrennt`:'');
   const inst=sheetSolid??0;(r?.rissKanten||[]).forEach(id=>rissMark?.add(hiObj({k:'edge',id,inst},0x9c27b0)));needs=true}
-async function rissSetzen(liste){const inst=sheetSolid??0;const neu=(liste||sels.filter(x=>x.k==='edge'||x.k==='mid').map(x=>({inst:x.inst??0,id:x.id}))).filter(x=>x.inst===inst);
+function rissSetzen(...args){return dokumentAuftrag(()=>rissSetzenImpl(...args))}
+async function rissSetzenImpl(liste){const inst=sheetSolid??0;const neu=(liste||sels.filter(x=>x.k==='edge'||x.k==='mid').map(x=>({inst:x.inst??0,id:x.id}))).filter(x=>x.inst===inst);
   if(!neu.length){$('status').textContent='Bitte zuerst eine Kante der geschlossenen Ecke wählen.';return null}
   neu.forEach(x=>{if(!riss.some(y=>y.inst===x.inst&&y.id===x.id))riss.push(x)});tabTo('blech');return calcSheet()}
 $('rissSetzen').onclick=()=>rissSetzen();
 $('rissLoeschen').onclick=()=>{riss=[];if(data)calcSheet();else rissAnzeigen(null)};
 // Falten/Entfalten in der 3D-Ansicht: Blechhaut des Teils, alle Biegungen gleichzeitig (λ = 0 gefaltet … 1 flach)
 let faltNetzCache=null,faltObj=null,faltLauf=null;
-async function faltNetzHolen(){if(!faltNetzCache){const u=data.uniq[data.inst[sheetSolid??0].u];faltNetzCache=await call('faltNetz',{netz:{p:u.p,i:u.i,f:u.f}})}return faltNetzCache}
-async function faltSetzen(lambda){if(!data||!sheetCache?.faltung)return null;const N=await faltNetzHolen();if(!N)return null;
+function faltNetzHolen(...args){return dokumentAuftrag(()=>faltNetzHolenImpl(...args))}
+async function faltNetzHolenImpl(){if(!faltNetzCache){const u=data.uniq[data.inst[sheetSolid??0].u];faltNetzCache=await call('faltNetz',{netz:{p:u.p,i:u.i,f:u.f}})}return faltNetzCache}
+function faltSetzen(...args){return dokumentAuftrag(()=>faltSetzenImpl(...args))}
+async function faltSetzenImpl(lambda){if(!data||!sheetCache?.faltung)return null;const N=await faltNetzHolen();if(!N)return null;
   const inst=sheetSolid??0,B=bodies[inst];
   if(!faltObj){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(N.p2.length/2*3),3));
     faltObj=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0xd9a441,metalness:.2,roughness:.55,side:THREE.DoubleSide}));faltObj.matrixAutoUpdate=false;faltObj.matrix.copy(B.matrix);faltObj.userData.inst=inst;model.add(faltObj)}
@@ -1033,7 +1067,8 @@ $('csvClear').onclick=()=>{biegetabelle=null;localStorage.removeItem('biegetabel
 window.__setBiegetabelle=(name,rows)=>{biegetabelle={name,rows};showCsv()};
 function schenkelTab(bends,n2){const rows=bends.flatMap(b=>(b.schenkel||[]).map((l,i)=>`<tr><td>${b.gruppe??b.nr}</td><td>${i+1}</td><td>${l.aussen!=null?n2(l.aussen):'–'}</td><td>${l.innen!=null?n2(l.innen):'–'}</td><td>${n2(l.geradeAussen)}</td><td>${l.geradeInnen!=null?n2(l.geradeInnen):'–'}</td></tr>`));
   return rows.length?`<table class="schenkel"><tr><th>Nr.</th><th>Schenkel</th><th title="gerader Teil + R·tan(φ/2), außen">bis Biegep. außen</th><th title="gerader Teil + R·tan(φ/2), innen">bis Biegep. innen</th><th>gerade außen</th><th>gerade innen</th></tr>${rows.join('')}</table>`:''}
-async function calcSheet(){if(!data)return;const K=parseFloat(String($('kf').value).replace(',','.'));if(!(K>=0&&K<=1)){$('sheetwarn').textContent='K-Faktor muss zwischen 0 und 1 liegen.';return}
+function calcSheet(...args){const quelle=data;return dokumentAuftrag(async()=>{try{return await calcSheetImpl(...args)}catch(e){if(data===quelle){sheetCache=null;$('sheeterr').textContent='Blech konnte nicht berechnet werden: '+(e.message||e);for(const id of ['dxf','geoSpeichern','expPdf','expXlsx'])$(id).disabled=true}return null}})}
+async function calcSheetImpl(){if(!data)return;await window.__messBereit;const K=parseFloat(String($('kf').value).replace(',','.'));if(!(K>=0&&K<=1)){$('sheetwarn').textContent='K-Faktor muss zwischen 0 und 1 liegen.';return}
   const riW=parseFloat(String($('riWert').value).replace(',','.'));if($('riAn').checked&&!(riW>0)){$('sheetwarn').textContent='Angenommener Innenradius muss größer als 0 sein.';return}
   const modus=$('kmode').value,tab=[...(modus==='trumpf'&&geoTabelle?geoTabelle.rows:[]),...(biegetabelle?.rows||[])];
   const opts={modus,K,tabelle:tab.length?tab:null,lage:$('flachLage')?.value||'trumpf',name:baseName(),werkstoffGeo:($('mat2').selectedOptions[0]?.textContent||'').replace(/\s*\(.*$/,''),werkstoff:$('mat2').selectedOptions[0]?.textContent||'',beschriftung:!!$('dxfText')?.checked,basis:fest&&(sheetSolid??0)===fest.inst?fest.id:null,
@@ -1070,7 +1105,8 @@ function flachMasse(f,X,Y,fs,sw,pad){const C='#3b4650',n2=v=>nf(v,2),x0=X(f.min)
   return o.join('')}
 // Abwicklung als Text speichern (DXF, GEO). Desktop: Rust schreibt (GEO als ANSI/CRLF), prüft die Größe auf der Platte
 // und meldet die Bytes zurück; leerer Inhalt wird nie als Datei angelegt.
-async function textSpeichern(art,name,text,filter,ext,mime){
+function textSpeichern(...args){return dokumentAuftrag(()=>textSpeichernImpl(...args))}
+async function textSpeichernImpl(art,name,text,filter,ext,mime){
   if(typeof text!=='string'||!text.length){$('status').textContent=art+' ist leer – nichts gespeichert. Abwicklung neu berechnen.';return false}
   window.__lastExport={name,ext,text};const inv=window.__TAURI_INTERNALS__?.invoke;
   if(inv){try{const n=await inv('save_text',{name,content:text,filter,ext});
@@ -1082,7 +1118,8 @@ async function textSpeichern(art,name,text,filter,ext,mime){
 $('dxf').onclick=async()=>{if(!sheetCache?.dxf||sheetCache.flat?.incomplete)return;
   await textSpeichern('DXF',baseName()+'_Abwicklung.dxf',sheetCache.dxf,'DXF-Zeichnung','dxf','application/dxf')};
 // Aus dem Menü: Abwicklung bei Bedarf erst berechnen; ist sie gesperrt, steht der Grund in der Statuszeile statt eines stummen Klicks
-async function abwicklungExport(art){if(!data){$('status').textContent='Zuerst eine STEP-Datei öffnen.';return}tabTo('blech');if(!sheetCache)await calcSheet();const r=sheetCache;
+function abwicklungExport(...args){return dokumentAuftrag(()=>abwicklungExportImpl(...args))}
+async function abwicklungExportImpl(art){if(!data){$('status').textContent='Zuerst eine STEP-Datei öffnen.';return}tabTo('blech');if(!sheetCache)await calcSheet();const r=sheetCache;
   if(!r?.ok||!r.flat){$('status').textContent=(art==='geo'?'GEO':'DXF')+' nicht möglich: '+(r?.msg||'keine Abwicklung');return}
   if(r.flat.incomplete){$('status').textContent=(art==='geo'?'GEO':'DXF')+' gesperrt: Abwicklung unvollständig – '+(r.fehler||[]).join('; ');return}
   $(art==='geo'?'geoSpeichern':'dxf').click()}
@@ -1091,12 +1128,14 @@ $('geoSpeichern').onclick=async()=>{const r=sheetCache;if(!r?.flat||r.flat.incom
   await textSpeichern('GEO',baseName()+'_Abwicklung.geo',r.geo,'Trumpf-GEO','geo','application/octet-stream')};
 
 // ---------- Biegetabelle exportieren (PDF / XLSX) ----------
-async function saveBytes(name,bytes,filter,ext,mime){window.__lastExport={name,bytes,ext};const inv=window.__TAURI_INTERNALS__?.invoke;
+function saveBytes(...args){return dokumentAuftrag(()=>saveBytesImpl(...args))}
+async function saveBytesImpl(name,bytes,filter,ext,mime){window.__lastExport={name,bytes,ext};const inv=window.__TAURI_INTERNALS__?.invoke;
   if(inv){try{const ok=await inv('save_bytes',{name,data:Array.from(bytes),filter,ext});if(ok)$('status').textContent='Gespeichert: '+name;return !!ok}catch(e){$('status').textContent='Fehler beim Speichern: '+e;return false}}
   else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([bytes],{type:mime}));a.download=name;a.click();$('status').textContent='Gespeichert: '+name;return true}}
 const exportMeta=()=>{const rows=[...$('sheetinfo').children].map(d=>d.textContent);const get=k=>{const i=rows.indexOf(k);return i>=0?rows[i+1]:undefined};
   return {teil:(sheetSolid!=null&&nodeOfBody(sheetSolid)?.name)||window.__lastLoad?.name||'Teil',werkstoff:$('mat2').selectedOptions[0].textContent,kfaktor:get('K-Faktor'),masse:get('Masse')}};
-async function exportMetaMarke(){const m=exportMeta();if(!MARKE.logo)return m;return {...m,produkt:MARKE.produkt,kopfFarbe:MARKE.akzentRgb,primaer:MARKE.primaerRgb,logo:await logoDaten(),vermerk:MARKE.vermerk}}
+function exportMetaMarke(...args){return dokumentAuftrag(()=>exportMetaMarkeImpl(...args))}
+async function exportMetaMarkeImpl(){const m=exportMeta();if(!MARKE.logo)return m;return {...m,produkt:MARKE.produkt,kopfFarbe:MARKE.akzentRgb,primaer:MARKE.primaerRgb,logo:await logoDaten(),vermerk:MARKE.vermerk}}
 const baseName=()=>(window.__lastLoad?.name||'teil').replace(/\.(step|stp)$/i,'');
 $('expPdf').onclick=async()=>{if(!sheetCache?.flat||sheetCache.flat.incomplete)return;const E=await import('./biegetabelle-export.js');await saveBytes(baseName()+'_Biegetabelle.pdf',E.pdf(sheetCache,await exportMetaMarke()),'PDF-Dokument','pdf','application/pdf')};
 $('expXlsx').onclick=async()=>{if(!sheetCache?.flat||sheetCache.flat.incomplete)return;const E=await import('./biegetabelle-export.js');await saveBytes(baseName()+'_Biegetabelle.xlsx',await E.xlsx(sheetCache,exportMeta()),'Excel-Arbeitsmappe','xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')};
@@ -1105,15 +1144,8 @@ $('expXlsx').onclick=async()=>{if(!sheetCache?.flat||sheetCache.flat.incomplete)
 const ZIFFER={Digit1:'vorne',Digit2:'hinten',Digit3:'links',Digit4:'rechts',Digit5:'oben',Digit6:'unten',Digit7:'iso',Digit0:'iso',Numpad1:'vorne',Numpad2:'hinten',Numpad3:'links',Numpad4:'rechts',Numpad5:'oben',Numpad6:'unten',Numpad7:'iso',Numpad0:'iso'};
 function tippt(){const t=document.activeElement;if(!t)return false;const tag=t.tagName;return tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA'||t.isContentEditable}
 function menueZu(){document.querySelectorAll('.menuliste').forEach(m=>m.hidden=true);document.querySelectorAll('.menu').forEach(m=>m.classList.remove('offen'))}
-function zeigeReiter(name){const t=$('dateitab');if(!t)return;t.hidden=false;$('dateiname').textContent=name;$('dateiname').title=name}
-function dateiSchliessen(){navigationVoll();anim=null;setAutodrehen(false);setWerkzeug('wahl');
-  if(model){scene.remove(model);model.traverse(o=>{o.geometry?.dispose?.()});baseMat?.dispose?.()}
-  model=null;data=null;bodies=[];edgeObjs=[];baseMat=null;treeRoot=null;nodes=[];selNode=null;selMenge=new Set();sheetCache=null;sheetSolid=null;fest=null;festWahl=false;festAnzeigen();riss=[];rissAnzeigen(null);if(faltLauf){cancelAnimationFrame(faltLauf);faltLauf=null}faltObj=null;faltNetzCache=null;huelle=null;huellObj=null;spObj=null;$('huellinfo').innerHTML='';
-  ursprung=[];undoStapel=[];redoStapel=[];isoSnap=null;if(triade)triade.visible=false;if($('bewegenPanel'))$('bewegenPanel').hidden=true;
-  $('tree').innerHTML='';$('modelinfo').innerHTML='';$('massinfo').innerHTML='';
-  clearSel();dims=[];dimSel=null;$('dimedit').hidden=true;renderDims();
-  $('sheeterr').innerHTML='';$('sheetinfo').innerHTML='';$('bends').innerHTML='';$('flatprev').innerHTML='';$('dxf').disabled=true;$('expPdf').disabled=true;$('expXlsx').disabled=true;$('sheetwarn').textContent='';
-  $('drop').style.display='';$('dateitab').hidden=true;$('status').textContent='Keine Datei';if($('file'))$('file').value='';needs=true}
+function zeigeReiter(name){if(aktivesDokument){aktivesDokument.name=name;reiterAktualisieren()}}
+function dateiSchliessen(){if(aktivesDokument)return dokumentSchliessen(aktivesDokument.id)}
 function betonung(){const wahl=lastRes?.r?.wahl;const kids=[...$('mresult').children];
   for(let i=0;i<kids.length;i+=2){const treffer=!!wahl&&kids[i].textContent===wahl;kids[i].classList.toggle('wahl',treffer);if(kids[i+1])kids[i+1].classList.toggle('wahl',treffer)}}
 function drucken(){if(!model){$('status').textContent='Keine Datei zum Drucken';return}
@@ -1155,7 +1187,6 @@ $('messenZu').onclick=()=>dockEinklappen(true);$('blechEin').onclick=()=>dockEin
 $('blechZu').onclick=()=>werkzeugFelderZu();
 $('baumZu').onclick=()=>{$('baum').classList.add('zu');$('baumLasche').hidden=false};
 $('baumLasche').onclick=()=>{$('baum').classList.remove('zu');$('baumLasche').hidden=true};
-$('dateiZu').onclick=dateiSchliessen;
 function messenAktivieren(){setAutodrehen(false);setWerkzeug('wahl');tabTo('messen')}
 function einstellungenAnwenden(p){einstellungen=p;controls.wheelDirection=p.zoomRichtung==='cad'?-1:1;controls.wheelSpeed=p.zoomTempo;controls.rotateSpeed=2*p.drehTempo;document.documentElement.dataset.hintergrund=p.hintergrund;document.documentElement.dataset.baumdichte=p.baumDichte;renderer.setPixelRatio(bildPixelRatio(p.bildqualitaet,devicePixelRatio));resize()}
 const oberflaeche=installOberflaeche({marke:MARKE,einstellungen,onSettings:einstellungenAnwenden,readExtras:()=>({prec:PREC,farben:farbenAn}),applyExtras:p=>{if(p.prec!=null){$('prec').value=String(p.prec);$('prec').onchange()}if(p.farben!=null&&farbenAn!==p.farben)farbenUmschalten()}});
@@ -1243,7 +1274,8 @@ function wahlMitziehen(){const g=wahlMark?.children[0];const ids=wahlMark?.userD
 function zahlFeld(id){const el=$(id);if(!el)return 0;const v=parseFloat(String(el.value).replace(',','.'));return Number.isFinite(v)?v:0}
 function zeigeDelta(d,grad){if($('dx')){$('dx').value=(d?.x||0).toFixed(3);$('dy').value=(d?.y||0).toFixed(3);$('dz').value=(d?.z||0).toFixed(3)}
   if(grad!=null&&$('dWinkel'))$('dWinkel').value=grad.toFixed(3)}
-async function nachBewegung(){if(!bodies.length)return;const lagen=bodies.map((_,i)=>lies34(i));lagen.forEach((m,i)=>{if(data)data.inst[i].m=m});
+function nachBewegung(...args){return dokumentAuftrag(()=>nachBewegungImpl(...args))}
+async function nachBewegungImpl(){if(!bodies.length)return;const lagen=bodies.map((_,i)=>lies34(i));lagen.forEach((m,i)=>{if(data)data.inst[i].m=m});
   messauftraege.invalidate();const aktuellesModell=data;
   triadeAktualisieren();hervorheben();
   try{await call('lagen',{m:lagen})}catch(e){console.warn(e)}
@@ -1252,17 +1284,21 @@ async function nachBewegung(){if(!bodies.length)return;const lagen=bodies.map((_
   sels=sels.map(s=>({...s,p:s.k==='point'?s.p:undefined}));
   if(sels.length){$('selinfo').textContent=sels.map(label).join('  +  ');await neuMessen()}
   await dimsAktualisieren();needs=true}
-async function dimsAktualisieren(){if(!dims.length){renderDims();return}
+function dimsAktualisieren(...args){return dokumentAuftrag(()=>dimsAktualisierenImpl(...args))}
+async function dimsAktualisierenImpl(){if(!dims.length){renderDims();return}
   for(const d of dims){if(!d.sels||!d.typ)continue;try{const r=await call('measure',{sels:d.sels,opts:d.opts||{}});
     const keep={no:d.no,tol:d.tol,praefix:d.praefix,suffix:d.suffix,text:d.text,off:d.off,ang:d.ang,offR:d.offR,title:d.title,refNo:d.refNo,linArt:d.linArt,sperre:d.sperre,infoOptionen:d.infoOptionen};
     const festDir=d.dir&&BM.LINEAR.includes(d.typ)&&!['ausgerichtet','kette','basislinie'].includes(d.typ)&&!(d.typ==='linear'&&d.linArt==='ausgerichtet')?d.dir:null;
     const g=baueDim({r,sels:d.sels},d.typ,d.refNo!=null?dims.find(x=>x.no===d.refNo):null);d.r=r;d.sels=d.sels;if(g)Object.assign(d,g,keep);else Object.assign(d,keep);if(festDir&&d.p1&&d.p2){d.dir=festDir;d.wert=Math.abs(BM.V.dot(BM.V.sub(d.p2,d.p1),festDir))}}catch{/* Messung bleibt stehen */}}
   renderDims()}
-async function bewege(ids,dx,dy,dz,achse,grad){if(!ids.length)return;const before=snapshot(ids);const v=new THREE.Vector3(dx||0,dy||0,dz||0);
+function bewege(...args){return dokumentAuftrag(()=>bewegeImpl(...args))}
+async function bewegeImpl(ids,dx,dy,dz,achse,grad){if(!ids.length)return;const before=snapshot(ids);const v=new THREE.Vector3(dx||0,dy||0,dz||0);
   if(v.lengthSq()>0)schiebe(ids,v);if(grad)dreheUm(ids,ACHSE[achse]||ACHSE.Z,grad*Math.PI/180,mittelpunkt(ids));
   const nach=snapshot(ids);if(JSON.stringify(before)===JSON.stringify(nach))return;merke(before);zeigeDelta(v,grad||0);await nachBewegung()}
-async function rueckgaengig(){const before=undoStapel.pop();if(!before)return;redoStapel.push(snapshot(Object.keys(before).map(Number)));anwendenSnap(before);$('status').textContent='Rückgängig';await nachBewegung()}
-async function wiederholen(){const next=redoStapel.pop();if(!next)return;undoStapel.push(snapshot(Object.keys(next).map(Number)));anwendenSnap(next);$('status').textContent='Wiederholen';await nachBewegung()}
+function rueckgaengig(...args){return dokumentAuftrag(()=>rueckgaengigImpl(...args))}
+async function rueckgaengigImpl(){const before=undoStapel.pop();if(!before)return;redoStapel.push(snapshot(Object.keys(before).map(Number)));anwendenSnap(before);$('status').textContent='Rückgängig';await nachBewegung()}
+function wiederholen(...args){return dokumentAuftrag(()=>wiederholenImpl(...args))}
+async function wiederholenImpl(){const next=redoStapel.pop();if(!next)return;undoStapel.push(snapshot(Object.keys(next).map(Number)));anwendenSnap(next);$('status').textContent='Wiederholen';await nachBewegung()}
 function resetPos(ids){const aendern=ids.filter(i=>ursprung[i]&&lies34(i).some((v,k)=>Math.abs(v-ursprung[i][k])>1e-9));if(!aendern.length)return Promise.resolve();
   const before=snapshot(aendern);aendern.forEach(i=>setze34(i,ursprung[i]));merke(before);zeigeDelta(new THREE.Vector3(),0);return nachBewegung()}
 function strahlModell(cx,cy){const rct=renderer.domElement.getBoundingClientRect();const ndc=new THREE.Vector2(((cx-rct.left)/rct.width)*2-1,-((cy-rct.top)/rct.height)*2+1);
@@ -1327,11 +1363,13 @@ window.__exportStufe=(k,n)=>{if(!$('exportLauf').hidden)exportAnzeige(n>1?`STEP 
 $('exportStop').onclick=()=>{exportStop=true;$('exportText').textContent='Wird abgebrochen …';window.__TAURI_INTERNALS__?.invoke('step_export_abbrechen').catch(()=>{})};
 const ABGEBROCHEN='abgebrochen';
 // Schreibt die Dateien. ziel: 'datei' | 'ordner' | 'temp'. Ergebnis: Liste (Pfade bzw. im Browser Namen/Bytes), null = Dialog abgebrochen.
-async function stepSchreiben(dateien,schema,ziel){
+function stepSchreiben(...args){return dokumentAuftrag(()=>stepSchreibenImpl(...args))}
+async function stepSchreibenImpl(dateien,schema,ziel){
   const inv=window.__TAURI_INTERNALS__?.invoke;exportStop=false;
   if(inv&&data.kernArt==='nativ'&&localStorage.getItem('export')!=='wasm'){
-    try{return await inv('step_export',{dateien:dateien.map(d=>({name:sichererName(d.name),produkt:stepText(d.name),teile:d.teile})),schema,ziel})}
+    try{const result=await inv('step_export',{dokument:aktivesDokument.nativeId,dateien:dateien.map(d=>({name:sichererName(d.name),produkt:stepText(d.name),teile:d.teile})),schema,ziel});window.__stepKernel='nativ';return result}
     catch(e){if(String(e)===ABGEBROCHEN||exportStop)throw new Error(ABGEBROCHEN);console.warn('Nativer STEP-Export fehlgeschlagen, WASM-Kern übernimmt:',e)}}
+  window.__stepKernel='wasm';
   // WASM-Kern: Ziel zuerst wählen (der Browser verlangt den Ordnerdialog direkt nach dem Klick)
   let ordner=null,dirH=null;
   if(ziel==='ordner'){if(inv){ordner=await inv('ordner_waehlen');if(!ordner)return null}
@@ -1349,7 +1387,8 @@ async function stepSchreiben(dateien,schema,ziel){
     else if(ziel==='temp')aus.push({name:namen[k],bytes});
     else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([bytes],{type:'model/step'}));a.download=namen[k];a.click();aus.push(namen[k]);await new Promise(r=>setTimeout(r,250))}}
   return aus}
-async function einzelAusfuehren(art,n,lage,schema){
+function einzelAusfuehren(...args){return dokumentAuftrag(()=>einzelAusfuehrenImpl(...args))}
+async function einzelAusfuehrenImpl(art,n,lage,schema){
   const inv=window.__TAURI_INTERNALS__?.invoke;
   if(art==='einzelOeffnen'){const name=ohneNummer(n.name);
     const fenster=inv?null:window.open('','_blank');
@@ -1389,9 +1428,9 @@ function einzelDialog(art,n){
   $('einzelOk').onclick=()=>{einzelWahl.lage=dlg.querySelector('input[name=einzelLage]:checked').value;einzelWahl.schema=dlg.querySelector('input[name=einzelSchema]:checked').value;
     try{localStorage.setItem('einzelteil',JSON.stringify(einzelWahl))}catch{}
     zu();einzelAusfuehren(art,n,einzelWahl.lage,einzelWahl.schema).catch(e=>{$('status').textContent=e.message===ABGEBROCHEN?'Speichern abgebrochen':'Fehler beim Speichern: '+(e.message||e)})}}
-window.__viewMenu=(x,y)=>viewMenu(x,y);window.__loadUrl=async u=>load(await (await fetch(u)).arrayBuffer(),u.split('/').pop());
-window.__loadBytes=(buf,name)=>load(buf,name);window.__call=call;
-window.__einzelteil={dialog:(a,id)=>einzelDialog(a,id==null?null:nodes.find(x=>x.id===id)),ausfuehren:(a,id,lage,schema)=>einzelAusfuehren(a,id==null?null:nodes.find(x=>x.id===id),lage,schema),alle:()=>alleEinzelteile(),teile:(id,lage)=>einzelTeile(nodes.find(x=>x.id===id),lage)};
+window.__viewMenu=(x,y)=>viewMenu(x,y);window.__loadUrl=u=>dokumentOeffnen(u,u.split('/').pop(),async()=>load(await (await fetch(u)).arrayBuffer(),u.split('/').pop()));
+window.__loadBytes=(buf,name)=>dokumentOeffnen(Symbol(name),name,()=>load(buf,name));window.__call=call;
+window.__einzelteil={exportieren:stepSchreiben,dialog:(a,id)=>einzelDialog(a,id==null?null:nodes.find(x=>x.id===id)),ausfuehren:(a,id,lage,schema)=>einzelAusfuehren(a,id==null?null:nodes.find(x=>x.id===id),lage,schema),alle:()=>alleEinzelteile(),teile:(id,lage)=>einzelTeile(nodes.find(x=>x.id===id),lage)};
 window.__steuerung=()=>({zoomTempo:controls.wheelSpeed,drehTempo:controls.rotateSpeed,pixelRatio:renderer.getPixelRatio(),daempfung:!controls.staticMoving,autoRotate:false,autodrehen:drehen,schnell:!!navigationKanten,drawCalls:renderer.info.render.calls,ziel:controls.target.toArray(),pos:camera.position.toArray(),up:camera.up.toArray(),mitte:model?box.getCenter(new THREE.Vector3()).toArray():null});
 window.__app={infoTexte:()=>dims.filter(d=>d.typ==='info').map(d=>informationsZeilen(d.r.rows,d.infoOptionen,d.title).map(rowText)),messLabelKaesten:()=>messLabelKaesten,messLabels:()=>messLabels.map(l=>({zeilen:l.zeilen.slice(),farbe:l.farbe||null,linie:!!l.linie,pos:projL(l.p)})),ergebnis:()=>$("ergebnis")?.innerText||"",huelle:a=>huelleRechnen(a),abmessungen:b=>abmRechnen(b),abm:()=>abm,abmDims:()=>abmDims.length,abmTexte:()=>abmDims.map(d=>BM.massText(d,{...STIL,stellen:PREC})[0]),dimTexte:()=>dims.filter(d=>d.typ).map(d=>({no:d.no,typ:d.typ,linArt:d.linArt,wert:d.wert,text:BM.massText(d,{...STIL,stellen:PREC})[0]})),linWahl:w=>{if(w)linWahlSetzen(w);return linWahl},gesamt:()=>gesamtHoehe(),hoverChip:()=>$('hover').textContent,nurFlaechen:an=>{if(an!=null)nurFlaechenSetzen(an);return nurFl()},reihe:s=>reiheMessen(s),sels:()=>sels.map(x=>({k:x.k,id:x.id,inst:x.inst})),schwerpunkt:()=>{$('schwerpunktZeigen').checked=true;return schwerpunktZeigen()},protokollDaten:()=>protokollDatenSammeln(),faltSetzen,faltEnde,faltNetz:()=>faltNetzHolen(),rissSetzen,riss:()=>riss,huellObj:()=>huellObj&&!!huellObj.parent,hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position.toArray(),fitIso:()=>fit(views.iso),dimLabels:()=>dimHits.map(h=>[[h.x,h.y,0],h.no]),exportPng,exportPdf,editDim:no=>editDim(dims.find(d=>d.no===no)),stil:()=>STIL,dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
   screenOf:p=>{const r=renderer.domElement.getBoundingClientRect();const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*r.width+r.left,(1-w.y)/2*r.height+r.top]},
@@ -1406,4 +1445,105 @@ window.__app={infoTexte:()=>dims.filter(d=>d.typ==='info').map(d=>informationsZe
   oeffneBewegen:()=>selNode&&act('move',selNode),modell:()=>data?.model,neuMessen,messOpts,messartSetzen,bemassungenText,bemassungenEinlesen,festSetzen,fest:()=>fest,letzteMessung:()=>lastRes,blech:()=>sheetCache,
   deltaLinien:()=>marks.children.filter(o=>o.userData.delta).map(o=>o.userData.delta),namen:()=>nodes.map(n=>n.name),ausgeblendet:()=>nodes.filter(n=>!visible(n)).map(n=>n.name)};
 window.__toggleMeasure=()=>{};
+
+// ---------- Dokumente: ein Renderer, unabhängige Szenen und Mess-Worker ----------
+// Ein Worker pro Dokument hält die OCCT-Speichergrenze eindeutig: terminate()
+// gibt beim Schließen auch die nicht vom JS-GC verwaltete WASM-Geometrie frei.
+function dokumentZustand(){return {model,box,data,bodies,edgeObjs,baseMat,marks,hoverObj,triade,wahlMark,worker,pend,U,farbMats,vcMatObj,drahtModus,vIdx,transpMat,treeRoot,nodes,selNode,sheetSolid,selMenge,selAnker,isoSnap,ursprung,undoStapel,redoStapel,bewegenOffen,modellSeq,lastAxis,huelle,huellObj,spObj,sels,reiheBezug,kopierZuletzt,zeileHi,abm,abmObj,abmDims,lastRes,messLabels,linWahl,messLabelKaesten,dims,dimNo,dimHits,dimSel,sheetCache,fest,festWahl,festMark,riss,rissMark,faltNetzCache,faltObj,messart,werkzeug}}
+function dokumentZustandSetzen(s){({model,box,data,bodies,edgeObjs,baseMat,marks,hoverObj,triade,wahlMark,worker,pend,U,farbMats,vcMatObj,drahtModus,vIdx,transpMat,treeRoot,nodes,selNode,sheetSolid,selMenge,selAnker,isoSnap,ursprung,undoStapel,redoStapel,bewegenOffen,modellSeq,lastAxis,huelle,huellObj,spObj,sels,reiheBezug,kopierZuletzt,zeileHi,abm,abmObj,abmDims,lastRes,messLabels,linWahl,messLabelKaesten,dims,dimNo,dimHits,dimSel,sheetCache,fest,festWahl,festMark,riss,rissMark,faltNetzCache,faltObj,messart,werkzeug}=s)}
+function dokumentSnapshot(){return {state:dokumentZustand(),ui:captureDocumentUi($('dokumentAnsicht'),$('status')),camera:camera.clone(false),target:controls.target.clone(),minDistance:controls.minDistance,maxDistance:controls.maxDistance,lastLoad:window.__lastLoad,messBereit:window.__messBereit,lastMeasure:window.__lastMeasure,ladeStufen:window.__ladeStufen,drop:$('drop').style.display,farben:farbenAn}}
+function dokumentSpeichern(){if(aktivesDokument)aktivesDokument.snapshot=dokumentSnapshot()}
+function dokumentWiederherstellen(doc){
+  if(!aktivesDokument)worker?.terminate();
+  model?.removeFromParent();controls.reset();aktivesDokument=doc;
+  const s=doc?.snapshot||leeresDokument();dokumentZustandSetzen(s.state);
+  restoreDocumentUi(s.ui,$('status'));$('drop').style.display=s.drop;
+  camera.copy(s.camera,false);controls.target.copy(s.target);controls.minDistance=s.minDistance;controls.maxDistance=s.maxDistance;
+  if(model)scene.add(model);window.__lastLoad=s.lastLoad;window.__messBereit=s.messBereit;window.__lastMeasure=s.lastMeasure;window.__ladeStufen=s.ladeStufen;
+  $('dokumentAnsicht').setAttribute('aria-labelledby',doc?'reiter-'+doc.id:'');
+  setNavigationTool(controls,werkzeug);setCut();dockAnwenden();controls.update();resize();renderDims();messartAnzeige();
+  // STEP-Farben sind eine gemeinsame Einstellung, keine Dokumentkopie.
+  if(data&&s.farben!==farbenAn)farbenAnwenden();needs=true;reiterAktualisieren();
+}
+function leeresDokument(werkzeugeUebernehmen=false){
+  const state={};for(const [k,v] of Object.entries(leerSnapshot.state)){
+    state[k]=Array.isArray(v)?v.slice():v instanceof Map?new Map(v):v instanceof Set?new Set(v):v?.isObject3D?v.clone(false):v?.isBox3?v.clone():k==='U'?{...v}:v;
+  }
+  let ui=leerSnapshot.ui;
+  if(werkzeugeUebernehmen){
+    // Neue Dateien starten mit dem gerade benutzten Werkzeugfeld und dessen
+    // geöffneten Details. Modellwerte, Auswahl und Schnitt bleiben dagegen neu.
+    const panels=new Set(['messenPanel','blechPanel','tab-messen','tab-blech']);
+    ui={...ui,fields:ui.fields.map(s=>s.el.tagName==='DETAILS'?{...s,open:s.el.open}:s),states:ui.states.map(s=>panels.has(s.el.id)?{...s,hidden:s.el.hidden}:s.el.matches('button.tab,#btnMessen,#btnBlech')?{...s,className:s.el.getAttribute('class')}:s)};
+  }
+  return {...leerSnapshot,state,ui,camera:leerSnapshot.camera.clone(),target:leerSnapshot.target.clone()};
+}
+async function dokumentRuhe(){
+  navigationVoll();anim=null;controls.update();setAutodrehen(false);closeCtx();
+  if(hoverRAF){cancelAnimationFrame(hoverRAF);hoverRAF=0}if(faltLauf){cancelAnimationFrame(faltLauf);faltLauf=null}
+  if(zug){const z=zug;zug=null;merke(z.before);void nachBewegung()}
+  dimDrag=null;down=null;rdown=null;mausUnten=false;zf=null;ringDrag=null;dockZug=null;
+  $('zoomrahmen').hidden=true;$('snaptip').hidden=true;hov=null;clearVisualChildren(hoverObj);
+  // Der Abschluss einer Aktion kann weitere Worker-Arbeit anstoßen.
+  do{await Promise.allSettled([...dokumentAuftraege]);await Promise.resolve()}while(dokumentAuftraege.size);
+  await window.__messBereit?.catch(()=>{});
+  do{await Promise.allSettled([...dokumentAuftraege]);await Promise.resolve()}while(dokumentAuftraege.size);
+  // Ein zuvor wartender Falt-/Ansichts-Handler kann beim Auflösen noch einen
+  // neuen Frame angelegt haben. Auch diese Fortsetzungen vor dem Binden stoppen.
+  if(faltLauf){cancelAnimationFrame(faltLauf);faltLauf=null}if(hoverRAF){cancelAnimationFrame(hoverRAF);hoverRAF=0}
+  navigationVoll();anim=null;setAutodrehen(false);controls.update();
+  messauftraege.invalidate();++infoLauf;vorschauCache.clear();vorschauNaechste=null;vorschauLauf=false;if(vorschauLinie)disposeDocumentScene(vorschauLinie);vorschauLinie=null;
+}
+async function dokumentUebergang(run){
+  if(!$('einzelDlg').hidden)$('einzelAbbr').click();
+  dokumentWechsel=true;$('dokumentAnsicht').inert=true;document.querySelector('header').inert=true;controls.enabled=false;
+  try{await dokumentRuhe();return await run()}finally{dokumentWechsel=false;$('dokumentAnsicht').inert=false;document.querySelector('header').inert=false;controls.enabled=true;needs=true}
+}
+async function dokumentFreigeben(doc){
+  const s=doc.snapshot?.state;if(s){s.worker?.terminate();disposeDocumentScene(s.model,[s.baseMat,s.transpMat,s.vcMatObj,...s.farbMats.values()])}
+  doc.snapshot=null;
+  if(doc.nativeId)await window.__TAURI_INTERNALS__.invoke('dokument_schliessen',{dokument:doc.nativeId});
+}
+function reiterAktualisieren(){dokumentReiter.render(dokumente,aktivesDokument?.id)}
+function dokumentAktivieren(id){return dateiAuftrag('activate:'+id,()=>dokumentUebergang(()=>{
+  const doc=dokumente.find(d=>d.id===id);if(!doc||doc===aktivesDokument)return;
+  dokumentSpeichern();dokumentWiederherstellen(doc);
+}))}
+function dokumentOeffnen(key,name,run,path=null){return dateiAuftrag(key,()=>dokumentUebergang(async()=>{
+  const existing=dokumente.find(d=>d.key===key);if(existing){if(existing!==aktivesDokument){dokumentSpeichern();dokumentWiederherstellen(existing)}return window.__lastLoad}
+  const vorher=aktivesDokument;dokumentSpeichern();
+  const doc={id:'d'+(++dokumentNummer),key,name,path,snapshot:leeresDokument(true),nativeId:null};
+  try{
+    const inv=window.__TAURI_INTERNALS__?.invoke;if(inv)doc.nativeId=await inv('dokument_neu');
+    dokumente.push(doc);dokumentWiederherstellen(doc);$('status').textContent='Lade '+name+' …';
+    const info=await mitMessdaten(run);await dokumentRuhe();dokumentSpeichern();reiterAktualisieren();return info;
+  }catch(e){
+    await dokumentRuhe();if(aktivesDokument===doc)doc.snapshot=dokumentSnapshot();
+    const i=dokumente.indexOf(doc);if(i>=0)dokumente.splice(i,1);
+    dokumentWiederherstellen(vorher);await dokumentFreigeben(doc);throw e;
+  }
+}))}
+function dokumentSchliessen(id){return dateiAuftrag('close:'+id,()=>dokumentUebergang(async()=>{
+  const i=dokumente.findIndex(d=>d.id===id);if(i<0)return;const doc=dokumente[i];dokumentSpeichern();
+  dokumente.splice(i,1);if(doc===aktivesDokument)dokumentWiederherstellen(dokumente[Math.min(i,dokumente.length-1)]||null);else reiterAktualisieren();
+  await dokumentFreigeben(doc);
+}))}
+const dokumentReiter=createDocumentTabs({element:$('reiterleiste'),open:oeffnenDialog,activate:dokumentAktivieren,close:dokumentSchliessen});
+// Async DOM-Handler sind Teil der Lebensdauer ihres Dokuments (z.B. JSON-Datei
+// lesen, PDF-Modul laden oder native Speichern-Dialoge).
+for(const el of document.querySelectorAll('#dokumentAnsicht *,header button'))for(const event of ['onclick','onchange','oninput']){
+  const fn=el[event];if(fn?.constructor.name==='AsyncFunction')el[event]=function(...args){return dokumentAuftrag(()=>fn.apply(this,args))};
+}
+addEventListener('keydown',e=>{
+  if(document.querySelector('dialog[open]')||!$('einzelDlg').hidden||tippt()||e.altKey||!(e.ctrlKey||e.metaKey))return;
+  if(e.code==='KeyO'){e.preventDefault();e.hasiDokumentTaste=true;void oeffnenDialog()}
+  else if(e.code==='KeyW'){e.preventDefault();e.hasiDokumentTaste=true;if(aktivesDokument)void dokumentSchliessen(aktivesDokument.id)}
+  else if(e.code==='Tab'&&dokumente.length){e.preventDefault();e.hasiDokumentTaste=true;const i=dokumente.indexOf(aktivesDokument);void dokumentAktivieren(dokumente[(i+(e.shiftKey?-1:1)+dokumente.length)%dokumente.length].id)}
+},true);
+const leerSnapshot=dokumentSnapshot();
+window.__dokumente=()=>dokumente.map(d=>({id:d.id,name:d.name,path:d.path,aktiv:d===aktivesDokument}));
+window.__dokumentAktivieren=dokumentAktivieren;window.__dokumentSchliessen=dokumentSchliessen;
+window.__dokumentRessourcen=()=>({geometrien:renderer.info.memory.geometries,texturen:renderer.info.memory.textures,worker:dokumente.filter(d=>d===aktivesDokument?!!worker:!!d.snapshot?.state.worker).length});
+
+loop();
 window.__dateienBereit=dateienStarten().catch(dateiFehler);

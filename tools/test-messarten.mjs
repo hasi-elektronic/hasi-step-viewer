@@ -16,6 +16,13 @@ const edge=pred=>{const id=B.uniq[0].edges.findIndex(pred);assert(id>=0,'Kante f
 const arc=edge(e=>e.circle&&Math.abs(e.circle.r-5)<1e-6&&Math.abs(e.circle.ang-Math.PI/2)<1e-6);
 const full=edge(e=>e.circle&&Math.abs(e.circle.r-5)<1e-6&&e.circle.ang>6);
 const straight=edge(e=>e.line&&Math.abs(e.len-95)<1e-6),straight100=edge(e=>e.line&&Math.abs(e.len-100)<1e-6);
+for(const [s,id,typ] of [[arc,'radius','radius'],[full,'durchmesser','durchmesser'],[straight,'laenge','ausgerichtet']]){
+  const r=measure('auto',[s]);assert.equal(r.automatik.id,id);assert.equal(r.automatik.bemassungstyp,typ);
+}
+near(measure('auto',[straight]).rows.find(row=>row[0]==='Kantenlänge')[1],95,'Auto: echte Kantenlänge');
+const lines=B.uniq[0].edges.map((e,id)=>e.line?{e,id}:null).filter(Boolean);let crossing;
+for(let i=0;i<lines.length&&!crossing;i++)for(let j=i+1;j<lines.length;j++)if(Math.abs(lines[i].e.line.d.reduce((s,v,k)=>s+v*lines[j].e.line.d[k],0))<1e-8){const r=measure('auto',[{k:'edge',id:lines[i].id,inst:0},{k:'edge',id:lines[j].id,inst:0}]);if(r.automatik.id==='winkel'){crossing=r;break}}
+assert(crossing,'Auto: sich schneidende Geraden erkennen');near(crossing.winkelMass.wert,90,'Auto: Winkel');assert.equal(crossing.label[2],'W');
 for(const [art,wert] of [['radius',5],['durchmesser',10],['bogen',5*Math.PI/2],['sehne',5*Math.SQRT2],['bogenhoehe',5*(1-Math.SQRT1_2)]]){
   const r=measure(art,[arc]);assert.equal(r.bereit,true);near(r.label[1],wert,art);assert.equal(r.rows.filter(x=>x[3]).length,1);
 }

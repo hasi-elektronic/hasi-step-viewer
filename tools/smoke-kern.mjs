@@ -8,7 +8,7 @@ const p=await b.newPage({viewport:{width:1500,height:900}});const errs=[];p.on('
 let kernMs=0;
 await p.exposeFunction('__kernLauf',async()=>{const t=Date.now();execFileSync(exe,[f,dir],{stdio:'ignore'});kernMs=Date.now()-t;return fs.readFileSync(path.join(dir,'modell.bin')).toString('base64')});
 await p.exposeFunction('__kernBrep',async()=>fs.readFileSync(path.join(dir,'modell.brep'),'latin1'));
-await p.addInitScript(()=>{window.__TAURI_INTERNALS__={transformCallback:()=>0,invoke:async(cmd,args)=>{if(cmd==='plugin:event|listen')return 0;
+await p.addInitScript(()=>{window.__TAURI_INTERNALS__={transformCallback:()=>0,invoke:async(cmd,args)=>{if(cmd==='dokumente_zuruecksetzen'||cmd==='dokument_schliessen')return true;if(cmd==='dokument_neu')return 'mock-'+Math.random();if(cmd==='plugin:event|listen')return 0;
   if(cmd==='kern_verfuegbar')return true;if(cmd==='start_pfad')return null;
   if(cmd==='kern_laden'){const s=atob(await window.__kernLauf());const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u.buffer}
   if(cmd==='kern_brep')return await window.__kernBrep();throw new Error('unbekannt '+cmd)}}});

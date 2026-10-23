@@ -79,7 +79,29 @@ export function gezieltMessen(sels,opts,{auto,resolve,punkt}) {
       kreis={c:q.axis.c,n:q.axis.d,r:q.axis.r,voll:true};r.messkreis=kreis;
     }
   }
-  if(art==='auto')return r;
+  if(art==='auto'){
+    // Nur die exakte aufgelöste CAD-Geometrie entscheidet, keine Bildschirmform
+    // oder angenäherte Kreis-Anpassung an ein Polygon/Spline.
+    let id='information',name='Geometrieinformationen',typ='info';
+    if(sels.length===1){const s=sels[0],q=resolve(s);
+      if(kreis){id=kreis.voll?'durchmesser':'radius';name=kreis.voll?'Durchmesser / Radius':'Radius / Bogenlänge';typ=id}
+      else if(s.k==='edge'){id='laenge';name='Kantenlänge';if(q.e.line){typ='ausgerichtet';r.gfx=[[q.e.line.p,minus(mal(q.e.mid,2),q.e.line.p)]]}}
+      else if(r.fase){id='fase';name='Fase';typ='fase'}
+      else if(s.k==='face'){id='flaeche';name='Flächenmaße / Umfang'}
+      else if(s.k==='solid'){id='koerper';name='Körpermaße'}
+      else if(['vertex','mid','center','point'].includes(s.k)){id='koordinate';name='Punktkoordinaten';typ='koordinate'}
+    }else{
+      const angle=r.rows.find(z=>z[2]==='W'&&/^Winkel |^Achswinkel/.test(z[0]));
+      const gap=r.label?.[2]==='L'?Math.abs(r.label[1]):Infinity;
+      const scale=Math.max(1,...(r.gfx||[]).flat(2).map(Math.abs));
+      const intersectingDirections=angle&&Math.abs(Math.sin(angle[1]*Math.PI/180))>1e-8&&gap<=Math.max(1e-7,scale*1e-9);
+      const angular=r.label?.[2]==='W'||!!r.ff?.winkelMass||intersectingDirections;
+      if(angular){const w=r.label?.[2]==='W'?r.label:angle;
+        if(w){id='winkel';name='Winkel';typ='winkel';r.winkelMass=winkelGeometrie(r,sels,resolve,w[1]);r.rows.forEach(z=>{if(z[3])z.length=3});w[3]='!';r.label=w;r.wahl=w[0]}}
+      else if(r.gfx?.length){id='abstand';name='Abstand';typ='linear'}
+    }
+    r.automatik={id,name,bemassungstyp:typ};return r;
+  }
   let haupt=null,typ=null;
   const row=(...namen)=>namen.map(n=>r.rows.find(z=>z[0]===n)).find(Boolean);
   if(art==='radius'||art==='durchmesser'){

@@ -18,7 +18,7 @@ try{
   await page.route('**/__messdaten/*',route=>route.fulfill({body:files[new URL(route.request().url()).pathname.split('/').at(-1)],contentType:'application/octet-stream'}));
   await page.addInitScript(()=>{
     const gate=new Promise(r=>window.__testAttachFreigeben=r);
-    window.__TAURI_INTERNALS__={transformCallback:()=>0,invoke:async cmd=>{
+    window.__TAURI_INTERNALS__={transformCallback:()=>0,invoke:async cmd=>{if(cmd==='dokumente_zuruecksetzen'||cmd==='dokument_schliessen')return true;if(cmd==='dokument_neu')return 'mock-'+Math.random();
       if(cmd==='plugin:event|listen')return 0;if(cmd==='start_pfad')return null;if(cmd==='kern_verfuegbar')return true;
       const file={datei_lesen:'step',kern_laden_pfad:'bin',kern_brep:'brep'}[cmd];if(!file)throw new Error(cmd);
       if(cmd==='kern_brep'){window.__testAttachWartet=true;await gate}

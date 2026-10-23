@@ -1,4 +1,4 @@
-# Hasi 3D / MS3D 0.1.5
+# Hasi 3D / MS3D 0.1.6
 
 Produktnamen ab 20.10.2026: **Hasi 3D** (Marke Hasi, vorher „Hasi STEP-Betrachter“) und **MS3D** (Marke Sickinger, vorher „Sickinger STEP-Viewer“). Kennungen, Programmkennungen der Dateizuordnung und MSI-Upgrade-Codes bleiben gleich, damit ein Update die Vorschau-Installation ersetzt.
 
@@ -14,7 +14,11 @@ Reiner STEP/STP-Viewer (keine Bearbeitung). Tauri 2 + three.js + occt-import-js 
 
 Funktionen: STEP öffnen (Menü, Doppelklick auf `.step`/`.stp`, Drag & Drop ins Fenster), dunkle Kopfleiste mit Datei/Ansicht/Werkzeuge/Hilfe, Dateireiter, schwebende Werkzeugleiste (Auswählen, Schwenken, Drehen, Zoom, Zoom-Fenster, Einpassen, Anzeigestil, Standardansichten), Ansichtswürfel mit Kompass N/O/S/W, Modellbaum, Messen in mm, Bemaßung, Schnitt, Blech.
 
-Tastenkürzel (auch im Menü Ansicht und unter Hilfe): **F** Einpassen, **F9** nächste Standardansicht ohne Rollwinkel, **F10** senkrecht auf die gewählte Fläche (ohne Fläche Isometrie), **1…6** bzw. **Strg+1…6** Vorne, Hinten, Links, Rechts, Oben, Unten, **7** und **0** bzw. **Strg+7** Isometrie. Ansichtswechsel sind animiert. **Frei drehen** aktiviert die linke Maustaste für die freie Trackball-Ansicht ohne Polsperre. Mitte ziehen dreht jederzeit frei, Rechts oder Strg/Umschalt+Mitte schwenkt, das Rad zoomt zum Cursor. Nach dem Loslassen steht die Ansicht sofort still. Automatische Einachsdrehung ist separat unter **Werkzeuge → Autodrehen** verfügbar.
+Tastenkürzel (auch im Menü Ansicht und unter Hilfe): **F** Einpassen, **F9** nächste Standardansicht ohne Rollwinkel, **F10** senkrecht auf die gewählte Fläche (ohne Fläche Isometrie), **1…6** bzw. **Strg+1…6** Vorne, Hinten, Links, Rechts, Oben, Unten, **7** und **0** bzw. **Strg+7** Isometrie. Ansichtswechsel sind animiert. Mitte ziehen dreht jederzeit frei, Rechts oder Strg/Umschalt+Mitte schwenkt, das Rad zoomt zum Cursor. Nach dem Loslassen steht die Ansicht sofort still. Automatische Einachsdrehung ist separat unter **Werkzeuge → Autodrehen** verfügbar.
+
+Mehrere STEP-Dateien lassen sich gleichzeitig in Dokumentreitern öffnen. Dateiauswahl und Drag & Drop übernehmen alle gewählten STEP-Dateien; derselbe Desktop-Pfad aktiviert seinen bereits offenen Reiter. Kamera, Schnitt, Sichtbarkeit, Messungen und Rückgängig-Verlauf bleiben pro Dokument erhalten. **Strg+O** öffnet weitere Dateien, **Strg+Tab** wechselt zum nächsten Reiter, **Strg+W** schließt den aktiven Reiter. Beim Schließen werden die zugehörigen Ressourcen freigegeben.
+
+**Messen → Auto** erkennt die exakte CAD-Geometrie: Gerade → Kantenlänge, Kreisbogen → Radius und Bogenlänge, voller Kreis → Durchmesser und Radius, sich schneidende Richtungen → Winkel. „Bemaßung“ übernimmt die passende grafische Art; die erweiterten manuellen Messarten bleiben verfügbar.
 
 ## Starten
     npm ci

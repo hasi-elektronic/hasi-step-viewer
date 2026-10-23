@@ -48,7 +48,7 @@
 </div></div>
 </nav>
 <div class="schnell">
-<label class="btn primary iknopf" title="STEP-Datei (.step/.stp) öffnen"><svg class="ik" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><input id="file" type="file" accept=".step,.stp,.STEP,.STP" hidden></label>
+<label class="btn primary iknopf" title="STEP-Dateien in neuen Reitern öffnen"><svg class="ik" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><input id="file" type="file" accept=".step,.stp,.STEP,.STP" multiple hidden></label>
 <button type="button" class="iknopf" id="exportKnopf" title="Speichern und Export"><svg class="ik" viewBox="0 0 24 24"><path d="M5 3h10l4 4v14H5zM8 3v5h6M8 13h8M8 17h5"/></svg></button>
 <button type="button" class="iknopf" data-aktion="drucken" title="Drucken"><svg class="ik" viewBox="0 0 24 24"><path d="M6 9V4h12v5M4 9h16v8H4zM7 14h10v6H7z"/></svg></button>
 <button type="button" class="iknopf" data-aktion="einstellungen" title="Einstellungen"><svg class="ik" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="8" cy="7" r="2" fill="var(--kopf,#3c4248)" stroke="currentColor"/><circle cx="15" cy="12" r="2" fill="var(--kopf,#3c4248)" stroke="currentColor"/><circle cx="10" cy="17" r="2" fill="var(--kopf,#3c4248)" stroke="currentColor"/></svg></button>
@@ -56,8 +56,8 @@
 <div id="status">Keine Datei</div>
 <button type="button" id="ueber" class="ueber-knopf" title="Über diese Anwendung"><span class="info-symbol" aria-hidden="true">i</span> Über</button>
 </header>
-<div id="reiterleiste"><div id="dateitab" class="dateitab" hidden><span id="dateiname"></span><button type="button" id="dateiZu" title="Datei schließen">×</button></div></div>
-<main>
+<div id="reiterleiste"></div>
+<main id="dokumentAnsicht" role="tabpanel" aria-label="STEP-Modell">
 <aside class="left" id="baum"><div class="ahead">Baugruppe <button type="button" id="baumZu" class="zuKnopf" title="Baum einklappen">⟨</button></div><div class="search"><input id="treeSearch" type="search" placeholder="Suchen …" title="Teile und Baugruppen suchen"></div><div id="tree"></div><div class="ahead">Modell</div><div id="modelinfo" class="kv"></div></aside>
 <div id="view">
 <div id="werkzeugleiste">
@@ -101,9 +101,11 @@
 <div class="messkopf"><label for="messart">Messart</label><span>mm · Grad</span></div>
 <select id="messart" aria-describedby="messHinweis" title="Was möchten Sie messen?"></select>
 <div class="messschnell" aria-label="Häufige Messarten">
+<button type="button" data-messart="auto" aria-pressed="true">✦ Auto</button>
 <button type="button" data-messart="abstand" aria-pressed="false">↔ Abstand</button><button type="button" data-messart="radius" aria-pressed="false">R Radius</button><button type="button" data-messart="durchmesser" aria-pressed="false">Ø Durchmesser</button><button type="button" data-messart="bogen" aria-pressed="false">⌒ Bogenlänge</button><button type="button" data-messart="winkel" aria-pressed="false">∠ Winkel</button><button type="button" data-messart="summe" aria-pressed="false">∑ Summe</button>
 </div>
 <p id="messHinweis" class="hint messhinweis"></p>
+<div id="autoErkannt" class="auto-erkannt" hidden role="status"></div>
 <div id="messAuswahl" aria-label="Gewählte Messelemente"></div>
 <details class="mess-info-optionen"><summary>Informationen im Modell</summary>
 <p class="hint klein">Messwerte als verschiebbares Informationsfeld merken: Abstand, Normalabstand, ΔX/ΔY/ΔZ, Winkel, Radius und weitere CAD-Werte. Bei Flächen zusätzlich Fläche und Umfang.</p>
@@ -242,7 +244,10 @@
 <div class="ueber-hinweis">Entwickelt von Hasi Elektronic<br><span>Lokale CAD-Dateien · B-Rep-Messungen · Desktop</span></div></div>
 </dialog>
 <div id="hilfeDlg" class="dlg fest" hidden><div class="dhead"><span>Tastenkürzel</span><button type="button" id="hilfeZu" title="Schließen">×</button></div>
-<table class="kuerzel"><tr><td><kbd>F</kbd></td><td>Einpassen (aktuelle Blickrichtung)</td></tr>
+<table class="kuerzel"><tr><td><kbd>Strg+O</kbd></td><td>STEP-Dateien in neuen Reitern öffnen</td></tr>
+<tr><td><kbd>Strg+Tab</kbd> / <kbd>Strg+Umschalt+Tab</kbd></td><td>Nächster / vorheriger Dokumentreiter</td></tr>
+<tr><td><kbd>Strg+W</kbd></td><td>Aktiven Dokumentreiter schließen</td></tr>
+<tr><td><kbd>F</kbd></td><td>Einpassen (aktuelle Blickrichtung)</td></tr>
 <tr><td><kbd>F9</kbd></td><td>Nächste Standardansicht, Rollwinkel entfernen</td></tr>
 <tr><td><kbd>F10</kbd></td><td>Normal auf die gewählte Fläche, ohne Fläche Isometrie</td></tr>
 <tr><td><kbd>Strg+1</kbd> / <kbd>1</kbd></td><td>Vorne</td></tr>
@@ -255,7 +260,7 @@
 <tr><td><kbd>Leertaste</kbd></td><td>Auswahl löschen</td></tr>
 <tr><td><kbd>Tab</kbd></td><td>Bauteil unter dem Cursor ausblenden</td></tr>
 <tr><td><kbd>Umschalt+Tab</kbd></td><td>Bauteil unter dem Cursor einblenden</td></tr>
-<tr><td><kbd>Strg+Umschalt+Tab</kbd></td><td>Alle einblenden</td></tr>
+<tr><td><kbd>Strg+Umschalt+H</kbd></td><td>Alle Bauteile einblenden</td></tr>
 <tr><td><kbd>Strg+Z</kbd></td><td>Verschieben rückgängig</td></tr>
 <tr><td><kbd>Strg+Y</kbd></td><td>Verschieben wiederholen</td></tr>
 <tr><td><kbd>Q</kbd></td><td>Nur Flächen fangen (Fläche zu Fläche messen) ein/aus</td></tr>

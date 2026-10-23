@@ -8,11 +8,14 @@ import {checkGrosseMessung} from './check-grosse-messung.mjs';
 import fs from 'node:fs';
 import {checkOberflaecheUi} from './check-oberflaeche-ui.mjs';
 import {checkMessinformationenUi} from './check-messinformationen-ui.mjs';
+import {checkDokumenteUi} from './check-dokumente-ui.mjs';
+import {checkDokumenteAsyncUi} from './check-dokumente-async-ui.mjs';
 const browser=await chromium.connectOverCDP(process.argv[2]);
 try {
   const page=browser.contexts().flatMap(context=>context.pages()).find(page=>page.url().includes('tauri.localhost'));
   assert(page,'Eigene Desktop-Testseite nicht gefunden');
   await page.waitForFunction(()=>window.__dateienBereit);
+  assert.deepEqual(await page.evaluate(()=>window.__dokumente().map(d=>d.name)),['messteil.step','messbaugruppe.step'],'Alle Windows-Startargumente werden zu Reitern');
   const bytes=await page.evaluate(async()=>{
     const response=await fetch('/ocjs/opencascade.wasm.wasm');
     const buffer=await response.arrayBuffer();
@@ -44,5 +47,9 @@ try {
   const oberflaeche=await checkOberflaecheUi(page,{produkt:process.env.HASI_TEST_PRODUKT||(process.env.MARKE==='sickinger'?'MS3D':'Hasi 3D'),version:JSON.parse(fs.readFileSync('package.json','utf8')).version,loadAssembly:()=>loadLocal('testbaugruppe.step'),loadPart:()=>loadLocal('messteil.step')});
   const informationen=await checkMessinformationenUi(page,{loadAssembly:()=>loadLocal('messbaugruppe.step')});
   const grosseBaugruppe=process.argv[4]?await checkGrosseMessung(page,path.resolve(process.argv[4])):null;
-  console.log(JSON.stringify({wasmBytes:bytes.length,nativeImport:true,distanceMm:distance,measurementUi:result.ui,messarten,oberflaeche,informationen,...(grosseBaugruppe?{grosseBaugruppe}:{})}));
+  const dokumente=await checkDokumenteUi(page,{loadPart:()=>loadLocal('messteil.step'),loadAssembly:()=>loadLocal('messbaugruppe.step'),loadExtra:()=>page.evaluate(async bytes=>{
+    await Promise.all(['C.step','D.step','E.step','F.step'].map(name=>window.__loadBytes(Uint8Array.from(bytes).buffer,name)));
+  },[...fs.readFileSync('testdaten/messteil.step')])});
+  dokumente.async=await checkDokumenteAsyncUi(page,{loadPart:()=>loadLocal('messteil.step'),loadAssembly:()=>loadLocal('messbaugruppe.step'),loadSheet:name=>page.evaluate(({bytes,name})=>window.__loadBytes(Uint8Array.from(bytes).buffer,name),{bytes:[...fs.readFileSync('public/testblech.step')],name})});
+  console.log(JSON.stringify({wasmBytes:bytes.length,nativeImport:true,startupTabs:2,distanceMm:distance,measurementUi:result.ui,messarten,oberflaeche,informationen,dokumente,...(grosseBaugruppe?{grosseBaugruppe}:{})}));
 } finally { await browser.close(); }

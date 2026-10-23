@@ -21,7 +21,7 @@ await p.route('**/__bench/**',async route=>{const cmd=new URL(route.request().ur
   return route.fulfill({status:404,body:''})});
 await p.addInitScript(([pfad])=>{window.__benchT0=performance.now();window.__bruecke=0;window.__lange=[];try{new PerformanceObserver(l=>{for(const e of l.getEntries())window.__lange.push([Math.round(e.startTime-window.__benchT0),Math.round(e.duration)])}).observe({type:'longtask',buffered:true})}catch{}
   const holen=async cmd=>{const r=await fetch('/__bench/'+cmd);if(!r.ok)throw new Error(cmd);return cmd==='kern_brep'?new TextDecoder('latin1').decode(await r.arrayBuffer()):await r.arrayBuffer()};
-  window.__TAURI_INTERNALS__={transformCallback:()=>0,invoke:async(cmd,args)=>{if(cmd==='plugin:event|listen')return 0;
+  window.__TAURI_INTERNALS__={transformCallback:()=>0,invoke:async(cmd,args)=>{if(cmd==='dokumente_zuruecksetzen'||cmd==='dokument_schliessen')return true;if(cmd==='dokument_neu')return 'mock-'+Math.random();if(cmd==='plugin:event|listen')return 0;
     if(cmd==='kern_verfuegbar')return true;
     if(cmd==='start_pfad')return pfad;
     if(cmd==='datei_lesen'||cmd==='kern_laden_pfad'||cmd==='kern_brep')return await holen(cmd);

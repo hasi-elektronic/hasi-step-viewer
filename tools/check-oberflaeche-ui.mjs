@@ -55,12 +55,12 @@ export async function checkOberflaecheUi(page,{produkt,version,loadAssembly,load
   await openSettings();assert.equal(await page.locator('#einst-zoomRichtung').inputValue(),'klassisch');assert.equal(await page.locator('#einst-prec').inputValue(),'2');assert.equal(await page.locator('#einst-hintergrund').inputValue(),'dunkel');assert.equal(await page.locator('#einst-farben').isChecked(),false);
   await page.locator('#einstReset').click();assert.equal(await page.locator('#einst-zoomRichtung').inputValue(),'cad');assert.equal(await page.locator('#prec').inputValue(),'3');assert(await page.locator('#einst-farben').isChecked());await page.keyboard.press('Escape');
   // Lange Dateinamen dürfen das Schließen nicht verkleinern; Reflow in beiden Größen.
-  await loadPart();await page.locator('#btnMessen').click();await page.evaluate(()=>{document.getElementById('dateiname').textContent='Sehr_langer_Dateiname_'.repeat(20)+'.step'});
+  await loadPart();await page.locator('#btnMessen').click();await page.evaluate(()=>{document.querySelector('.dateitab.aktiv .dateiname').textContent='Sehr_langer_Dateiname_'.repeat(20)+'.step'});
   for(const viewport of [{width:1000,height:700},{width:1500,height:900}]) {
-    await page.setViewportSize(viewport);await page.locator('#fit').click();const close=await page.locator('#dateiZu').boundingBox(),aboutButton=await page.locator('#ueber').boundingBox();
+    await page.setViewportSize(viewport);await page.locator('#fit').click();const close=await page.locator('.dateitab.aktiv .datei-schliessen').boundingBox(),aboutButton=await page.locator('#ueber').boundingBox();
     assert(close.width>=32&&close.height>=32);assert(aboutButton.x+aboutButton.width<=viewport.width);assert(aboutButton.x>viewport.width*.7);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   }
-  await page.locator('#dateiZu').click();assert(await page.locator('#dateitab').isHidden());assert.equal(await page.locator('#tree .trow').count(),0);assert.equal(await page.evaluate(()=>window.__app.data()),null);
-  await loadPart();assert(await page.locator('#dateitab').isVisible());
+  for(const d of await page.evaluate(()=>window.__dokumente()))await page.evaluate(id=>window.__dokumentSchliessen(id),d.id);assert.equal(await page.locator('.dateitab').count(),0);assert.equal(await page.locator('#tree .trow').count(),0);assert.equal(await page.evaluate(()=>window.__app.data()),null);
+  await loadPart();assert(await page.locator('.dateitab.aktiv').isVisible());
   return {version,produkt,treeButtons:true,shortcutM:true,settingsPersist:true,zoomDirections:true,closeReopen:true};
 }

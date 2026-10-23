@@ -11,7 +11,7 @@ const ctx = await b.newContext({ viewport: { width: 1400, height: 880 }, acceptD
 await ctx.addInitScript(() => { delete window.showDirectoryPicker; localStorage.removeItem('einzelteil'); });
 const p = await ctx.newPage();p.on('pageerror', e => errs.push(e.message));
 await p.goto('http://localhost:' + port + '/');await p.waitForFunction(() => window.__loadUrl && window.__einzelteil);
-await p.evaluate(() => { window.__lastLoad = null; return window.__loadUrl('./testbaugruppe.step'); });
+await p.evaluate(() => {  return window.__loadUrl('./testbaugruppe.step'); });
 await p.waitForFunction(() => window.__lastLoad && window.__lastLoad.bodies > 0, null, { timeout: 90000 });
 const zeile = name => p.locator('#tree .trow', { hasText: name }).first();
 const lesen = async dl => fs.readFileSync(await dl.path(), 'latin1');
@@ -74,7 +74,7 @@ await neu.evaluate(() => window.__dateiZiehen(true));
 if (await neu.locator('#dropHint').evaluate(el => el.hidden)) fail('Einzelteil-Fenster: Ablegen-Hinweis fehlt');
 await neu.evaluate(() => window.__dateiZiehen(false));
 await neu.evaluate(async () => {
-  const buf = await (await fetch('./farbbaugruppe.step')).arrayBuffer(); window.__lastLoad = null;
+  const buf = await (await fetch('./farbbaugruppe.step')).arrayBuffer();
   const dt = new DataTransfer(); dt.items.add(new File([buf], 'farbbaugruppe.step', { type: 'model/step' }));
   const v = document.getElementById('view'); v.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
   v.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
