@@ -2,7 +2,7 @@
 import assert from 'assert';import fs from 'fs';
 const html=fs.readFileSync('index.html','utf8');const css=fs.readFileSync('src/style.css','utf8');
 const boden=html.match(/<footer id="boden">([\s\S]*?)<\/footer>/)[1];
-const SOLL={btnReset:'Zurücksetzen',btnDreh:'Autodrehen',btnMessen:'Messen',btnSchnitt:'Schnitt',btnBlech:'Blech'};// Bemaßung ist seit 22.10. Teil von Messen (kein eigener Knopf);
+const SOLL={btnReset:'Zurücksetzen',btnDreh:'Frei drehen',btnMessen:'Messen',btnSchnitt:'Schnitt',btnBlech:'Blech'};// Bemaßung ist seit 22.10. Teil von Messen (kein eigener Knopf);
 const knoepfe=[...boden.matchAll(/<button type="button" id="(\w+)"[^>]*title="([^"]+)"[^>]*>(<svg[\s\S]*?<\/svg>)<span>([^<]+)<\/span><\/button>/g)];
 assert.deepStrictEqual(knoepfe.map(k=>k[1]),Object.keys(SOLL),'Reihenfolge/Anzahl der Knöpfe');
 for(const [,id,titel,svg,text] of knoepfe){

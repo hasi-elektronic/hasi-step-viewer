@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { createCadControls, setNavigationTool } from './navigation.js';
 import * as BM from './bemassung.js';
 import { MARKE } from './marke.js';
 import { biegeNotizen } from './biegenotiz.js';
@@ -18,10 +18,7 @@ try{renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,
 renderer.setPixelRatio(devicePixelRatio);renderer.setClearColor(0x000000,0);renderer.domElement.id='buehne';view.appendChild(renderer.domElement);
 const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(35,1,0.1,1e6);
 scene.add(new THREE.HemisphereLight(0xffffff,0xb0b4bc,1.5));const dl=new THREE.DirectionalLight(0xffffff,1.3);camera.add(dl);dl.position.set(1,2,3);scene.add(camera);
-const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=false;controls.autoRotate=false;controls.screenSpacePanning=true;
-// Maus wie eDrawings/SolidWorks: Mitte ziehen = drehen um die Modellmitte, Strg+Mitte, Umschalt+Mitte oder Rechts ziehen = schwenken,
-// ohne Nachlauf (keine Dämpfung): nach dem Loslassen steht das Modell sofort still, Rad = Zoom auf den Cursor, Links = Auswahl/Messen
-controls.mouseButtons={LEFT:null,MIDDLE:THREE.MOUSE.ROTATE,RIGHT:THREE.MOUSE.PAN};controls.zoomToCursor=true;
+const controls=createCadControls(camera,renderer.domElement);
 renderer.domElement.addEventListener('mousedown',e=>{if(e.button===1)e.preventDefault()});
 const overlay=document.createElement('canvas');overlay.id='dimoverlay';overlay.style.cssText='position:absolute;left:0;top:0;pointer-events:none';view.appendChild(overlay);
 // Overlay auf der CPU: GPU-Canvas ließ nach clearRect alte Messwerte stehen (Chromium)
@@ -29,6 +26,12 @@ overlay.getContext('2d',{willReadFrequently:true});
 const plane=new THREE.Plane(new THREE.Vector3(1,0,0),0);
 let model=null,box=new THREE.Box3(),needs=true,data=null,bodies=[],edgeObjs=[],baseMat=null,marks=new THREE.Group(),hoverObj=new THREE.Group();
 let ersteZeichnung=0,anim=null,drehen=false,mausUnten=false,werkzeug='wahl',triade=null,wahlMark=null;
+// Große Baugruppen: während der Navigation nur Flächen zeichnen. Die separaten
+// Kanten verdoppeln sonst die Draw Calls. Nach dem Loslassen volle Darstellung.
+let navigationKanten=null,navigationEnde=0;
+function navigationVoll(){clearTimeout(navigationEnde);navigationEnde=0;if(!navigationKanten)return;for(const [kante,sichtbar] of navigationKanten)kante.visible=sichtbar;navigationKanten=null;needs=true}
+controls.addEventListener('start',event=>{if(controls.state<0&&!event.cursorZoom)return;clearTimeout(navigationEnde);if(navigationKanten||bodies.length<500||drahtModus||!edgeObjs.some(k=>k.visible))return;navigationKanten=edgeObjs.map(k=>[k,k.visible]);for(const [kante] of navigationKanten)kante.visible=false;needs=true});
+controls.addEventListener('end',()=>{if(controls.state>=0)return;clearTimeout(navigationEnde);navigationEnde=setTimeout(navigationVoll,120)});
 const ACHSEN=[new THREE.Vector3(1,0,0),new THREE.Vector3(-1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,-1,0),new THREE.Vector3(0,0,1),new THREE.Vector3(0,0,-1)];
 const ANSICHT={iso:{d:[.8,.6,1],up:[0,1,0]},vorne:{d:[0,0,1],up:[0,1,0]},hinten:{d:[0,0,-1],up:[0,1,0]},links:{d:[-1,0,0],up:[0,1,0]},rechts:{d:[1,0,0],up:[0,1,0]},oben:{d:[0,1,0],up:[0,0,-1]},unten:{d:[0,-1,0],up:[0,0,-1]}};
 let vr=null,vc=null,vHit=null;
@@ -44,7 +47,7 @@ let vr=null,vc=null,vHit=null;
   wurzel.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1)),new THREE.LineBasicMaterial({color:0x5c656e})));
   vHit=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshBasicMaterial({visible:false}));wurzel.add(vHit);vr.userData={vs,wurzel};
 })();
-function resize(){const w=view.clientWidth,h=view.clientHeight;renderer.setSize(w,h);overlay.width=w*devicePixelRatio;overlay.height=h*devicePixelRatio;overlay.style.width=w+'px';overlay.style.height=h+'px';camera.aspect=w/h;if(dockBereit)freiraum();else camera.updateProjectionMatrix();needs=true}
+function resize(){const w=view.clientWidth,h=view.clientHeight;renderer.setSize(w,h);overlay.width=w*devicePixelRatio;overlay.height=h*devicePixelRatio;overlay.style.width=w+'px';overlay.style.height=h+'px';camera.aspect=w/h;if(dockBereit)freiraum();else camera.updateProjectionMatrix();controls.handleResize();needs=true}
 var dockBereit=false,freiD=0; // Seitenleiste (siehe unten)
 addEventListener('resize',resize);resize();controls.addEventListener('change',()=>needs=true);
 if(window.ResizeObserver)new ResizeObserver(()=>resize()).observe(view);
@@ -173,7 +176,7 @@ function flaechenNormalWelt(s){const B=bodies[s.inst??0];if(!B?.geometry?.userDa
   if(!cnt||n.lengthSq()<1e-12)return null;mid.multiplyScalar(1/(cnt*3));n.normalize();n.applyMatrix3(new THREE.Matrix3().getNormalMatrix(B.matrixWorld)).normalize();
   const welt=B.localToWorld(mid);if(n.dot(welt.sub(box.getCenter(new THREE.Vector3())))<0)n.negate();return n}
 function f10(){if(!model)return;const face=[...sels].reverse().find(s=>s.k==='face');if(!face){animiereAnsicht('iso');return}const n=flaechenNormalWelt(face);if(!n){animiereAnsicht('iso');return}animiere(n,upSenkrecht(n,camera.up))}
-function setStil(stil){const draht=stil==='draht',kanten=stil==='kanten'||draht;$('showEdges').checked=stil==='kanten';if($('stilWahl'))$('stilWahl').value=stil;
+function setStil(stil){navigationVoll();const draht=stil==='draht',kanten=stil==='kanten'||draht;$('showEdges').checked=stil==='kanten';if($('stilWahl'))$('stilWahl').value=stil;
   edgeObjs.forEach(e=>e.visible=kanten);drahtModus=draht;koerperMats().forEach(m=>{m.transparent=draht;m.opacity=draht?0.04:1;m.depthWrite=!draht;m.needsUpdate=true});needs=true}
 // ---------- STEP-Farben (nativer Kern) ----------
 // Teil- und Flächenfarben aus der STEP-Datei; ohne Farbe bleibt das gewohnte Grau (baseMat). Schalter im Menü „Ansicht“.
@@ -202,8 +205,8 @@ function farbenAnwenden(){if(!data||!bodies.length)return;const geteilt=new Map(
 window.__farben=()=>({an:farbenAn,koerper:bodies.map(b=>({name:b.name,farbe:b.geometry.attributes.color?'flaechen':'#'+b.material.color.getHexString(SRGB),grau:b.userData.mat===baseMat})),umschalten:()=>farbenUmschalten()});
 function farbenUmschalten(){farbenAn=!farbenAn;try{localStorage.setItem('stepFarben',farbenAn?'an':'aus')}catch{}farbenAnwenden()}
 function setWerkzeug(w){werkzeug=w;document.querySelectorAll('[data-werkzeug]').forEach(b=>b.classList.toggle('on',b.dataset.werkzeug===w));
-  const mb={LEFT:null,MIDDLE:THREE.MOUSE.ROTATE,RIGHT:THREE.MOUSE.PAN};
-  if(w==='schwenk')mb.LEFT=THREE.MOUSE.PAN;if(w==='drehen')mb.LEFT=THREE.MOUSE.ROTATE;if(w==='zoom')mb.LEFT=THREE.MOUSE.DOLLY;controls.mouseButtons=mb}
+  $('btnDreh').classList.toggle('on',w==='drehen');$('btnDreh').setAttribute('aria-pressed',String(w==='drehen'));
+  setNavigationTool(controls,w)}
 $('fit').onclick=()=>{if(!model)return;let d=camera.position.clone().sub(controls.target);if(d.lengthSq()<1e-8)d=new THREE.Vector3(.8,.6,1);animiere(d,camera.up.clone())};
 $('showEdges').onchange=()=>setStil($('showEdges').checked?'kanten':'schattiert');
 
@@ -212,6 +215,7 @@ $('showEdges').onchange=()=>setStil($('showEdges').checked?'kanten':'schattiert'
 const KERN_STUFE={lesen:'Datei wird gelesen …',uebersetzen:'Geometrie wird übersetzt …',heilen:'Geometrie wird aufbereitet …',tessellieren:'Darstellung wird berechnet …'};
 window.__kernStufe=(name,k,n)=>{const t=KERN_STUFE[name];if(!t||$('busy').style.display!=='block')return;const txt=n>0?`${t} ${Math.round(100*k/n)} %`:t;$('busy').textContent=txt;$('status').textContent=txt};
 async function load(buf,name,opt){
+  navigationVoll();
   const t0=performance.now();const stufen={};let tS=t0;const stufe=k=>{const n=performance.now();stufen[k]=Math.round(n-tS);tS=n};window.__ladeStufen=stufen;$('status').textContent='Lade '+name+' …';$('drop').style.display='none';const hinweis=$('dropHint');if(hinweis)hinweis.hidden=true;$('busy').style.display='block';$('busy').textContent='Datei wird geladen …';
   let size=buf?buf.byteLength:0;
   // Desktop-App: zuerst der native Kern (schnell, mehrere Threads); bei Fehlern oder im Browser der WASM-Kern
@@ -1012,7 +1016,7 @@ const ZIFFER={Digit1:'vorne',Digit2:'hinten',Digit3:'links',Digit4:'rechts',Digi
 function tippt(){const t=document.activeElement;if(!t)return false;const tag=t.tagName;return tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA'||t.isContentEditable}
 function menueZu(){document.querySelectorAll('.menuliste').forEach(m=>m.hidden=true);document.querySelectorAll('.menu').forEach(m=>m.classList.remove('offen'))}
 function zeigeReiter(name){const t=$('dateitab');if(!t)return;t.hidden=false;$('dateiname').textContent=name;$('dateiname').title=name}
-function dateiSchliessen(){anim=null;drehen=false;$('btnDreh')?.classList.remove('on');$('btnDreh')?.setAttribute('aria-pressed','false');
+function dateiSchliessen(){navigationVoll();anim=null;setAutodrehen(false);setWerkzeug('wahl');
   if(model){scene.remove(model);model.traverse(o=>{o.geometry?.dispose?.()});baseMat?.dispose?.()}
   model=null;data=null;bodies=[];edgeObjs=[];baseMat=null;treeRoot=null;nodes=[];selNode=null;selMenge=new Set();sheetCache=null;sheetSolid=null;fest=null;festWahl=false;festAnzeigen();riss=[];rissAnzeigen(null);if(faltLauf){cancelAnimationFrame(faltLauf);faltLauf=null}faltObj=null;faltNetzCache=null;huelle=null;huellObj=null;spObj=null;$('huellinfo').innerHTML='';
   ursprung=[];undoStapel=[];redoStapel=[];isoSnap=null;if(triade)triade.visible=false;if($('bewegenPanel'))$('bewegenPanel').hidden=true;
@@ -1031,7 +1035,7 @@ function oeffneExport(anker){const m=$('exportMenue');document.querySelectorAll(
 const aktion={stepFarben:()=>farbenUmschalten(),
   oeffnen:()=>$('file').click(),screenshot:()=>screenshot(),exportPng:()=>$('dimPng').click(),exportPdf:()=>$('dimPdf').click(),dxf:()=>abwicklungExport('dxf'),geo:()=>abwicklungExport('geo'),expPdf:()=>$('expPdf').click(),expXlsx:()=>$('expXlsx').click(),
   drucken,schliessen:dateiSchliessen,einpassen:()=>$('fit').click(),f9,f10,schnitt:()=>$('btnSchnitt').click(),messen:()=>tabTo('messen'),bemassung:()=>bemassungZeigen(),blech:()=>tabTo('blech'),
-  baum:()=>$('baum').classList.contains('zu')?$('baumLasche').click():$('baumZu').click(),drehen:()=>$('btnDreh').click(),zurueck:()=>animiereAnsicht('iso'),verschieben:()=>selNode?act('move',selNode):($('status').textContent='Bitte zuerst ein Bauteil im Baum oder in der Ansicht wählen.'),hilfe:()=>{$('hilfeDlg').hidden=false},einstellungen:()=>{$('einstDlg').hidden=false},
+  baum:()=>$('baum').classList.contains('zu')?$('baumLasche').click():$('baumZu').click(),drehen:()=>setAutodrehen(!drehen),zurueck:()=>animiereAnsicht('iso'),verschieben:()=>selNode?act('move',selNode):($('status').textContent='Bitte zuerst ein Bauteil im Baum oder in der Ansicht wählen.'),hilfe:()=>{$('hilfeDlg').hidden=false},einstellungen:()=>{$('einstDlg').hidden=false},
 };
 document.querySelectorAll('.menuknopf').forEach(b=>b.onclick=ev=>{const liste=b.nextElementSibling;const war=liste.hidden;menueZu();liste.hidden=!war;b.parentElement.classList.toggle('offen',!liste.hidden);ev.stopPropagation()});
 document.querySelectorAll('[data-aktion]').forEach(b=>b.addEventListener('click',()=>{const fn=aktion[b.dataset.aktion];menueZu();fn?.()}));
@@ -1045,8 +1049,8 @@ $('standardWahl').onchange=()=>{const v=$('standardWahl').value;if(v)animiereAns
 document.querySelectorAll('[data-werkzeug]').forEach(b=>b.onclick=()=>setWerkzeug(b.dataset.werkzeug));
 $('btnReset').onclick=()=>animiereAnsicht('iso');
 // Autodrehen ist ein ausdrücklicher Schalter; jeder Griff in die Ansicht (Maus oder Rad) schaltet es ab, damit danach nichts von selbst weiterläuft
-function setAutodrehen(an){drehen=!!an;const b=$('btnDreh');if(b){b.classList.toggle('on',drehen);b.setAttribute('aria-pressed',String(drehen))}needs=true}
-$('btnDreh').onclick=()=>setAutodrehen(!drehen);
+function setAutodrehen(an){drehen=!!an;const b=document.querySelector('[data-aktion="drehen"]');if(b)b.setAttribute('aria-pressed',String(drehen));needs=true}
+$('btnDreh').onclick=()=>{setAutodrehen(false);setWerkzeug(werkzeug==='drehen'?'wahl':'drehen')};
 renderer.domElement.addEventListener('pointerdown',()=>{if(drehen)setAutodrehen(false)},true);
 renderer.domElement.addEventListener('wheel',()=>{if(drehen)setAutodrehen(false)},{capture:true,passive:true});
 // Messen ist ein Schalter wie in eDrawings: zweiter Klick schließt das Feld wieder (Start immer ohne offenes Werkzeugfeld)
@@ -1295,7 +1299,7 @@ function einzelDialog(art,n){
 window.__viewMenu=(x,y)=>viewMenu(x,y);window.__loadUrl=async u=>load(await (await fetch(u)).arrayBuffer(),u.split('/').pop());
 window.__loadBytes=(buf,name)=>load(buf,name);window.__call=call;
 window.__einzelteil={dialog:(a,id)=>einzelDialog(a,id==null?null:nodes.find(x=>x.id===id)),ausfuehren:(a,id,lage,schema)=>einzelAusfuehren(a,id==null?null:nodes.find(x=>x.id===id),lage,schema),alle:()=>alleEinzelteile(),teile:(id,lage)=>einzelTeile(nodes.find(x=>x.id===id),lage)};
-window.__steuerung=()=>({daempfung:controls.enableDamping,autoRotate:controls.autoRotate,autodrehen:drehen,ziel:controls.target.toArray(),pos:camera.position.toArray(),mitte:model?box.getCenter(new THREE.Vector3()).toArray():null});
+window.__steuerung=()=>({daempfung:!controls.staticMoving,autoRotate:false,autodrehen:drehen,schnell:!!navigationKanten,drawCalls:renderer.info.render.calls,ziel:controls.target.toArray(),pos:camera.position.toArray(),up:camera.up.toArray(),mitte:model?box.getCenter(new THREE.Vector3()).toArray():null});
 window.__app={messLabelKaesten:()=>messLabelKaesten,messLabels:()=>messLabels.map(l=>({zeilen:l.zeilen.slice(),farbe:l.farbe||null,linie:!!l.linie,pos:projL(l.p)})),ergebnis:()=>$("ergebnis")?.innerText||"",huelle:a=>huelleRechnen(a),abmessungen:b=>abmRechnen(b),abm:()=>abm,abmDims:()=>abmDims.length,abmTexte:()=>abmDims.map(d=>BM.massText(d,{...STIL,stellen:PREC})[0]),dimTexte:()=>dims.filter(d=>d.typ).map(d=>({no:d.no,typ:d.typ,linArt:d.linArt,wert:d.wert,text:BM.massText(d,{...STIL,stellen:PREC})[0]})),linWahl:w=>{if(w)linWahlSetzen(w);return linWahl},gesamt:()=>gesamtHoehe(),hoverChip:()=>$('hover').textContent,nurFlaechen:an=>{if(an!=null)nurFlaechenSetzen(an);return nurFl()},reihe:s=>reiheMessen(s),sels:()=>sels.map(x=>({k:x.k,id:x.id,inst:x.inst})),schwerpunkt:()=>{$('schwerpunktZeigen').checked=true;return schwerpunktZeigen()},protokollDaten:()=>protokollDatenSammeln(),faltSetzen,faltEnde,faltNetz:()=>faltNetzHolen(),rissSetzen,riss:()=>riss,huellObj:()=>huellObj&&!!huellObj.parent,hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position.toArray(),fitIso:()=>fit(views.iso),dimLabels:()=>dimHits.map(h=>[[h.x,h.y,0],h.no]),exportPng,exportPdf,editDim:no=>editDim(dims.find(d=>d.no===no)),stil:()=>STIL,dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
   screenOf:p=>{const r=renderer.domElement.getBoundingClientRect();const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*r.width+r.left,(1-w.y)/2*r.height+r.top]},
   ausrichtung:()=>{const d=camera.position.clone().sub(controls.target).normalize();return {blick:Math.max(...ACHSEN.map(a=>Math.abs(d.dot(a)))),oben:Math.max(...ACHSEN.map(a=>Math.abs(camera.up.dot(a)))),dir:d.toArray(),up:camera.up.toArray()}},
