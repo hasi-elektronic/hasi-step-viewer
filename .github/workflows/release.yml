@@ -202,7 +202,7 @@ jobs:
           sudo apt-get install -y -q libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
           mkdir -p "$RUNNER_TEMP/tb"
           kern/build/hasi-kern testdaten/testbaugruppe.step "$RUNNER_TEMP/tb"
-          mkdir -p dist
+          npm run build
           cd src-tauri && HASI_TEST_KERN="$GITHUB_WORKSPACE/kern/build/hasi-kern" HASI_TEST_BREP="$RUNNER_TEMP/tb/modell.brep" cargo test --locked
       - name: STEP-Farben in der Anzeige (nativer Kern, Hasi 3D und MS3D) und Ablegen im Einzelteil-Fenster
         env: { HASI_KERN: kern/build/hasi-kern }
