@@ -28,7 +28,7 @@ jobs:
       - run: node tools/test-edrw.mjs  # Messen wie eDrawings: parallel / Normaler Abstand / Delta, Bogen Mitte–Min.–Max.
       - run: node tools/test-beschriftung.mjs  # jedes Maß nennt, was es misst; Gesamthöhe und Höhe Fläche–Fläche (synthetisch)
       - run: node tools/test-flaechenmasse.mjs  # Fläche anklicken → Länge × Breite, Blechdicke, Gesamthöhe; Zylinder Ø, R, Länge (mm)
-      - run: sudo apt-get install -y poppler-utils unzip
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils unzip
       - run: node tools/test-export.mjs
       - run: node tools/test-baum.mjs
       - run: node tools/test-baugruppe-messen.mjs
@@ -172,7 +172,7 @@ jobs:
           node tools/make-grossteil.mjs "$RUNNER_TEMP/grossteil.step" 160
           kern/build/hasi-kern "$RUNNER_TEMP/grossteil.step" "$RUNNER_TEMP" --pruefen
           node tools/perf-oeffnen.mjs "$RUNNER_TEMP/grossteil.step" 30000
-      - run: sudo apt-get install -y poppler-utils unzip
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils unzip
       - name: Tests über den nativen Kern
         env: { KERN: native, KERN_PRUEFEN: '1' }
         run: |
