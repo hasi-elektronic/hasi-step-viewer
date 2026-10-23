@@ -100,15 +100,17 @@
 <div class="ahead">Einheiten</div>
 <div class="row"><label for="einheitLaenge">Länge</label> <select id="einheitLaenge" title="Längen einheit" disabled><option>Millimeter</option></select></div>
 <div class="row"><label for="einheitWinkel">Winkel</label> <select id="einheitWinkel" title="Winkel einheit" disabled><option>Grad</option></select></div>
-<div class="row"><label for="methode">Abstandsmethode</label> <select id="methode" title="Welcher Abstand als Messlinie und Bemaßung gilt (Rand = Element selbst, Mitte = Mittelpunkt, Achse oder Schwerpunkt)"><option value="min" selected>Rand–Rand (min.)</option><option value="rand-mitte">Rand–Mitte</option><option value="mitte-rand">Mitte–Rand</option><option value="mitte">Mitte–Mitte</option><option value="max">Max.</option><option value="unendlich">Gerade/Ebene unendlich verlängert</option></select></div>
+<div class="row"><label for="methode">Abstandsmethode</label> <select id="methode" title="Welcher Abstand als Messlinie und Bemaßung gilt (Rand = Element selbst, Mitte = Mittelpunkt, Achse oder Schwerpunkt)"><option value="auto" selected>Automatisch (wie ZW3D)</option><option value="min">Rand–Rand (min.)</option><option value="rand-mitte">Rand–Mitte</option><option value="mitte-rand">Mitte–Rand</option><option value="mitte">Mitte–Mitte</option><option value="max">Max.</option><option value="unendlich">Gerade/Ebene unendlich verlängert</option></select></div>
 <div class="row"><label for="massRichtung">Maßrichtung</label> <select id="massRichtung" title="Ausgerichtet = wahre Länge, Vertikal = Höhe entlang der Hochachse (bei „Projiziert auf: Bildschirm“ senkrecht im Bild), Horizontal = waagerechter Abstand, X/Y/Z = Modellachsen, Senkrecht zur Ansicht = Länge wie gesehen. Gilt auch für die nächste Bemaßung."><option value="ausgerichtet" selected>Ausgerichtet (wahre Länge)</option></select></div>
 <div class="row"><label for="projektion">Projiziert auf</label> <select id="projektion" title="Abstand zusätzlich in eine Ebene projizieren (Anteil in der Ebene und senkrecht dazu)"><option value="keine" selected>Keine</option><option value="bildschirm">Bildschirm</option><option value="xy">Ebene XY</option><option value="xz">Ebene XZ</option><option value="yz">Ebene YZ</option><option value="flaeche">Gewählte ebene Fläche</option></select></div>
 <div class="row"><label title="ΔX rot, ΔY grün, ΔZ blau als Teilstrecken der Messlinie"><input type="checkbox" id="deltaZeigen" checked> ΔX/ΔY/ΔZ in 3D zeigen</label></div>
 <div class="ahead">Ergebnisse</div>
 <div id="selinfo" class="sel"></div>
 <div id="mresult" class="kv"></div>
+<p class="hint klein">Wert anklicken = kopieren (1. Klick voller Wert, 2. Klick gerundet) · Strg+C kopiert den Hauptwert · Überfahren zeigt die Strecke im 3D.</p>
 <div class="ahead">Fangen</div>
 <div class="snaps"><label title="Ecke"><input type="checkbox" id="snapV" checked> <span class="sym sym-v"></span>Ecke</label><label title="Kantenmitte"><input type="checkbox" id="snapM" checked> <span class="sym sym-m"></span>Kantenmitte</label><label title="Kreismittelpunkt"><input type="checkbox" id="snapC" checked> <span class="sym sym-c"></span>Kreismittelpunkt</label><label title="Kante"><input type="checkbox" id="snapE" checked> <span class="sym sym-e"></span>Kante</label><label title="Fläche"><input type="checkbox" id="snapF" checked> <span class="sym sym-f"></span>Fläche</label><label title="Achse"><input type="checkbox" id="snapA"> <span class="sym sym-a"></span>Achse</label></div>
+<div class="row"><label title="Nur Flächen fangen – Fläche zu Fläche messen wie in ZW3D (Taste Q). Zweite Fläche überfahren zeigt den Wert vorab, Umschalt+Klick misst gegen die erste Fläche weiter."><input type="checkbox" id="nurFlaechen"> Nur Flächen (Q) – Fläche zu Fläche</label></div>
 <div class="row"><button class="btn" id="keepDim" title="Als Bemaßung behalten">Bemaßung</button> <button class="btn" id="copySel" title="Kopieren">Kopieren</button> <button class="btn" id="clearSel" title="Auswahl löschen">Löschen</button></div>
 <div class="ahead">Bemaßungen <span id="dimcount" class="m"></span></div>
 <div id="dimlist"></div>
@@ -130,6 +132,9 @@
 <div class="row"><select id="mat" title="Werkstoff wählen"><option value="7.85">Stahl (7,85 g/cm³)</option><option value="7.90">Edelstahl (7,90 g/cm³)</option><option value="2.70">Aluminium (2,70 g/cm³)</option><option value="8.96">Kupfer (8,96 g/cm³)</option><option value="8.50">Messing (8,50 g/cm³)</option><option value="custom">Eigene Dichte</option></select>
 <input id="dens" type="number" step="0.01" min="0" value="7.85" title="Dichte in g/cm³"> <span class="m">g/cm³</span></div>
 <div id="massinfo" class="kv"></div>
+<div class="ahead">Abmessungen</div>
+<div class="row"><button class="btn" id="abmKnopf" title="Länge × Breite × Höhe, ausgerichtet an der Grundfläche, exakt aus der B-Rep. Fläche anklicken richtet neu aus, Esc beendet (Taste D)">Abmessungen (D)</button> <button class="btn" id="abmGrund" hidden title="Wieder an der Grundfläche ausrichten">Grundfläche</button></div>
+<div id="abminfo" class="kv"></div>
 <div class="ahead">Hüllquader und Rohmaß</div>
 <div class="row"><select id="huellArt" title="Achsparallel = Modellachsen; Gedreht = eine Achse folgt der gewählten Fläche oder Kante; Minimal = kleinstes Volumen"><option value="minimal" selected>Minimal (kleinstes Volumen)</option><option value="bezug">Gedreht zur gewählten Fläche/Kante</option><option value="achsparallel">Achsparallel (Modellachsen)</option></select> <button class="btn" id="huellRechnen" title="Hüllquader und Rohmaß der sichtbaren Teile berechnen">Berechnen</button></div>
 <div class="row"><label title="Hüllquader als Drahtmodell in der 3D-Ansicht"><input type="checkbox" id="huellZeigen" checked> Hüllquader zeigen</label> <label title="Schwerpunkt der sichtbaren Teile als Punkt in der 3D-Ansicht"><input type="checkbox" id="schwerpunktZeigen"> Schwerpunkt zeigen</label></div>
@@ -137,6 +142,7 @@
 <div class="ahead">Messprotokoll</div>
 <div class="row"><button class="btn" id="protPdf" title="Modellwerte, Hüllquader, Rohmaß, Bemaßungen und aktuelle Messung als PDF">Messprotokoll als PDF</button> <button class="btn" id="protXlsx" title="Dasselbe als Excel-Arbeitsmappe">Messprotokoll als Excel</button></div>
 <details><summary>Bedienung</summary>
+<p class="hint">Fläche zu Fläche (wie ZW3D): Q drücken, erste Fläche anklicken, zweite überfahren (Wert erscheint am Cursor) und anklicken. Parallele Flächen: Abstand senkrecht; Zylinder: Abstand zur Achse. Umschalt+Klick misst gegen die erste Fläche weiter. D zeigt die Abmessungen.</p>
 <p class="hint">Element anklicken (Rundung/Bogen: Radius und Bogenlänge sofort). Zweites Element anklicken: Abstand, Winkel, Lochabstand – wird als Bemaßung im 3D behalten. Weitere Arten über „Bemaßen“. Maus in „Auswählen“: Mitte ziehen = drehen, Rechts oder Umschalt+Mitte ziehen = schwenken, Rad = Zoom zum Cursor. Strg/Umschalt + Klick: weitere Kanten für die Gesamtlänge. Leertaste setzt die Auswahl zurück. F9 richtet eine schiefe Ansicht auf die nächste Standardansicht aus.</p>
 </details>
 </section></div></div>
@@ -202,7 +208,12 @@
 <tr><td><kbd>Umschalt+Tab</kbd></td><td>Bauteil unter dem Cursor einblenden</td></tr>
 <tr><td><kbd>Strg+Umschalt+Tab</kbd></td><td>Alle einblenden</td></tr>
 <tr><td><kbd>Strg+Z</kbd></td><td>Verschieben rückgängig</td></tr>
-<tr><td><kbd>Strg+Y</kbd></td><td>Verschieben wiederholen</td></tr></table>
+<tr><td><kbd>Strg+Y</kbd></td><td>Verschieben wiederholen</td></tr>
+<tr><td><kbd>Q</kbd></td><td>Nur Flächen fangen (Fläche zu Fläche messen) ein/aus</td></tr>
+<tr><td><kbd>Umschalt</kbd>+Klick</td><td>Weitere Fläche gegen die erste Fläche messen (Reihe)</td></tr>
+<tr><td><kbd>D</kbd></td><td>Abmessungen (Länge × Breite × Höhe) ein/aus</td></tr>
+<tr><td><kbd>Strg+C</kbd></td><td>Hauptwert der Messung kopieren</td></tr>
+<tr><td><kbd>Esc</kbd></td><td>Messung bzw. Abmessungen beenden</td></tr></table>
 <p class="hint">Die Ziffern gelten auch ohne Strg, solange kein Eingabefeld aktiv ist. Ansichtswechsel sind animiert. Im Baum: Strg ergänzt die Auswahl, Umschalt wählt einen Bereich. Ausgeblendete Teile sind grau und werden nicht gefangen.</p></div>
 <script type="module" src="./src/main.js"></script><div id="einzelDlg" hidden role="dialog" aria-modal="true" aria-labelledby="einzelTitel">
   <div class="einzelKarte">

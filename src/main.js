@@ -4,7 +4,7 @@ import * as BM from './bemassung.js';
 import { MARKE } from './marke.js';
 import { biegeNotizen } from './biegenotiz.js';
 import { falteNetz } from './falten.js';
-import { deltaLinien ,richtungsVektor,RICHTUNGEN} from './messen-hilfen.js';
+import { deltaLinien ,richtungsVektor,RICHTUNGEN,kopierWert} from './messen-hilfen.js';
 import { stepText, teilName as ohneNummer, sichererName, eindeutigeNamen, stepNachbearbeiten } from './step-export.js';
 const $=id=>document.getElementById(id), view=$('view');
 if(MARKE.id==='sickinger'){document.documentElement.dataset.marke='sickinger';document.title=MARKE.produkt}
@@ -123,7 +123,7 @@ let PREC=(()=>{const v=parseInt(localStorage.getItem('genauigkeit'));return v>=0
 const nf=(v,d=3)=>v.toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d});
 function fmt(v,k){if(k==='L')return nf(v,PREC)+' mm';if(k==='A')return nf(v,PREC)+' mm²';if(k==='V')return nf(v,PREC)+' mm³';
   if(k==='W')return nf(v,Math.max(PREC,1))+' °';if(k==='P')return v.map(x=>nf(x,PREC)).join(' / ')+' mm';if(k==='M')return v>=1000?nf(v/1000)+' kg':nf(v,1)+' g';return String(v)}
-const kv=(el,rows)=>{el.innerHTML=rows.map(([a,b,k,x])=>`<div${x?' class="big"':''}>${a}</div><div${x?' class="big"':''}>${k?fmt(b,k):b}</div>`).join('')};
+const kv=(el,rows)=>{el._rows=rows;el.innerHTML=rows.map(([a,b,k,x],i)=>`<div${x?' class="big"':''}>${a}</div><div data-i="${i}" class="${x?'big ':''}wert" title="Klicken: kopieren (1. Klick voller Wert, 2. Klick gerundet)">${k&&k!=='t'?fmt(b,k):b}</div>`).join('')};
 
 // ---------- Ansicht ----------
 const views={};for(const [n,a] of Object.entries(ANSICHT))views[n]=new THREE.Vector3(...a.d);
@@ -224,8 +224,8 @@ async function load(buf,name,opt){
     const el=new THREE.LineSegments(geos[I.u].eg,edgeMat);el.userData.inst=i;el.visible=$('showEdges').checked;mesh.add(el);edgeObjs.push(el);
     model.add(mesh);bodies.push(mesh)});
   farbenAnwenden();stufe('farben');
-  model.add(marks);model.add(hoverObj);wahlMark=new THREE.Group();model.add(wahlMark);festMark=new THREE.Group();model.add(festMark);rissMark=new THREE.Group();model.add(rissMark);if(triade)model.add(triade);
-  fest=null;festWahl=false;festAnzeigen();riss=[];rissAnzeigen(null);faltObj=null;faltNetzCache=null;if(faltLauf){cancelAnimationFrame(faltLauf);faltLauf=null}$('faltRegler').disabled=$('faltPlay').disabled=true;$('faltAus').hidden=true;huelle=null;huellObj=null;spObj=null;$('huellinfo').innerHTML='';$('schwerpunktZeigen').checked=false;
+  model.add(marks);model.add(hoverObj);model.add(zeileHi);wahlMark=new THREE.Group();model.add(wahlMark);festMark=new THREE.Group();model.add(festMark);rissMark=new THREE.Group();model.add(rissMark);if(triade)model.add(triade);
+  fest=null;festWahl=false;festAnzeigen();riss=[];rissAnzeigen(null);faltObj=null;faltNetzCache=null;if(faltLauf){cancelAnimationFrame(faltLauf);faltLauf=null}$('faltRegler').disabled=$('faltPlay').disabled=true;$('faltAus').hidden=true;huelle=null;huellObj=null;spObj=null;$('huellinfo').innerHTML='';abm=null;abmObj=null;abmDims=[];$('abminfo').innerHTML='';$('abmGrund').hidden=true;$('abmKnopf')?.classList.remove('on');$('schwerpunktZeigen').checked=false;
   ursprung=data.inst.map(I=>I.m.slice());undoStapel=[];redoStapel=[];isoSnap=null;selNode=null;selMenge=new Set();selAnker=null;bewegenOffen=false;
   stufe('instanzen');scene.add(model);model.updateMatrixWorld(true);box.setFromObject(model);stufe('box');
   vIdx=new Map();
@@ -238,6 +238,7 @@ async function load(buf,name,opt){
   $('status').textContent=`${name} · ${(size/1024).toFixed(0)} KB · ${info.bodies} Körper · ${info.faces} Flächen · Datei: ${U.sym} → Anzeige: mm · ${ms} ms${nativ?' · Messdaten werden vorbereitet …':''}`;
   if(nativ){const st=$('status').textContent;window.__messBereit=inv('kern_brep').then(text=>call('attach',{text})).then(a=>{info.attachMs=a.ms;if($('status').textContent===st)$('status').textContent=st.replace(' · Messdaten werden vorbereitet …',' · nativer Kern')})
     .catch(e=>{$('status').textContent=st.replace(' · Messdaten werden vorbereitet …',' · Messen nicht verfügbar: '+(e.message||e))})}
+  offenPruefen(data);
   return info}
 function puffer(roh){if(roh instanceof ArrayBuffer)return roh;if(ArrayBuffer.isView(roh))return roh.buffer.slice(roh.byteOffset,roh.byteOffset+roh.byteLength);if(Array.isArray(roh))return new Uint8Array(roh).buffer;throw new Error('Datei konnte nicht gelesen werden')}
 async function loadPath(pfad){
@@ -378,9 +379,10 @@ async function showProps(n){const sicht=n.all.filter(i=>bodies[i]?.visible);cons
 $('propsClose').onclick=()=>$('props').hidden=true;
 const tabTo=n=>document.querySelector(`.tab[data-tab="${n}"]`).click();
 function showModel(){const m=data.model,s=isFinite(m.bbox.min[0])?V3(m.bbox.max).sub(V3(m.bbox.min)):new THREE.Vector3();
-  kv($('modelinfo'),[['Einheit der Datei',U.name],['Anzeige','Millimeter'],...(m.ausgeblendet?[['Ausgeblendet (nicht gerechnet)',m.ausgeblendet+' Körper']]:[]),['Körper',m.solids],['Flächen',m.faces],['Kanten',m.edges],['Bounding-Box X',s.x,'L'],['Bounding-Box Y',s.y,'L'],['Bounding-Box Z',s.z,'L'],[m.approx?'Volumen (≈, Netz)':'Volumen',m.volume,'V'],[m.approx?'Oberfläche (≈, Netz)':'Oberfläche',m.area,'A'],['Schwerpunkt',m.centroid,'P'],...(m.unique&&m.unique!==m.solids?[['Einzelteile (Unikate)',m.unique]]:[])]);showMass()}
+  kv($('modelinfo'),[...offenHinweis(),['Einheit der Datei',U.name],['Anzeige','Millimeter'],...(m.ausgeblendet?[['Ausgeblendet (nicht gerechnet)',m.ausgeblendet+' Körper']]:[]),['Körper',m.solids],['Flächen',m.faces],['Kanten',m.edges],['Bounding-Box X',s.x,'L'],['Bounding-Box Y',s.y,'L'],['Bounding-Box Z',s.z,'L'],[m.approx?'Volumen (≈, Netz)':'Volumen',m.volume,'V'],[m.approx?'Oberfläche (≈, Netz)':'Oberfläche',m.area,'A'],['Schwerpunkt',m.centroid,'P'],...(m.unique&&m.unique!==m.solids?[['Einzelteile (Unikate)',m.unique]]:[])]);showMass()}
 const V3=a=>new THREE.Vector3(...a);
-function showMass(){if(!data)return;const d=parseFloat($('dens').value)||0;kv($('massinfo'),[['Volumen',data.model.volume,'V'],['Dichte',nf(d,2)+' g/cm³'],['Masse',data.model.volume/1000*d,'M']])}
+const offenHinweis=()=>data?.offen?.offen?[['Hinweis',`Körper nicht geschlossen (${data.offen.anzahl} ${data.offen.anzahl===1?'Teil':'Teile'}) – Volumen nicht verlässlich`,'t','!']]:[];
+function showMass(){if(!data)return;const d=parseFloat($('dens').value)||0;kv($('massinfo'),[...offenHinweis(),['Volumen',data.model.volume,'V'],['Dichte',nf(d,2)+' g/cm³'],['Masse',data.model.volume/1000*d,'M']]);$('massinfo').classList.toggle('warnung',!!data.offen?.offen)}
 $('mat').onchange=()=>{if($('mat').value!=='custom')$('dens').value=$('mat').value;showMass()};
 // ---------- Hüllquader, Rohmaß, Schwerpunkt, Messprotokoll ----------
 let huelle=null,huellObj=null,spObj=null;
@@ -441,7 +443,7 @@ $('axis').onchange=setCut;$('cut').oninput=setCut;window.__setCut=(a,v)=>{$('axi
 
 // ---------- Fangen / Auswahl ----------
 const ray=new THREE.Raycaster();let sels=[],hov=null;
-function pickAt(cx,cy,opt){if(!model)return null;const r=renderer.domElement.getBoundingClientRect();const ndc=new THREE.Vector2(((cx-r.left)/r.width)*2-1,-((cy-r.top)/r.height)*2+1);
+function pickAt(cx,cy,opt){if(!model)return null;if(nurFl()&&!(opt&&opt.verdeckt))opt={...(opt||{}),nurFlaeche:true};const r=renderer.domElement.getBoundingClientRect();const ndc=new THREE.Vector2(((cx-r.left)/r.width)*2-1,-((cy-r.top)/r.height)*2+1);
   ray.setFromCamera(ndc,camera);
   const clipOk=p=>!renderer.localClippingEnabled||plane.distanceToPoint(p)>=0;
   const liste=(opt&&opt.verdeckt)?bodies:bodies.filter(b=>b.visible);
@@ -490,16 +492,19 @@ function snapSym(k,p,color){const gg=new THREE.BufferGeometry();gg.setAttribute(
 let down=null,hoverRAF=0;
 renderer.domElement.addEventListener('pointerdown',e=>down=[e.clientX,e.clientY]);
 renderer.domElement.addEventListener('pointermove',e=>{letzteMaus=[e.clientX,e.clientY];if(e.buttons||hoverRAF||zug)return;hoverRAF=requestAnimationFrame(()=>{hoverRAF=0;hov=pickAt(e.clientX,e.clientY);hoverObj.clear();if(hov)hoverObj.add(hiObj(hov,0xff6a00));$('hover').textContent=hov?label(hov):'';
-  const tip=$('snaptip'),r=$('view').getBoundingClientRect();tip.hidden=!hov;if(hov){tip.textContent=label(hov);tip.style.left=(e.clientX-r.left)+'px';tip.style.top=(e.clientY-r.top)+'px'}needs=true})});
+  const tip=$('snaptip'),r=$('view').getBoundingClientRect();tip.hidden=!hov;if(hov){tip.textContent=label(hov);tip.style.left=(e.clientX-r.left)+'px';tip.style.top=(e.clientY-r.top)+'px';tipEinpassen()}window.__vorschau=null;if(hov&&!abm)vorschau(hov,e.clientX,e.clientY);needs=true})});
 renderer.domElement.addEventListener('pointerleave',()=>{if(hoverRAF){cancelAnimationFrame(hoverRAF);hoverRAF=0}$('snaptip').hidden=true;hov=null;hoverObj.clear();$('hover').textContent='';needs=true});
 renderer.domElement.addEventListener('pointerup',e=>{if(zugSperre){zugSperre=false;return}if(e.button!==0||werkzeug!=='wahl')return;if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;
   if(festWahl){const f=pickAt(e.clientX,e.clientY,{nurFlaeche:true});if(f)festSetzen(f);return}
+  if(abm){const f=pickAt(e.clientX,e.clientY,{nurFlaeche:true});if(f)abmRechnen(f);return}
+  if(e.shiftKey&&!e.ctrlKey&&!e.metaKey){const f=pickAt(e.clientX,e.clientY);if(f&&f.k==='face'&&(reiheBezug||sels[0]?.k==='face')){reiheMessen(f);return}}
   const s=pickAt(e.clientX,e.clientY);if(!s&&!(e.ctrlKey||e.shiftKey||e.metaKey)){auswahlAufheben();return}if(s){select(s,e.ctrlKey||e.shiftKey||e.metaKey);if(s.body){const n=nodeOfBody(s.body.userData.inst);if(n){selNode=n;selMenge=new Set([n]);selAnker=n;for(let x=n.parent;x;x=x.parent)x.open=true;renderTree();hervorheben();document.querySelector(`.trow[data-id="${n.id}"]`)?.scrollIntoView({block:'nearest'})}}}});
 // Esc wie in eDrawings: 1. Esc löscht die aktuelle Mess-Auswahl samt Ergebnis (Messen bleibt aktiv), 2. Esc hebt die Bauteilauswahl auf.
 // Gespeicherte Bemaßungen bleiben immer erhalten. Nicht beim Tippen in einem Textfeld.
 function textFeld(){const t=document.activeElement;if(!t)return false;if(t.tagName==='TEXTAREA'||t.isContentEditable)return true;
   return t.tagName==='INPUT'&&!['checkbox','radio','range','button','submit','reset','color','file'].includes((t.type||'').toLowerCase())}
 function auswahlAufheben(){if(zug)return null;
+  if(abm){abmEnde();return 'abmessungen'}
   if(festWahl){festWahl=false;festAnzeigen();return 'feste Fläche'}
   if(sels.length||lastRes||$('mresult').textContent.trim()){clearSel();lastRes=null;hoverObj.clear();needs=true;$('status').textContent='Auswahl aufgehoben – nächste Messung wählen';return 'messung'}
   if(selNode||selMenge.size){selectNode(null);triadeAktualisieren();return 'bauteil'}
@@ -512,7 +517,10 @@ addEventListener('keydown',e=>{
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.code==='KeyZ'&&!e.shiftKey){e.preventDefault();rueckgaengig();return}
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&(e.code==='KeyY'||(e.code==='KeyZ'&&e.shiftKey))){e.preventDefault();wiederholen();return}
   if(e.code==='Space'){e.preventDefault();clearSel();return}
+  if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.code==='KeyC'&&!window.getSelection()?.toString()){if(hauptwertKopieren())e.preventDefault();return}
   if(e.repeat||e.altKey||e.metaKey)return;
+  if(e.code==='KeyQ'&&!e.ctrlKey){e.preventDefault();nurFlaechenSetzen(!nurFl());return}
+  if(e.code==='KeyD'&&!e.ctrlKey&&!e.shiftKey){e.preventDefault();abmUmschalten();return}
   if(e.code==='KeyF'&&!e.ctrlKey){e.preventDefault();$('fit').click();return}
   if(e.code==='F9'){e.preventDefault();f9();return}
   if(e.code==='F10'){e.preventDefault();f10();return}
@@ -532,15 +540,81 @@ $('clearSel').onclick=()=>clearSel();
 // Messoptionen: Abstandsmethode und Projektion (Bildschirm = aktuelle Blickrichtung in Modellkoordinaten)
 // Bildschirmrichtungen in Modellkoordinaten: oben, rechts, blick (zum Betrachter hin)
 function sicht(){if(!model)return {};return {oben:camDir(new THREE.Vector3(0,1,0)),rechts:camDir(new THREE.Vector3(1,0,0)),blick:camDir(new THREE.Vector3(0,0,1))}}
-function messOpts(){const art=$('projektion')?.value||'keine';const pj={art};if(art==='bildschirm'&&model)pj.n=camDir(new THREE.Vector3(0,0,1));return {methode:$('methode')?.value||'min',projektion:pj,richtung:$('massRichtung')?.value||'ausgerichtet',sicht:sicht()}}
+function messOpts(){const art=$('projektion')?.value||'keine';const pj={art};if(art==='bildschirm'&&model)pj.n=camDir(new THREE.Vector3(0,0,1));return {methode:$('methode')?.value||'auto',projektion:pj,richtung:$('massRichtung')?.value||'ausgerichtet',sicht:sicht()}}
 function messGrafik(r){r.gfx.forEach(([a,b])=>{const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(a),V3(b)]),new THREE.LineBasicMaterial({color:0x1f8fd0,depthTest:false}));l.renderOrder=11;marks.add(l)});
   if(r.delta&&$('deltaZeigen')?.checked)deltaLinien(r.delta[0],r.delta[1]).forEach(d=>{const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(d.von),V3(d.bis)]),new THREE.LineBasicMaterial({color:d.farbe,depthTest:false}));l.renderOrder=11;l.userData.delta=d.achse;marks.add(l)})}
 async function neuMessen(){if(!sels.length)return;const s=sels.slice(),opts=messOpts();try{const r=await call('measure',{sels:s,opts});lastRes={r,sels:s,title:s.map(label).join(' + '),opts};
   marks.clear();s.forEach(x=>marks.add(hiObj(x,0x1f8fd0)));messGrafik(r);zeigeMessung(r);window.__lastMeasure=r;needs=true;return r}catch(err){$('mresult').innerHTML=`<div>Fehler</div><div>${err.message}</div>`}}
-function clearSel(){sels=[];marks.clear();$('selinfo').textContent='';$('mresult').innerHTML='';window.__lastMeasure=null;needs=true}
+function clearSel(){sels=[];reiheBezug=null;zeileHi.clear();if(vorschauLinie){vorschauLinie.removeFromParent();vorschauLinie=null}marks.clear();$('selinfo').textContent='';$('mresult').innerHTML='';window.__lastMeasure=null;needs=true}
+// ---------- Fläche zu Fläche (wie ZW3D „Instant Measure“) ----------
+// Q = nur Flächen fangen (bleibt gespeichert). Erste Fläche wählen, zweite überfahren → Vorschau des Hauptwerts am Cursor.
+// Umschalt+Klick misst gegen die erste Fläche (Bezug) weiter (Reihe). Esc löscht. Strg+C kopiert den Hauptwert.
+const nurFl=()=>!!$('nurFlaechen')?.checked;
+function nurFlaechenSetzen(an){const c=$('nurFlaechen');if(!c)return;c.checked=an;localStorage.setItem('nurFlaechen',an?'1':'0');
+  $('status').textContent=an?'Fläche zu Fläche: nur Flächen werden gefangen (Q schaltet um)':'Alle Fangarten aktiv (Q = nur Flächen)';hov=null;hoverObj.clear();needs=true}
+if($('nurFlaechen')){$('nurFlaechen').checked=localStorage.getItem('nurFlaechen')==='1';$('nurFlaechen').onchange=()=>nurFlaechenSetzen($('nurFlaechen').checked)}
+// Vorschau: höchstens eine Anfrage gleichzeitig, die jeweils letzte gewinnt
+let vorschauLauf=false,vorschauNaechste=null,vorschauLinie=null;
+const vorschauKey=(a,b)=>`${a.inst??0}:${a.id}|${b.inst??0}:${b.id}`;const vorschauCache=new Map();
+// Tipp am Cursor nie unter das angedockte Messen-Fenster schieben
+function tipEinpassen(){const tip=$('snaptip');if(tip.hidden)return;tip.style.marginLeft='0px';const r=tip.getBoundingClientRect(),pn=$('messenPanel'),pr=pn&&!pn.hidden?pn.getBoundingClientRect():null;
+  const grenze=pr&&pr.width&&r.bottom>pr.top&&r.top<pr.bottom?pr.left-6:$('view').getBoundingClientRect().right-6;if(r.right>grenze)tip.style.marginLeft=(grenze-r.right-28)+'px'}
+function vorschauText(v){return v?`${v.name} ${fmt(v.wert,v.einheit)}`:''}
+async function vorschau(h,cx,cy){if(sels.length!==1||sels[0].k!=='face'||!h||h.k!=='face'||(h.id===sels[0].id&&(h.inst??0)===(sels[0].inst??0)))return;
+  const a={k:'face',id:sels[0].id,inst:sels[0].inst??0,p:sels[0].p},b={k:'face',id:h.id,inst:h.inst??0,p:h.p};
+  if(vorschauLauf){vorschauNaechste=[h,cx,cy];return}vorschauLauf=true;
+  try{const k=vorschauKey(a,b);let v=vorschauCache.get(k);if(!v||v.linie){v=await call('vorschau',{a,b});if(v&&!v.linie)vorschauCache.set(k,v)}
+    if(hov===h){const tip=$('snaptip');tip.textContent=label(h)+(v?' · '+vorschauText(v):'');tipEinpassen();window.__vorschau=v;
+      if(vorschauLinie){vorschauLinie.removeFromParent();vorschauLinie=null}
+      if(v&&v.linie){const g=new THREE.BufferGeometry().setFromPoints(v.linie.map(V3));vorschauLinie=new THREE.Line(g,new THREE.LineDashedMaterial({color:0xff6a00,dashSize:2,gapSize:1.5,depthTest:false}));
+        vorschauLinie.computeLineDistances();vorschauLinie.renderOrder=11;hoverObj.add(vorschauLinie)}needs=true}}
+  catch{}finally{vorschauLauf=false;if(vorschauNaechste){const n=vorschauNaechste;vorschauNaechste=null;if(n[0]===hov)vorschau(...n)}}}
+// Reihe: Umschalt+Klick auf eine weitere Fläche misst gegen die Bezugsfläche (erste Fläche) und behält jedes Maß als Bemaßung
+let reiheBezug=null;
+async function reiheMessen(s){const bez=reiheBezug||sels[0];reiheBezug=bez;sels=[bez];marks.clear();marks.add(hiObj(bez,0x2e9d4f));
+  const r=await select(s,true);if(r){keepDim();const n=dims.filter(d=>d.sels?.[0]===bez||(d.sels?.[0]?.id===bez.id&&d.sels?.[0]?.inst===bez.inst)).length;
+    $('status').textContent=`Reihe gegen Bezugsfläche: ${n} Maß${n===1?'':'e'} – Umschalt+Klick für das nächste, Esc beendet`}return r}
+// Ergebniswerte: Klick kopiert (1. Klick voller Wert, 2. Klick gerundet wie angezeigt); Überfahren hebt die Strecke im 3D hervor
+let kopierZuletzt=null;const zeileHi=new THREE.Group();zeileHi.renderOrder=13;
+function zeileWert(row){const [, v, k]=row;if(k==='P')return v.map(x=>kopierWert(x,PREC,false)).join(' / ');if(typeof v==='number'&&k&&k!=='t')return v;return String(v)}
+function ergebnisKopieren(el,i){const rows=el._rows;if(!rows||!rows[i])return;const row=rows[i];const v=zeileWert(row);const key=el.id+':'+i;
+  const zweiter=kopierZuletzt&&kopierZuletzt.key===key&&performance.now()-kopierZuletzt.t<4000;
+  const stellen=row[2]==='W'?Math.max(PREC,1):PREC;const t=typeof v==='number'?kopierWert(v,stellen,zweiter):v;kopierZuletzt=zweiter?null:{key,t:performance.now()};
+  copyText(t).then(()=>{$('status').textContent=`${row[0]}: ${t} kopiert (${zweiter?'gerundet':'voller Wert – nochmal klicken für gerundet'})`})}
+function zeileHervorheben(el,i){zeileHi.clear();const row=el?._rows?.[i];const L=row&&el._linien?.[row[0]];
+  if(L&&model){const g=new THREE.BufferGeometry().setFromPoints(L.map(V3));const m=new THREE.Line(g,new THREE.LineBasicMaterial({color:0xff2d95,depthTest:false,linewidth:3}));m.renderOrder=13;zeileHi.add(m);
+    const s=(box.getSize(new THREE.Vector3()).length()||100)*0.006;L.forEach(p=>{const k=new THREE.Mesh(new THREE.SphereGeometry(s,12,8),new THREE.MeshBasicMaterial({color:0xff2d95,depthTest:false}));k.position.set(...p);k.renderOrder=13;zeileHi.add(k)})}
+  window.__zeileHi=L?{name:row[0],linie:L}:null;needs=true}
+for(const id of ['mresult','abminfo'])if($(id)){const el=$(id);
+  el.addEventListener('click',e=>{const d=e.target.closest('[data-i]');if(d)ergebnisKopieren(el,+d.dataset.i)});
+  el.addEventListener('mouseover',e=>{const d=e.target.closest('[data-i]');zeileHervorheben(el,d?+d.dataset.i:-1)});
+  el.addEventListener('mouseleave',()=>zeileHervorheben(null,-1))}
+function hauptwertKopieren(){if(!lastRes)return false;const rows=$('mresult')._rows||[];const i=rows.findIndex(r=>r[3]);const j=i>=0?i:rows.findIndex(r=>r===lastRes.r.label);if(j<0)return false;ergebnisKopieren($('mresult'),j);return true}
+// ---------- Abmessungen (D): Länge × Breite × Höhe an der Grundfläche, Klick auf eine Fläche richtet neu aus ----------
+let abm=null,abmObj=null,abmDims=[];
+function abmZeichnen(){if(abmObj){abmObj.removeFromParent();abmObj.geometry.dispose();abmObj=null}abmDims=[];if(!abm||!abm.ok||!model){needs=true;return}
+  const q=abm,E=[[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]],a=[];E.forEach(([i,j])=>a.push(...q.ecken[i],...q.ecken[j]));
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(a,3));abmObj=new THREE.LineSegments(g,new THREE.LineBasicMaterial({color:0x0a8f5a,depthTest:false,transparent:true,opacity:.9}));abmObj.renderOrder=5;model.add(abmObj);
+  const iL=Math.abs(BM.V.dot(q.richtung.laenge,q.achsen[0]))>0.5?0:1,iB=1-iL,C=q.ecken,size=box.getSize(new THREE.Vector3()).length()*0.07;
+  const mk=(p1,p2,wert,off)=>({no:-1,typ:'ausgerichtet',p1,p2,dir:BM.V.norm(BM.V.sub(p2,p1)),wert,off,einheit:'L',tol:{art:'keine',o:0,u:0},praefix:'',suffix:'',text:''});
+  const aL=q.achsen[iL],aB=q.achsen[iB],aH=q.achsen[2];
+  abmDims=[mk(C[0],C[1<<iL],q.laenge,BM.V.mul(aB,-size)),mk(C[1<<iL],C[(1<<iL)|(1<<iB)],q.breite,BM.V.mul(aL,size)),mk(C[0],C[4],q.hoehe,BM.V.add(BM.V.mul(aL,-size*0.7),BM.V.mul(aB,-size*0.7)))];needs=true}
+function abmAnzeigen(){const r=abm;if(!r){$('abminfo').innerHTML='';$('abminfo')._rows=null;return}if(!r.ok){kv($('abminfo'),[['Hinweis',r.msg]]);return}
+  const m=r.modellachsen;const rows=[['Abmessungen',`${nf(r.laenge,PREC)} × ${nf(r.breite,PREC)} × ${nf(r.hoehe,PREC)} mm`,'t','!'],['Länge',r.laenge,'L'],['Breite',r.breite,'L'],['Höhe',r.hoehe,'L'],
+    ['Ausgerichtet an',r.quelle],['In Modellachsen X × Y × Z',`${nf(m.x,PREC)} × ${nf(m.y,PREC)} × ${nf(m.z,PREC)} mm`]];
+  kv($('abminfo'),rows);const C=r.ecken,iL=Math.abs(BM.V.dot(r.richtung.laenge,r.achsen[0]))>0.5?0:1,iB=1-iL;$('abminfo')._linien={'Länge':[C[0],C[1<<iL]],'Breite':[C[1<<iL],C[(1<<iL)|(1<<iB)]],'Höhe':[C[0],C[4]]}}
+async function abmRechnen(bezug){if(!data)return null;const ids=sichtbareIds();
+  try{const r=await call('abmessungen',{opts:{ids,bezug:bezug?{k:'face',id:bezug.id,inst:bezug.inst??0}:null}});abm=r;window.__abm=r;abmAnzeigen();abmZeichnen();$('abmGrund').hidden=!bezug;
+    if(r.ok)$('status').textContent=`Abmessungen ${nf(r.laenge,PREC)} × ${nf(r.breite,PREC)} × ${nf(r.hoehe,PREC)} mm (${r.quelle}) – Fläche anklicken richtet neu aus, Esc beendet`;return r}
+  catch(e){$('abminfo').innerHTML=`<div>Fehler</div><div>${e.message}</div>`;return null}}
+function abmEnde(){if(!abm)return false;abm=null;abmZeichnen();abmAnzeigen();$('abmGrund').hidden=true;$('abmKnopf')?.classList.remove('on');$('status').textContent='Abmessungen beendet';return true}
+async function abmUmschalten(){if(abm){abmEnde();return}$('abmKnopf')?.classList.add('on');return abmRechnen(null)}
+if($('abmKnopf'))$('abmKnopf').onclick=()=>abmUmschalten();if($('abmGrund'))$('abmGrund').onclick=()=>abmRechnen(null);
+// Offener Körper: Hinweis bei Volumen/Masse
+async function offenPruefen(d0){try{await (window.__messBereit||Promise.resolve());const o=await call('offen',{});if(data!==d0)return;data.offen=o;showMass();showModel()}catch{}}
 let lastRes=null;
 function zeigeMessung(r){const namen=[...new Set(sels.map(teilName).filter(Boolean))];
-  kv($('mresult'),namen.length?[['Bauteil',namen.join(' · '),'t'],...r.rows]:r.rows);betonung()}
+  kv($('mresult'),namen.length?[['Bauteil',namen.join(' · '),'t'],...r.rows]:r.rows);$('mresult')._linien=r.linien||{};zeileHi.clear();betonung()}
 async function select(s,add=false){if(sels.length>=2&&!add)clearSel();const clean={k:s.k,id:s.id,inst:s.inst,p:s.p};if(s.src)clean.src=s.src;sels.push(clean);marks.add(hiObj(clean,0x1f8fd0));
   $('selinfo').textContent=sels.map(label).join('  +  ');needs=true;
   try{const opts=messOpts();const r=await call('measure',{sels,opts});lastRes={r,sels:sels.slice(),title:sels.map(label).join(' + '),opts};zeigeMessung(r);
@@ -556,7 +630,7 @@ let STIL={...BM.STIL_STANDARD,...JSON.parse(localStorage.getItem('massstil')||'{
 const projL=p=>{const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*view.clientWidth,(1-w.y)/2*view.clientHeight,w.z]};
 let dimHits=[],dimSel=null,dimDrag=null;
 function drawDims(){const c=overlay.getContext('2d');c.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);c.clearRect(0,0,overlay.width,overlay.height);dimHits=[];
-  if(!model||!dims.length)return;dims.forEach(d=>{if(!d.typ)return;const h=BM.zeichne(c,d,projL,STIL,d.no===dimSel?'#e05a00':'#0a6fb0');if(h)dimHits.push({...h,no:d.no})})}
+  if(!model)return;abmDims.forEach(d=>BM.zeichne(c,d,projL,STIL,'#0a8f5a'));if(!dims.length)return;dims.forEach(d=>{if(!d.typ)return;const h=BM.zeichne(c,d,projL,STIL,d.no===dimSel?'#e05a00':'#0a6fb0');if(h)dimHits.push({...h,no:d.no})})}
 // Bemaßung aus der Auswahl bauen (Werte aus der B-Rep, Modellkoordinaten in mm)
 const IM=s=>data.inst[s.inst??0].m;const TP=(m,q)=>[m[0]*q[0]+m[1]*q[1]+m[2]*q[2]+m[3],m[4]*q[0]+m[5]*q[1]+m[6]*q[2]+m[7],m[8]*q[0]+m[9]*q[1]+m[10]*q[2]+m[11]];
 const TD=(m,q)=>BM.V.norm([m[0]*q[0]+m[1]*q[1]+m[2]*q[2],m[4]*q[0]+m[5]*q[1]+m[6]*q[2],m[8]*q[0]+m[9]*q[1]+m[10]*q[2]]);
@@ -569,6 +643,7 @@ const lineOf=s=>{if(s.k!=='edge')return null;const e=UQ(s).edges[s.id];if(e.type
 const pointOf=s=>{const U=UQ(s),m=IM(s);if(s.k==='vertex')return TP(m,U.verts[s.id]);if(s.k==='mid')return TP(m,U.edges[s.id].mid);if(s.k==='center'){const e=U.edges[s.id];return e.c?TP(m,e.c):null}if(s.k==='point')return s.p;return null};
 const letzteLinear=()=>{const sel=dims.find(x=>x.no===dimSel);if(sel&&BM.LINEAR.includes(sel.typ))return sel;for(let i=dims.length-1;i>=0;i--)if(BM.LINEAR.includes(dims[i].typ))return dims[i];return null};
 function baueDim(res,typ,refDim){const sl=res.sels,r=res.r,size=box.getSize(new THREE.Vector3()).length();const d={typ:null,einheit:'L',tol:{art:'keine',o:0,u:0},praefix:'',suffix:'',text:''};
+  if(typ==='auto'&&r.ff?.winkelMass){const w=r.ff.winkelMass;Object.assign(d,{typ:'winkel',v:w.v,u1:w.u1,u2:w.u2,einheit:'W'});d.wert=Math.acos(Math.max(-1,Math.min(1,BM.V.dot(w.u1,w.u2))))*180/Math.PI;d.off=BM.V.mul(BM.V.norm(BM.V.add(w.u1,w.u2)),size*0.08);return d}
   if(typ==='auto'){if(sl.length===1){const ci=circleOf(sl[0]);typ=ci?(ci.voll?'durchmesser':'radius'):r.fase?'fase':(pointOf(sl[0])?'koordinate':null)}else typ=r.gfx.length?(r.richtung&&BM.RICHTUNG_TYP[r.richtung.art]||'linear'):null}
   if(!typ)return null;d.typ=typ;
   if(typ==='kette'||typ==='basislinie'){const p=sl.length===1?pointOf(sl[0]):(r.gfx[0]&&r.gfx[0][1]);const ref=refDim||letzteLinear();if(!p||!ref)return null;
@@ -578,7 +653,8 @@ function baueDim(res,typ,refDim){const sl=res.sels,r=res.r,size=box.getSize(new 
   if(['ausgerichtet','horizontal','vertikal','linear',...Object.keys(FEST)].includes(typ)){if(!r.gfx.length)return null;const [a,b]=r.gfx[0];d.p1=a;d.p2=b;
     if(FEST[typ]){d.dir=richtungsVektor(FEST[typ],a,b,sicht(),$('projektion')?.value==='bildschirm');if(!d.dir)return null}
     else d.dir=typ==='horizontal'?camDir(new THREE.Vector3(1,0,0)):typ==='vertikal'?camDir(new THREE.Vector3(0,1,0)):BM.V.norm(BM.V.sub(b,a));
-    if(typ==='linear')d.linArt='ausgerichtet';
+    if(typ==='linear')d.linArt='ausgerichtet';if(r.ff?.versetzt)d.suffix=' (versetzt)';
+    if(BM.V.len(BM.V.sub(b,a))<1e-9)return null;
     d.wert=Math.abs(BM.V.dot(BM.V.sub(b,a),BM.V.norm(d.dir)));
     const up=camDir(new THREE.Vector3(0,1,0));let side=BM.V.norm(BM.V.cross(d.dir,camDir(new THREE.Vector3(0,0,1))));if(BM.V.dot(side,up)<0)side=BM.V.mul(side,-1);d.off=BM.V.mul(side,size*0.06);return d}
   if(typ==='winkel'){const L1=lineOf(sl[0]),L2=sl[1]&&lineOf(sl[1]);if(!L1||!L2)return null;
@@ -1047,7 +1123,7 @@ window.__viewMenu=(x,y)=>viewMenu(x,y);window.__loadUrl=async u=>load(await (awa
 window.__loadBytes=(buf,name)=>load(buf,name);window.__call=call;
 window.__einzelteil={dialog:(a,id)=>einzelDialog(a,id==null?null:nodes.find(x=>x.id===id)),ausfuehren:(a,id,lage,schema)=>einzelAusfuehren(a,id==null?null:nodes.find(x=>x.id===id),lage,schema),alle:()=>alleEinzelteile(),teile:(id,lage)=>einzelTeile(nodes.find(x=>x.id===id),lage)};
 window.__steuerung=()=>({daempfung:controls.enableDamping,autoRotate:controls.autoRotate,autodrehen:drehen,ziel:controls.target.toArray(),pos:camera.position.toArray(),mitte:model?box.getCenter(new THREE.Vector3()).toArray():null});
-window.__app={huelle:a=>huelleRechnen(a),schwerpunkt:()=>{$('schwerpunktZeigen').checked=true;return schwerpunktZeigen()},protokollDaten:()=>protokollDatenSammeln(),faltSetzen,faltEnde,faltNetz:()=>faltNetzHolen(),rissSetzen,riss:()=>riss,huellObj:()=>huellObj&&!!huellObj.parent,hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position.toArray(),fitIso:()=>fit(views.iso),dimLabels:()=>dimHits.map(h=>[[h.x,h.y,0],h.no]),exportPng,exportPdf,editDim:no=>editDim(dims.find(d=>d.no===no)),stil:()=>STIL,dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
+window.__app={huelle:a=>huelleRechnen(a),abmessungen:b=>abmRechnen(b),abm:()=>abm,abmDims:()=>abmDims.length,nurFlaechen:an=>{if(an!=null)nurFlaechenSetzen(an);return nurFl()},reihe:s=>reiheMessen(s),sels:()=>sels.map(x=>({k:x.k,id:x.id,inst:x.inst})),schwerpunkt:()=>{$('schwerpunktZeigen').checked=true;return schwerpunktZeigen()},protokollDaten:()=>protokollDatenSammeln(),faltSetzen,faltEnde,faltNetz:()=>faltNetzHolen(),rissSetzen,riss:()=>riss,huellObj:()=>huellObj&&!!huellObj.parent,hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position.toArray(),fitIso:()=>fit(views.iso),dimLabels:()=>dimHits.map(h=>[[h.x,h.y,0],h.no]),exportPng,exportPdf,editDim:no=>editDim(dims.find(d=>d.no===no)),stil:()=>STIL,dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
   screenOf:p=>{const r=renderer.domElement.getBoundingClientRect();const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*r.width+r.left,(1-w.y)/2*r.height+r.top]},
   ausrichtung:()=>{const d=camera.position.clone().sub(controls.target).normalize();return {blick:Math.max(...ACHSEN.map(a=>Math.abs(d.dot(a)))),oben:Math.max(...ACHSEN.map(a=>Math.abs(camera.up.dot(a)))),dir:d.toArray(),up:camera.up.toArray()}},
   schief:()=>{if(!model)return;const c=box.getCenter(new THREE.Vector3()),s=box.getSize(new THREE.Vector3()).length()||1;camera.position.copy(c).add(new THREE.Vector3(.35,.15,1).normalize().multiplyScalar(s*1.7));camera.up.set(.45,.75,.4).normalize();controls.target.copy(c);camera.lookAt(c);controls.update();anim=null;needs=true},

@@ -20,6 +20,9 @@ jobs:
       - run: node tools/test-kfaktor.mjs public/testblech.step
       - run: node tools/test-einheit.mjs public/testblech.step
       - run: node tools/test-messen.mjs
+      - run: node tools/test-flaeche-flaeche.mjs  # Fläche zu Fläche (ZW3D), Abmessungen, offener Körper – WASM-Kern
+      - run: node tools/test-hoehe.mjs
+      - run: node tools/test-messen-faz1.mjs
       - run: node tools/test-abwicklung.mjs
       - run: sudo apt-get update && sudo apt-get install -y poppler-utils unzip
       - run: node tools/test-export.mjs
@@ -52,6 +55,7 @@ jobs:
           SHOT=docs/hasi-oberflaeche.png node tools/smoke-ui.mjs
           node tools/smoke-drehen.mjs
           node tools/smoke-messen.mjs
+          SHOTDIR=docs/flaeche/hasi node tools/smoke-flaeche.mjs
           SHOTDIR=docs/seitenleiste node tools/smoke-seitenleiste.mjs
           node tools/smoke-einzelteil.mjs
           node tools/smoke-baugruppe.mjs
@@ -86,6 +90,7 @@ jobs:
           PORT=4174 SHOTDIR=docs/werkzeugleiste node tools/smoke-werkzeugleiste.mjs
           PORT=4174 MARKE=ms3d SHOTDIR=docs/seitenleiste node tools/smoke-seitenleiste.mjs
           PORT=4174 node tools/smoke-einzelteil.mjs
+          PORT=4174 MARKE=ms3d SHOTDIR=docs/flaeche/ms3d node tools/smoke-flaeche.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: werkzeugleiste
@@ -94,6 +99,11 @@ jobs:
         with:
           name: seitenleiste
           path: docs/seitenleiste/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flaeche-zu-flaeche
+          path: docs/flaeche/
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
@@ -155,6 +165,8 @@ jobs:
           node tools/test-kfaktor.mjs public/testblech.step
           node tools/test-einheit.mjs public/testblech.step
           node tools/test-messen.mjs
+          node tools/test-flaeche-flaeche.mjs
+          node tools/test-hoehe.mjs
           node tools/test-abwicklung.mjs
           node tools/test-export.mjs
           node tools/test-baum.mjs
@@ -184,10 +196,12 @@ jobs:
           npm run preview >/tmp/vite-farbe.log 2>&1 &
           for i in $(seq 1 40); do curl -sf -o /dev/null http://localhost:4173/ && break; sleep 1; done
           SHOTDIR=docs/farbe/hasi node tools/smoke-farbe.mjs
+          KERN=native SHOTDIR=docs/farbe/flaeche-hasi node tools/smoke-flaeche.mjs
           MARKE=sickinger npm run build
           npm run preview -- --port 4174 --strictPort >/tmp/vite-farbe2.log 2>&1 &
           for i in $(seq 1 40); do curl -sf -o /dev/null http://localhost:4174/ && break; sleep 1; done
           PORT=4174 SHOTDIR=docs/farbe/ms3d node tools/smoke-farbe.mjs
+          PORT=4174 MARKE=ms3d KERN=native SHOTDIR=docs/farbe/flaeche-ms3d node tools/smoke-flaeche.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: farbe

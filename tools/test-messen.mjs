@@ -27,7 +27,7 @@ chk([bottom],'Umfang (gesamt)',95+60+100+55+2.5*PI+10*PI+16*PI);chk([bottom],'Um
 console.log('Paare:');
 chk([vert([100,0,0]),vert([0,60,20])],'Abstand',Math.hypot(100,60,20));chk([vert([100,0,0]),vert([0,60,20])],'ΔX',100);chk([vert([100,0,0]),vert([0,60,20])],'ΔY',60);chk([vert([100,0,0]),vert([0,60,20])],'ΔZ',20);
 chk([c10,c16],'Lochabstand Mitte–Mitte',50);chk([c10,c16],'Abstand Mitte–Mitte',50);chk([c10,c16],'Abstand min.',37);chk([c10,c16],'Abstand max.',63);
-chk([z10,z16],'Abstand min.',37);chk([z10,z16],'Abstand max.',Math.hypot(63,20));chk([z10,z16],'Lochabstand Mitte–Mitte',50);
+chk([z10,z16],'Abstand min.',37);chk([z10,z16],'Abstand max.',63 /* Mantel gegenüber: Achsabstand 50 + 5 + 8 */);chk([z10,z16],'Abstand max. (räumlich)',Math.hypot(63,20));chk([z10,z16],'Achsabstand',50);chk([z10,z16],'Lochabstand Mitte–Mitte',50);
 chk([{k:'center',id:c10.id,inst:0},{k:'center',id:c16.id,inst:0}],'Abstand',50);
 chk([{k:'axis',src:'face',id:z10.id,inst:0},{k:'axis',src:'face',id:z16.id,inst:0}],'Abstand min.',50);
 chk([bottom,top],'Paralleler Abstand',20);chk([bottom,top],'Abstand max.',Math.hypot(100,60,20) /* (100|0|0) → (0|60|20) */);

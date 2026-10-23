@@ -1,6 +1,6 @@
 import {biegung} from './kfaktor.js';
 import {faltePunkt} from './falten.js';
-import {methodenZeile,projiziere,normalAbstand,PROJ_NORMALE,RICHTUNGEN,richtungsVektor} from './messen-hilfen.js';
+import {methodenZeile,projiziere,normalAbstand,PROJ_NORMALE,RICHTUNGEN,richtungsVektor,COS_PARALLEL,SIN_PARALLEL,ebeneEbene,lotPaar,aufEbene,aufAchse,ebeneAchse,achseAchse,innenWinkel} from './messen-hilfen.js';
 // B-Rep-Kern: Einlesen, Topologie, Messen, Blech. Läuft im Worker (Browser) und in Node (Tests).
 // Alle Längen intern in mm (OCCT rechnet STEP-Dateien beim Import in mm um).
 const V = {
@@ -346,7 +346,7 @@ export function createBrep(ocIn){
     // Fasenwinkel = Winkel zwischen Fase und der Fläche mit dem längeren Schenkel
     const gleich=Math.abs(a-b)<1e-6;const text=gleich?`${deZahl(a)} × ${deZahl(winkel,2)}°`:`${deZahl(a)} × ${deZahl(b)} (${deZahl(winkel,2)}°)`;
     return {a,b,winkel,breite,text,ecke:X,p1:P1,p2:P2}};
-  M.describe=s=>{const R0=RES(s),R=[];if(s.k==='solid'){const q=M.solidProps([s.inst]);R.push(['Volumen',q.volume,'V'],['Oberfläche',q.area,'A']);return R}
+  M.describe=s=>{const R0=RES(s),R=[];if(s.k==='solid'){const q=M.solidProps([s.inst]);R.push(['Volumen',q.volume,'V'],['Oberfläche',q.area,'A']);if(offenU(M.inst[s.inst??0].u))R.push(['Hinweis','Körper nicht geschlossen – Volumen nicht verlässlich','t']);return R}
     if(s.k==='face'){const f=R0.f;R.push(['Fläche',f.type,'t'],['Flächeninhalt',f.area,'A']);const u=perimeter(R0.shape);R.push(['Umfang (gesamt)',u.s,'L']);if(Math.abs(u.outer-u.s)>1e-9)R.push(['Umfang (außen)',u.outer,'L']);
       if(f.cyl){const bi=M.bendInfo(M.inst[s.inst??0].u,s.id);
         if(bi){R.unshift(['Radius innen Ri',bi.ri,'L','!'],['Radius außen Ra',bi.ro,'L','!'],['Bogenlänge (angeklickt)',f.cyl.r*f.cyl.ang,'L','!'],['Biegewinkel',bi.phi*DEG,'W','!']);
@@ -395,6 +395,65 @@ export function createBrep(ocIn){
     if(art==='vertikal'||art==='horizontal')return {art,name:(art==='vertikal'?'Höhe (vertikal)':'Horizontal (waagerecht)')+zus,dir:art==='vertikal'?hv:hz};
     const d=richtungsVektor(art,paar[0],paar[1],sicht,bs);const name=(RICHTUNGEN.find(x=>x[0]===art)||[])[2];if(!name)return null;
     rows.push([name,d?Math.abs(V.dot(v,d)):0,'L']);return {art,name,dir:d}};
+  // ---------- Fläche zu Fläche (wie ZW3D „Instant Measure“) ----------
+  // Hauptwert je Fall: A Ebene ∥ Ebene → Abstand senkrecht; B Ebene ∦ Ebene → Winkel (angrenzend) bzw. Abstand min.;
+  // C Ebene – Zylinder → Abstand Fläche–Achse; D Zylinder – Zylinder → Achsabstand. Messlinie (und ΔX/ΔY/ΔZ) = Lotpaar am Klickpunkt.
+  const inFlaeche=(s,p)=>{try{const st=new oc.BRepClass_FaceClassifier_4(oc.TopoDS.Face_1(RES(s).shape),new oc.gp_Pnt_3(p[0],p[1],p[2]),1e-4).State();
+    return st===oc.TopAbs_State.TopAbs_IN||st===oc.TopAbs_State.TopAbs_ON}catch{return false}};
+  const mitte=s=>{const r=RES(s);return r._mitte??=centerOf(s)};
+  // Abstand der Randkurven von Fläche s zur Ebene e (vorzeichenbehaftet lo/hi, Beträge min/max; schneidet die Fläche die Ebene → min 0)
+  const hoeheBereich=(s,e)=>{const n=V.norm(e.n);let lo=Infinity,hi=-Infinity;const h=p=>{const v=V.dot(V.sub(p,e.o),n);if(v<lo)lo=v;if(v>hi)hi=v};
+    for(const c of curvesOf(s)||[]){if(c.pt){h(c.pt);continue}h(val(c,c.u0));h(val(c,c.u1));if(c.t===CT.GeomAbs_Line)continue;
+      if(c.t===CT.GeomAbs_Circle){const ci=c.a.Circle(),X=D(ci.XAxis().Direction()),Y=D(ci.YAxis().Direction());const t0=Math.atan2(V.dot(n,Y),V.dot(n,X));
+        for(let t of [t0,t0+Math.PI]){while(t<c.u0)t+=2*Math.PI;while(t>c.u0+2*Math.PI)t-=2*Math.PI;if(t<=c.u1+1e-12)h(val(c,t))}continue}
+      for(let i=1;i<64;i++)h(val(c,c.u0+(c.u1-c.u0)*i/64))}
+    return {lo,hi,min:lo<=1e-9&&hi>=-1e-9?0:Math.min(Math.abs(lo),Math.abs(hi)),max:Math.max(Math.abs(lo),Math.abs(hi))}};
+  const gemeinsameKante=(a,b)=>{if((a.inst??0)!==(b.inst??0))return null;const I=M.inst[a.inst??0],U=M.uniq[I.u];const e=U.edges.find(e=>e.line&&e.faces.includes(a.id)&&e.faces.includes(b.id));
+    return e?{p:T.p(I.m,e.mid),d:T.d(I.m,e.line.d)}:null};
+  const zylOf=s=>{const c=RES(s).f?.cyl;return c&&{c:c.c,d:V.norm(c.d),r:c.r}};
+  const quer=(d,bevor)=>{const h=Math.abs(d[0])<0.9?[1,0,0]:[0,1,0];let q=bevor&&V.len(V.sub(bevor,V.mul(d,V.dot(bevor,d))))>1e-9?V.sub(bevor,V.mul(d,V.dot(bevor,d))):V.sub(h,V.mul(d,V.dot(h,d)));return V.norm(q)};
+  const ffAnalyse=(a,b)=>{if(a.k!=='face'||b.k!=='face'||(a.id===b.id&&(a.inst??0)===(b.inst??0)))return null;
+    const FA=RES(a).f,FB=RES(b).f,pa=FA.plane,pb=FB.plane,za=zylOf(a),zb=zylOf(b),rows=[];
+    if(pa&&pb){const ee=ebeneEbene(pa,pb);
+      if(ee.parallel){const kand=[a.p&&aufEbene(a.p,pa),b.p&&aufEbene(b.p,pa),aufEbene(mitte(a),pa),aufEbene(mitte(b),pa)].filter(Boolean);
+        let paar=null;for(const q of kand){const pr=lotPaar(q,pa,pb);if(inFlaeche(a,pr[0])&&inFlaeche(b,pr[1])){paar=pr;break}}
+        const versetzt=!paar;if(!paar)paar=lotPaar(kand[0],pa,pb);
+        rows.push(['Abstand senkrecht',ee.abstand,'L','!'],['Lage',ee.lage+(versetzt?', versetzt (keine Überdeckung)':''),'t']);
+        return {fall:'A',rows,name:'Abstand senkrecht',paar,versetzt,wert:ee.abstand}}
+      const k=gemeinsameKante(a,b);
+      if(k){const ma=mitte(a),mb=mitte(b);const konvex=V.dot(V.sub(mb,k.p),V.norm(pa.n))<0;
+        const inF=(n,m)=>{let u=V.norm(V.cross(k.d,n));if(V.dot(V.sub(m,k.p),u)<0)u=V.mul(u,-1);return u};
+        const u1=inF(pa.n,ma),u2=inF(pb.n,mb);
+        const hb=hoeheBereich(b,pa);rows.push(['Innenwinkel (im Material)',innenWinkel(pa.n,pb.n,konvex),'W'],['Kante',konvex?'konvex':'konkav','t'],['Abstand senkrecht zu Fläche 1 min.',hb.min,'L'],['Abstand senkrecht zu Fläche 1 max.',hb.max,'L']);
+        return {fall:'B',rows,name:'Winkel Fläche–Fläche',winkelMass:{v:k.p,u1:V.mul(u1,-1),u2},wert:ee.winkel}}
+      const hb=hoeheBereich(b,pa);rows.push(['Abstand senkrecht zu Fläche 1 min.',hb.min,'L'],['Abstand senkrecht zu Fläche 1 max.',hb.max,'L']);
+      return {fall:'B',rows,name:'Abstand min.',wert:ee.winkel}}
+    if((pa&&zb)||(za&&pb)){const eIstA=!!pa,e=pa||pb,z=za||zb,zs=eIstA?b:a,es=eIstA?a:b;const ea=ebeneAchse(e,z);
+      if(ea.lage==='parallel'){const q=aufAchse(zs.p||mitte(zs),z),pE=aufEbene(q,e);const d=ea.abstand;const dir=d>1e-9?V.norm(V.sub(q,pE)):V.norm(e.n);
+        const ord=(x,y)=>eIstA?[x,y]:[y,x];
+        rows.push(['Abstand Fläche–Achse',d,'L','!'],['Mantelabstand min.',d-z.r,'L'],['Mantelabstand max.',d+z.r,'L']);if(d<z.r-1e-9)rows.push(['Hinweis','Zylinder schneidet die Fläche','t']);
+        return {fall:'C',rows,name:'Abstand Fläche–Achse',paar:ord(pE,q),max:{d:d+z.r,paar:ord(pE,V.add(q,V.mul(dir,z.r)))},wert:d}}
+      if(ea.lage==='senkrecht'){rows.push(['Winkel Achse–Fläche',90,'W','!'],['Hinweis','Achse steht senkrecht zur Fläche','t']);return {fall:'C',rows,name:'Winkel Achse–Fläche',wert:90}}
+      rows.push(['Winkel Achse–Fläche',ea.winkel,'W']);return {fall:'C',rows,name:'Abstand min.',wert:ea.winkel}}
+    if(za&&zb){const aa=achseAchse(za,zb);
+      if(aa.parallel){const q1=aufAchse(a.p||mitte(a),za);
+        if(aa.koaxial){const rd=quer(za.d,a.p&&V.sub(a.p,q1));rows.push(['Lage','koaxial','t'],['Achsabstand',aa.abstand,'L'],['Radiusdifferenz',Math.abs(za.r-zb.r),'L','!']);
+          return {fall:'D',rows,name:'Radiusdifferenz',paar:[V.add(q1,V.mul(rd,za.r)),V.add(q1,V.mul(rd,zb.r))],wert:Math.abs(za.r-zb.r)}}
+        const q2=V.add(q1,V.mul(aa.quer,aa.abstand));const d=aa.abstand,mn=d-za.r-zb.r;
+        rows.push(['Achsabstand',d,'L','!'],['Mantelabstand min.',mn,'L'],['Mantelabstand max.',d+za.r+zb.r,'L']);if(mn<-1e-9)rows.push(['Hinweis','Zylinder überschneiden sich','t']);
+        return {fall:'D',rows,name:'Achsabstand',paar:[q1,q2],max:{d:d+za.r+zb.r,paar:[V.sub(q1,V.mul(aa.quer,za.r)),V.add(q2,V.mul(aa.quer,zb.r))]},wert:d}}
+      rows.push(['Achswinkel',aa.winkel,'W'],['Achsabstand',aa.abstand,'L','!']);return {fall:'D',rows,name:'Achsabstand',paar:[aa.p1,aa.p2],wert:aa.abstand}}
+    return null};
+  M.ffAnalyse=ffAnalyse;
+  // Schnelle Vorschau beim Überfahren (nur analytisch, ohne Klassifizierung): Art, Wert und eine Vorschaulinie
+  M.vorschau=(a,b)=>{if(a.k!=='face'||b.k!=='face')return null;const FA=RES(a).f,FB=RES(b).f,pa=FA.plane,pb=FB.plane,za=zylOf(a),zb=zylOf(b);
+    if(pa&&pb){const ee=ebeneEbene(pa,pb);if(ee.parallel){const q=b.p?aufEbene(b.p,pb):aufEbene(mitte(b),pb);return {art:'parallel',name:'Abstand senkrecht',wert:ee.abstand,einheit:'L',linie:[aufEbene(q,pa),q]}}
+      return {art:'winkel',name:'Winkel Fläche–Fläche',wert:ee.winkel,einheit:'W'}}
+    if((pa&&zb)||(za&&pb)){const e=pa||pb,z=za||zb;const ea=ebeneAchse(e,z);if(ea.lage==='parallel'){const q=aufAchse((pa?b:a).p||z.c,z);return {art:'achse',name:'Abstand Fläche–Achse',wert:ea.abstand,einheit:'L',linie:[aufEbene(q,e),q]}}
+      return {art:'winkel',name:'Winkel Achse–Fläche',wert:ea.winkel,einheit:'W'}}
+    if(za&&zb){const aa=achseAchse(za,zb);if(aa.parallel){const q1=aufAchse(b.p||zb.c,za);return aa.koaxial?{art:'koaxial',name:'Radiusdifferenz',wert:Math.abs(za.r-zb.r),einheit:'L'}:{art:'achse',name:'Achsabstand',wert:aa.abstand,einheit:'L',linie:[q1,V.add(q1,V.mul(aa.quer,aa.abstand))]}}
+      return {art:'winkel',name:'Achswinkel',wert:aa.winkel,einheit:'W'}}
+    return null};
   M.measure=(sels,opts={})=>{
     const rows=[],gfx=[];
     if(sels.length===1){const s0=sels[0],out={rows:M.describe(s0),gfx};
@@ -410,9 +469,14 @@ export function createBrep(ocIn){
     const [a,b]=sels;
     if(isP(a)&&isP(b)){const pa=selPoint(a),pb=selPoint(b);rows.push(['Abstand',V.len(V.sub(pb,pa)),'L']);delta(rows,pa,pb);gfx.push([pa,pb]);const ri=richtungZeilen(rows,[pa,pb],opts);projZeilen(rows,[pa,pb],sels,opts);
       const wahl=ri?ri.name:'Abstand';return {rows,gfx,label:rows.find(r=>r[0]===wahl)||rows[0],delta:[pa,pb],wahl,richtung:ri}}
-    const md=M.minDist(sel2shape(a),sel2shape(b));const paare={min:[md.p1,md.p2]};
-    rows.push(['Abstand min.',md.d,'L']);delta(rows,md.p1,md.p2);
-    const mx=M.maxDist(a,b);if(mx){rows.push(['Abstand max.',mx.d,'L']);paare.max=[mx.p1,mx.p2]}
+    const auto=!opts.methode||opts.methode==='auto';const ff=ffAnalyse(a,b);if(ff)rows.push(...ff.rows);
+    const md=M.minDist(sel2shape(a),sel2shape(b));const paare={min:[md.p1,md.p2]};if(ff&&ff.paar)paare.auto=ff.paar;
+    // ΔX/ΔY/ΔZ folgen der Messlinie: bei Fläche zu Fläche dem Lotpaar (wie ZW3D), sonst dem kürzesten Abstand
+    rows.push(['Abstand min.',md.d,'L']);if(auto&&paare.auto)delta(rows,...paare.auto);else delta(rows,md.p1,md.p2);
+    const mx=M.maxDist(a,b);
+    // Zylinder: Max. = Mantel gegenüber (Achsabstand + Radien), nicht die räumliche Ecke-zu-Ecke-Strecke
+    if(ff&&ff.max){rows.push(['Abstand max.',ff.max.d,'L']);paare.max=ff.max.paar;if(mx)rows.push(['Abstand max. (räumlich)',mx.d,'L'])}
+    else if(mx){rows.push(['Abstand max.',mx.d,'L']);paare.max=[mx.p1,mx.p2]}
     if(a.k!=='axis'&&b.k!=='axis'){const ca=centerOf(a),cb=centerOf(b);
       // Rand–Mitte: kürzester Abstand vom Element A zur Mitte von B; Mitte–Rand umgekehrt (ZW3D „Bound to Center“ / „Center to Bound“)
       if(!isP(a)&&!isP(b)){const rm=M.minDist(sel2shape(a),mkVertex(cb)),mr=M.minDist(mkVertex(ca),sel2shape(b));
@@ -428,14 +492,24 @@ export function createBrep(ocIn){
       const kind=x=>x.k==='face'?'Fläche':'Kante';
       rows.push(['Winkel '+kind(a)+'–'+kind(b),ang,'W']);
       if(da.kind==='n'&&db.kind==='n'){const s=V.dot(da.d,db.d);rows.push(['Winkel der Normalen',Math.acos(Math.max(-1,Math.min(1,s)))*DEG,'W'])}
-      if(a.k==='face'&&b.k==='face'&&RES(a).f.plane&&RES(b).f.plane&&c>1-1e-9){const pa=RES(a).f.plane,pb=RES(b).f.plane;rows.push(['Paralleler Abstand',Math.abs(V.dot(V.sub(pb.o,pa.o),pa.n)),'L'])}
-      if(da.kind==='a'&&db.kind==='a'&&c>1-1e-9&&a.k==='edge'&&b.k==='edge'&&RES(a).e.line&&RES(b).e.line){const pa=RES(a).e.line.p,pb=RES(b).e.line.p,w=V.sub(pb,pa);rows.push(['Paralleler Abstand',V.len(V.sub(w,V.mul(da.d,V.dot(w,da.d)))),'L'])}}
+      if(a.k==='face'&&b.k==='face'&&RES(a).f.plane&&RES(b).f.plane&&c>=COS_PARALLEL){const pa=RES(a).f.plane,pb=RES(b).f.plane;rows.push(['Paralleler Abstand',Math.abs(V.dot(V.sub(pb.o,pa.o),pa.n)),'L'])}
+      if(da.kind==='a'&&db.kind==='a'&&c>=COS_PARALLEL&&a.k==='edge'&&b.k==='edge'&&RES(a).e.line&&RES(b).e.line){const pa=RES(a).e.line.p,pb=RES(b).e.line.p,w=V.sub(pb,pa);rows.push(['Paralleler Abstand',V.len(V.sub(w,V.mul(da.d,V.dot(w,da.d)))),'L'])}}
     const ha=holeAxis(a),hb=holeAxis(b);
-    if(ha&&hb&&Math.abs(V.dot(ha.d,hb.d))>1-1e-9){const w=V.sub(hb.c,ha.c);const d=V.len(V.sub(w,V.mul(ha.d,V.dot(w,ha.d))));rows.push(['Lochabstand Mitte–Mitte',d,'L'])}
+    if(ha&&hb&&Math.abs(V.dot(ha.d,hb.d))>=COS_PARALLEL){const w=V.sub(hb.c,ha.c);const d=V.len(V.sub(w,V.mul(ha.d,V.dot(w,ha.d))));rows.push(['Lochabstand Mitte–Mitte',d,'L'])}
     // Gewählte Abstandsmethode bestimmt Messlinie, ΔX/ΔY/ΔZ-Linien und Bemaßung. Fehlt sie (z. B. Rand–Mitte bei einem Punkt), gilt die nächstliegende.
-    let w=opts.methode||'min';if(!paare[w])w=w==='rand-mitte'?(isP(a)?'mitte':'min'):w==='mitte-rand'?(isP(b)?'mitte':'min'):'min';if(!paare[w])w='min';
-    const ri=richtungZeilen(rows,paare[w],opts);const name=ri?ri.name:methodenZeile(w);gfx.push(paare[w]);projZeilen(rows,paare[w],sels,opts);
-    return {rows,gfx,label:rows.find(r=>r[0]===name)||rows[0],delta:paare[w],wahl:name,richtung:ri}};
+    // „Automatisch“: Fläche zu Fläche → Hauptwert des Falls (Lotpaar), sonst kürzester Abstand.
+    let w=auto?(paare.auto?'auto':'min'):opts.methode;if(!paare[w])w=w==='rand-mitte'?(isP(a)?'mitte':'min'):w==='mitte-rand'?(isP(b)?'mitte':'min'):'min';if(!paare[w])w='min';
+    const ri=richtungZeilen(rows,paare[w],opts);const name=ri?ri.name:(auto&&ff?ff.name:methodenZeile(w));gfx.push(paare[w]);projZeilen(rows,paare[w],sels,opts);
+    // Genau eine Zeile ist der Hauptwert (fett, Bemaßungstext): bei Fläche zu Fläche der Fall-Hauptwert
+    if(ff){rows.forEach(r=>{if(r[3])r.length=3});const h=rows.find(r=>r[0]===(auto&&!ri?ff.name:name));if(h)h[3]='!'}
+    const out={rows,gfx,label:rows.find(r=>r[0]===name)||rows[0],delta:paare[w],wahl:name,richtung:ri};
+    if(ff)out.ff={fall:ff.fall,name:ff.name,versetzt:!!ff.versetzt,winkelMass:auto&&!ri?ff.winkelMass:undefined,paar:ff.paar,wert:ff.wert};
+    // Für das Hervorheben im 3D beim Überfahren einer Ergebniszeile: Strecke je Zeile
+    out.linien={'Abstand min.':paare.min};if(paare.max)out.linien['Abstand max.']=paare.max;if(paare.mitte)out.linien['Abstand Mitte–Mitte']=paare.mitte;
+    if(paare['rand-mitte'])out.linien['Abstand Rand–Mitte']=paare['rand-mitte'];if(paare['mitte-rand'])out.linien['Abstand Mitte–Rand']=paare['mitte-rand'];if(paare.unendlich)out.linien['Abstand unendlich verlängert']=paare.unendlich;
+    if(ff&&ff.paar)out.linien[ff.name]=ff.paar;if(ff&&ff.fall==='A')out.linien['Paralleler Abstand']=ff.paar;if(ff&&ff.max)out.linien['Mantelabstand max.']=ff.max.paar;
+    if(name&&!out.linien[name])out.linien[name]=paare[w];
+    return out};
   const meshVA=u=>{const U=M.uniq[u];if(U.mva)return U.mva;const p=U.p,ix=U.i;let v=0,A=0,cx=0,cy=0,cz=0;
     for(let t=0;t<ix.length;t+=3){const a=ix[t]*3,b=ix[t+1]*3,c=ix[t+2]*3;const ax=p[a],ay=p[a+1],az=p[a+2],bx=p[b],by=p[b+1],bz=p[b+2],qx=p[c],qy=p[c+1],qz=p[c+2];
       const dv=(ax*(by*qz-bz*qy)-ay*(bx*qz-bz*qx)+az*(bx*qy-by*qx))/6;v+=dv;cx+=dv*(ax+bx+qx)/4;cy+=dv*(ay+by+qy)/4;cz+=dv*(az+bz+qz)/4;
@@ -486,15 +560,93 @@ export function createBrep(ocIn){
     const drin=(k,p)=>Math.hypot(p[0]-k.c[0],p[1]-k.c[1])<=k.r*(1+1e-12)+1e-9;
     let k={c:pts[0]||[0,0],r:0};for(let i=1;i<pts.length;i++)if(!drin(k,pts[i])){k={c:pts[i],r:0};for(let j=0;j<i;j++)if(!drin(k,pts[j])){k=k2(pts[i],pts[j]);
       for(let l=0;l<j;l++)if(!drin(k,pts[l])){const n=k3(pts[i],pts[j],pts[l]);if(n)k=n}}}return k};
+  // ---------- Exakter Hüllquader (B-Rep, BRepBndLib::AddOptimal) ----------
+  // Bereich der Instanzen entlang dreier orthonormaler Achsen (rechtshändig). Je Unikat und Drehung zwischengespeichert;
+  // die Verschiebung der Instanz kommt analytisch dazu. Exakt auch für gekrümmte Flächen (Welle 66,209 statt 66,175 aus dem Netz).
+  // Netzbereich (Knoten der Anzeige, liegen auf den Flächen) als schnelle Vorauswahl: nur Instanzen, die nahe an einer Außenseite liegen,
+  // bekommen AddOptimal (große Baugruppen: wenige hundert statt tausender exakter Rechnungen). Spielraum 10 % der Teilegröße + 0,5 mm
+  // deckt die Sehnenabweichung des Netzes sicher ab.
+  const drehKey=R=>R.flat().map(x=>x.toFixed(9)).join(',');
+  const netzBereich=(U,R,key)=>{const C=U.netzBer??=new Map();let b=C.get(key);if(b)return b;const p=U.p;const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+    for(let k=0;k<p.length;k+=3){const x=p[k],y=p[k+1],z=p[k+2];for(let j=0;j<3;j++){const v=R[j][0]*x+R[j][1]*y+R[j][2]*z;if(v<lo[j])lo[j]=v;if(v>hi[j])hi[j]=v}}
+    b=[lo,hi];if(C.size>200)C.clear();C.set(key,b);return b};
+  const exaktBereich=(ids,ach)=>{const rr=[[Infinity,-Infinity],[Infinity,-Infinity],[Infinity,-Infinity]];const L=[];
+    for(const i of instListe(ids)){const I=M.inst[i],m=I.m;
+      // R = Achsen · Drehung der Instanz, t = Achsen · Verschiebung
+      const R=ach.map(a=>[0,1,2].map(j=>a[0]*m[j]+a[1]*m[4+j]+a[2]*m[8+j])),t=ach.map(a=>a[0]*m[3]+a[1]*m[7]+a[2]*m[11]);const U=M.uniq[I.u],key=drehKey(R);
+      const nb=U.p&&U.p.length?netzBereich(U,R,key):null;L.push({I,U,R,t,key,nb})}
+    const mx=[-Infinity,-Infinity,-Infinity],mn=[Infinity,Infinity,Infinity];
+    for(const x of L)if(x.nb)for(let j=0;j<3;j++){mn[j]=Math.min(mn[j],x.nb[0][j]+x.t[j]);mx[j]=Math.max(mx[j],x.nb[1][j]+x.t[j])}
+    
+    // Spielraum je Instanz: Sehnenfehler des Netzes ≤ Teilegröße/600 bzw. 0,75 % (Winkel 0,35) → 2 % + 0,01 mm ist sicher
+    const sp=x=>Math.hypot(x.nb[1][0]-x.nb[0][0],x.nb[1][1]-x.nb[0][1],x.nb[1][2]-x.nb[0][2])*0.02+0.01;
+    const ueber=(x,lo,hi)=>{if(!x.nb)return Infinity;const d=sp(x);let u=-Infinity;for(let j=0;j<3;j++)u=Math.max(u,x.nb[1][j]+x.t[j]+d-hi[j],lo[j]-(x.nb[0][j]+x.t[j]-d));return u};
+    // Reihenfolge: nächste an den Außenseiten zuerst; danach nur noch Instanzen, die über den bereits exakten Bereich hinausreichen könnten
+    const K=L.length>1?L.map(x=>({x,u:ueber(x,mn,mx)})).filter(k=>k.u>=0).sort((a,b)=>b.u-a.u).map(k=>k.x):L;
+    for(const x of K){const {U,R,t,key}=x;
+      if(L.length>1&&isFinite(rr[0][0])&&ueber(x,rr.map(r=>r[0]),rr.map(r=>r[1]))<0)continue;
+      const C=U.bereiche??=new Map();let b=C.get(key);
+      if(!b){const tr=new oc.gp_Trsf_1();tr.SetValues(R[0][0],R[0][1],R[0][2],0,R[1][0],R[1][1],R[1][2],0,R[2][0],R[2][1],R[2][2],0);
+        const sh=U.shape.Moved(new oc.TopLoc_Location_2(tr));const box=new oc.Bnd_Box_1();
+        tryCall(()=>oc.BRepBndLib.AddOptimal(sh,box,false,false),()=>oc.BRepBndLib.Add(sh,box,false));
+        b=box.IsVoid()?null:[P(box.CornerMin()),P(box.CornerMax())];box.delete?.();if(C.size>200)C.clear();C.set(key,b)}
+      if(!b)continue;for(let j=0;j<3;j++){rr[j][0]=Math.min(rr[j][0],b[0][j]+t[j]);rr[j][1]=Math.max(rr[j][1],b[1][j]+t[j])}}
+    return isFinite(rr[0][0])?rr:null};
+  // Flächeninhalt je Fläche aus dem Anzeigenetz (nur zur Wahl der Grundfläche/Hauptrichtung – schnell auch bei tausenden Flächen)
+  const netzFlaechen=U=>{if(U.netzA)return U.netzA;const p=U.p,ix=U.i,f=U.f,A=new Float64Array((U.faces?.length)||0);if(!p||!f)return U.netzA=A;
+    for(let t=0;t<f.length;t++){const a=ix[t*3]*3,b=ix[t*3+1]*3,c=ix[t*3+2]*3;const ux=p[b]-p[a],uy=p[b+1]-p[a+1],uz=p[b+2]-p[a+2],wx=p[c]-p[a],wy=p[c+1]-p[a+1],wz=p[c+2]-p[a+2];
+      A[f[t]]+=Math.hypot(uy*wz-uz*wy,uz*wx-ux*wz,ux*wy-uy*wx)/2}return U.netzA=A};
+  const rechts=ach=>[ach[0],ach[1],V.cross(ach[0],ach[1])];
+  const exaktQuader=(ids,q)=>{const ach=rechts(q.achsen);const rr=exaktBereich(ids,ach);return rr?{...mkQuader(ach,rr),exakt:true}:q};
+  // ---------- Abmessungen (wie ZW3D, Hamdis Regel „Grundfläche“) ----------
+  // Höhe = senkrecht zur Grundfläche: ebene Fläche, deren Normale am stärksten nach unten (−Z) zeigt (kleine Flächen < 5 % der größten
+  // zählen nicht; bei Gleichstand die größere). Länge/Breite: schwerste Normalengruppe senkrecht dazu (flächengewichtet), sonst eine
+  // Zylinderachse senkrecht dazu, sonst kleinstes Rechteck. Bezug (Klick auf eine Fläche) ersetzt die Grundfläche.
+  // Werte exakt aus der B-Rep. Länge ≥ Breite, Höhe immer entlang der Grundflächen-Normalen. Dazu die Maße in Modellachsen.
+  M.abmessungen=(opts={})=>{const ids=instListe(opts.ids);if(!ids.length)return {ok:false,msg:'Keine Geometrie (alles ausgeblendet?).'};
+    const ebenen=[],zyl=[];let gross=0;
+    for(const i of ids){const I=M.inst[i],U=M.uniq[I.u],NA=netzFlaechen(U);U.faces.forEach((f,fi)=>{const a=NA[fi]||0;if(f.plane){ebenen.push({n:T.d(I.m,f.plane.n),a});if(a>gross)gross=a}else if(f.cyl)zyl.push({d:T.d(I.m,f.cyl.d),a})})
+      if(ebenen.length>20000)break}
+    let a1=null,quelle='';
+    if(opts.bezug){const s=opts.bezug,I=M.inst[s.inst??0],f=M.uniq[I.u].faces[s.id];
+      if(f?.plane){a1=V.mul(T.d(I.m,f.plane.n),-1);quelle='gewählte Fläche'}else if(f?.cyl){a1=T.d(I.m,f.cyl.d);quelle='Achse der gewählten Zylinderfläche'}else if(f?.cone){a1=T.d(I.m,f.cone.d);quelle='Achse der gewählten Kegelfläche'}
+      else return {ok:false,msg:'Bezug muss eine ebene Fläche oder eine Zylinderfläche sein.'}}
+    if(!a1){let best=null;for(const e of ebenen){if(e.a<gross*0.05)continue;const s=-e.n[2];
+        if(!best||s>best.s+1e-6||(Math.abs(s-best.s)<=1e-6&&e.a>best.a))best={s,n:e.n,a:e.a}}
+      if(best&&best.s>1e-6){a1=V.mul(best.n,-1);quelle='Grundfläche'}else{a1=[0,0,1];quelle='Modell-Hochachse (keine Fläche zeigt nach unten)'}}
+    a1=V.norm(a1);
+    // Länge/Breite: Normalengruppen senkrecht zu a1, flächengewichtet (± gleich)
+    const gruppen=[];const sammeln=(d,a)=>{d=V.norm(d);if(Math.abs(V.dot(d,a1))>SIN_PARALLEL)return;const g=gruppen.find(x=>Math.abs(V.dot(x.d,d))>=COS_PARALLEL);if(g)g.a+=a;else gruppen.push({d,a})};
+    ebenen.forEach(e=>sammeln(e.n,e.a));let a2=null;
+    if(gruppen.length){gruppen.sort((x,y)=>y.a-x.a);a2=gruppen[0].d}
+    else{const zg=[];zyl.forEach(z=>{const d=V.norm(z.d);if(Math.abs(V.dot(d,a1))>SIN_PARALLEL)return;const g=zg.find(x=>Math.abs(V.dot(x.d,d))>=COS_PARALLEL);if(g)g.a+=z.a;else zg.push({d,a:z.a})});
+      if(zg.length){zg.sort((x,y)=>y.a-x.a);a2=zg[0].d}
+      else{const pts=huellPunkte(ids);a2=pts.length>2?minRechteck(pts,a1).e1:basisZu(a1)[0]}}
+    a2=V.norm(V.sub(a2,V.mul(a1,V.dot(a2,a1))));
+    const ach=[a2,V.cross(a1,a2),a1];const rr=exaktBereich(ids,ach);if(!rr)return {ok:false,msg:'Keine Geometrie.'};
+    const q=mkQuader(ach,rr);let [l,b]=[q.masse[0],q.masse[1]],[al,ab]=[ach[0],ach[1]];if(b>l+1e-9){[l,b]=[b,l];[al,ab]=[ab,al]}
+    const ma=exaktBereich(ids,[[1,0,0],[0,1,0],[0,0,1]]);
+    return {ok:true,quelle,laenge:l,breite:b,hoehe:q.masse[2],richtung:{laenge:al,breite:ab,hoehe:a1},achsen:q.achsen,bereiche:rr,ecken:q.ecken,mitte:q.mitte,
+      modellachsen:{x:ma[0][1]-ma[0][0],y:ma[1][1]-ma[1][0],z:ma[2][1]-ma[2][0],min:ma.map(r=>r[0]),max:ma.map(r=>r[1])},exakt:true}};
+  // ---------- Offener Körper ----------
+  // Ein Unikat ist offen, wenn es keinen Volumenkörper hat oder eine seiner Schalen nicht geschlossen ist (BRep_Tool::IsClosed).
+  // Dann sind Volumen, Masse und Schwerpunkt nicht verlässlich.
+  const offenU=u=>{const U=M.uniq[u];if(U.offen!=null)return U.offen;const sh=U.shape;let schalen=0,offen=0,solids=0;
+    explore(sh,TA.TopAbs_SOLID,()=>{solids++});
+    explore(sh,TA.TopAbs_SHELL,s=>{schalen++;let zu=true;try{zu=tryCall(()=>oc.BRep_Tool.IsClosed_1(s),()=>oc.BRep_Tool.IsClosed(s))}catch{zu=true}if(!zu)offen++});
+    if(!schalen){let fl=0;explore(sh,TA.TopAbs_FACE,()=>{fl++});if(fl)offen=1}
+    return U.offen=offen>0||(solids===0&&schalen>0)};
+  M.offen=(ids)=>{const L=instListe(ids);const teile=[];const seen=new Map();for(const i of L){const u=M.inst[i].u;if(!seen.has(u))seen.set(u,offenU(u));if(seen.get(u))teile.push(i)}
+    return {offen:teile.length>0,anzahl:teile.length,teile:teile.slice(0,50)}};
   M.huelle=(opts={})=>{const ids=opts.ids;const pts=huellPunkte(ids,opts.netze);if(!pts.length)return {ok:false,msg:'Keine Geometrie (alles ausgeblendet?).'};
     const res={ok:true,punkte:pts.length};
     const mn=[0,1,2].map(j=>Math.min(...pts.map(p=>p[j]))),mx=[0,1,2].map(j=>Math.max(...pts.map(p=>p[j])));
-    res.achsparallel=mkQuader([[1,0,0],[0,1,0],[0,0,1]],[0,1,2].map(j=>[mn[j],mx[j]]));
+    res.achsparallel=exaktQuader(ids,mkQuader([[1,0,0],[0,1,0],[0,0,1]],[0,1,2].map(j=>[mn[j],mx[j]])));
     if(opts.bezug){const s=opts.bezug,I=M.inst[s.inst??0],U=M.uniq[I.u];let a=null,name='';
       if(s.k==='face'||s.k==='axis'){const f=U.faces[s.id];if(f?.plane){a=T.d(I.m,f.plane.n);name='Normale der gewählten Fläche'}else if(f?.cyl){a=T.d(I.m,f.cyl.d);name='Achse der gewählten Zylinderfläche'}else if(f?.cone){a=T.d(I.m,f.cone.d);name='Achse der gewählten Kegelfläche'}}
       else if(s.k==='edge'){const e=U.edges[s.id];if(e?.line){a=T.d(I.m,e.line.d);name='Richtung der gewählten Kante'}else if(e?.circle){a=T.d(I.m,e.circle.n);name='Achse der gewählten Kreiskante'}}
-      if(a){res.bezug={...quader(pts,a),name}}else res.bezugFehler='Bezug muss eine ebene Fläche, eine Zylinderfläche oder eine gerade bzw. kreisförmige Kante sein.'}
-    const K=kandidaten(ids);let best=null;for(const a of K){const q=quader(pts,a);if(!best||q.volumen<best.volumen-1e-9)best=q}res.minimal=best;res.kandidaten=K.length;
+      if(a){res.bezug={...exaktQuader(ids,quader(pts,a)),name}}else res.bezugFehler='Bezug muss eine ebene Fläche, eine Zylinderfläche oder eine gerade bzw. kreisförmige Kante sein.'}
+    const K=kandidaten(ids);let best=null;for(const a of K){const q=quader(pts,a);if(!best||q.volumen<best.volumen-1e-9)best=q}best=exaktQuader(ids,best);res.minimal=best;res.kandidaten=K.length;
     // Rohmaß Zylinder: Achse aus Zylinderflächen (nach Fläche gewichtet) oder den Achsen des minimalen Quaders
     const zk=[];const addZ=d=>{d=V.norm(d);if(!zk.some(x=>Math.abs(V.dot(x,d))>1-1e-9))zk.push(d)};
     for(const i of instListe(ids)){const I=M.inst[i];M.uniq[I.u].faces.filter(f=>f.cyl).sort((a,b)=>b.area-a.area).slice(0,20).forEach(f=>addZ(T.d(I.m,f.cyl.d)))}
