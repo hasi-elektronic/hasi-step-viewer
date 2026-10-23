@@ -5,6 +5,7 @@ import { MARKE } from './marke.js';
 import { biegeNotizen } from './biegenotiz.js';
 import { falteNetz } from './falten.js';
 import { deltaLinien ,richtungsVektor,RICHTUNGEN} from './messen-hilfen.js';
+import { stepText, teilName as ohneNummer, sichererName, eindeutigeNamen, stepNachbearbeiten } from './step-export.js';
 const $=id=>document.getElementById(id), view=$('view');
 if(MARKE.id==='sickinger'){document.documentElement.dataset.marke='sickinger';document.title=MARKE.produkt}
 let logoZusage=null;
@@ -151,7 +152,33 @@ function flaechenNormalWelt(s){const B=bodies[s.inst??0];if(!B?.geometry?.userDa
   const welt=B.localToWorld(mid);if(n.dot(welt.sub(box.getCenter(new THREE.Vector3())))<0)n.negate();return n}
 function f10(){if(!model)return;const face=[...sels].reverse().find(s=>s.k==='face');if(!face){animiereAnsicht('iso');return}const n=flaechenNormalWelt(face);if(!n){animiereAnsicht('iso');return}animiere(n,upSenkrecht(n,camera.up))}
 function setStil(stil){const draht=stil==='draht',kanten=stil==='kanten'||draht;$('showEdges').checked=stil==='kanten';if($('stilWahl'))$('stilWahl').value=stil;
-  edgeObjs.forEach(e=>e.visible=kanten);if(baseMat){baseMat.transparent=draht;baseMat.opacity=draht?0.04:1;baseMat.depthWrite=!draht;baseMat.needsUpdate=true}needs=true}
+  edgeObjs.forEach(e=>e.visible=kanten);drahtModus=draht;koerperMats().forEach(m=>{m.transparent=draht;m.opacity=draht?0.04:1;m.depthWrite=!draht;m.needsUpdate=true});needs=true}
+// ---------- STEP-Farben (nativer Kern) ----------
+// Teil- und Flächenfarben aus der STEP-Datei; ohne Farbe bleibt das gewohnte Grau (baseMat). Schalter im Menü „Ansicht“.
+let farbenAn=localStorage.getItem('stepFarben')!=='aus',farbMats=new Map(),vcMatObj=null,drahtModus=false;
+const GRUNDFARBE=0xb9bec7,SRGB=THREE.SRGBColorSpace;
+const zuFarbe=c=>new THREE.Color().setRGB(((c>>16)&255)/255,((c>>8)&255)/255,(c&255)/255,THREE.SRGBColorSpace);
+const koerperMats=()=>[baseMat,vcMatObj,...farbMats.values()].filter(Boolean);
+function farbMat(c){if(!farbMats.has(c)){const m=baseMat.clone();m.color=zuFarbe(c);farbMats.set(c,m)}return farbMats.get(c)}
+function vcMat(){if(!vcMatObj){vcMatObj=baseMat.clone();vcMatObj.color=new THREE.Color(0xffffff);vcMatObj.vertexColors=true}return vcMatObj}
+// Farbe je Dreieck: Instanz-Flächenfarbe, Teil-Flächenfarbe, sonst Körperfarbe (Instanz vor Teil) bzw. Grau
+function farbGeometrie(g,ff,rest,instFF){const f=g.userData.face,n=f.length,a=new Float32Array(n*9),cache=new Map();
+  for(let t=0;t<n;t++){const fi=f[t];const c=instFF&&instFF[fi]!=null?instFF[fi]:(ff&&ff[fi]?ff[fi]&0xffffff:rest);let v=cache.get(c);if(!v){const k=zuFarbe(c);v=[k.r,k.g,k.b];cache.set(c,v)}a.set(v,t*9);a.set(v,t*9+3);a.set(v,t*9+6)}
+  const gc=new THREE.BufferGeometry();gc.setAttribute('position',g.attributes.position);gc.setAttribute('normal',g.attributes.normal);gc.setAttribute('color',new THREE.BufferAttribute(a,3));gc.userData=g.userData;gc.boundingBox=g.boundingBox;gc.boundingSphere=g.boundingSphere;return gc}
+function transpVon(m){if(!m.userData.transp){const t=m.clone();t.transparent=true;t.opacity=.3;t.depthWrite=false;m.userData.transp=t}return m.userData.transp}
+function farbenAnwenden(){if(!data||!bodies.length)return;const geteilt=new Map();
+  bodies.forEach((b,i)=>{const I=data.inst[i],u=data.uniq[I.u],g=b.userData.geo;let geo=g,mat=baseMat;
+    if(farbenAn){const hatFF=!!(u.ff&&u.ff.some(x=>x)),instFF=I.ff&&Object.keys(I.ff).length?I.ff:null;
+      if(hatFF||instFF){mat=vcMat();if(!instFF&&I.farbe==null){if(!geteilt.has(I.u))geteilt.set(I.u,farbGeometrie(g,u.ff,u.farbe??GRUNDFARBE,null));geo=geteilt.get(I.u)}
+        else geo=farbGeometrie(g,u.ff,I.farbe??u.farbe??GRUNDFARBE,instFF)}
+      else{const c=I.farbe??u.farbe;if(c!=null)mat=farbMat(c)}}
+    b.geometry=geo;b.userData.mat=mat;b.material=b.userData.transp?transpVon(mat):mat});
+  koerperMats().forEach(m=>{m.clippingPlanes=baseMat.clippingPlanes;m.transparent=drahtModus;m.opacity=drahtModus?0.04:1;m.depthWrite=!drahtModus;m.needsUpdate=true});
+  const hat=data.uniq.some(u=>u.farbe!=null||u.ff)||data.inst.some(I=>I.farbe!=null||I.ff);const mb=$('menuFarben');
+  if(mb){mb.textContent=(farbenAn?'✓ ':'')+'STEP-Farben anzeigen';mb.title=hat?'Farben aus der STEP-Datei zeigen oder einheitlich grau darstellen':(data.kernArt==='nativ'?'Diese Datei enthält keine Farben':'Farben werden nur mit dem nativen Kern (Desktop-App) gelesen')}
+  needs=true}
+window.__farben=()=>({an:farbenAn,koerper:bodies.map(b=>({name:b.name,farbe:b.geometry.attributes.color?'flaechen':'#'+b.material.color.getHexString(SRGB),grau:b.userData.mat===baseMat})),umschalten:()=>farbenUmschalten()});
+function farbenUmschalten(){farbenAn=!farbenAn;try{localStorage.setItem('stepFarben',farbenAn?'an':'aus')}catch{}farbenAnwenden()}
 function setWerkzeug(w){werkzeug=w;document.querySelectorAll('[data-werkzeug]').forEach(b=>b.classList.toggle('on',b.dataset.werkzeug===w));
   const mb={LEFT:null,MIDDLE:THREE.MOUSE.ROTATE,RIGHT:THREE.MOUSE.PAN};
   if(w==='schwenk')mb.LEFT=THREE.MOUSE.PAN;if(w==='drehen')mb.LEFT=THREE.MOUSE.ROTATE;if(w==='zoom')mb.LEFT=THREE.MOUSE.DOLLY;controls.mouseButtons=mb}
@@ -191,10 +218,12 @@ async function load(buf,name,opt){
     const seg=[],segE=[];u.edges.forEach((e,i)=>{for(let k=1;k<e.pts.length;k++){seg.push(...e.pts[k-1],...e.pts[k]);segE.push(i)}});
     const eg=new THREE.BufferGeometry();eg.setAttribute('position',new THREE.Float32BufferAttribute(seg,3));eg.userData.edge=segE;return {g:g2,eg}});
   stufe('netze');edgeObjs=[];
-  data.inst.forEach((I,i)=>{const mesh=new THREE.Mesh(geos[I.u].g,baseMat);const m=I.m;mesh.matrixAutoUpdate=false;
+  farbMats=new Map();vcMatObj=null;
+  data.inst.forEach((I,i)=>{const mesh=new THREE.Mesh(geos[I.u].g,baseMat);mesh.userData.geo=geos[I.u].g;mesh.userData.mat=baseMat;const m=I.m;mesh.matrixAutoUpdate=false;
     mesh.matrix.set(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8],m[9],m[10],m[11],0,0,0,1);mesh.name=I.name;mesh.userData.inst=i;mesh.userData.u=I.u;
     const el=new THREE.LineSegments(geos[I.u].eg,edgeMat);el.userData.inst=i;el.visible=$('showEdges').checked;mesh.add(el);edgeObjs.push(el);
     model.add(mesh);bodies.push(mesh)});
+  farbenAnwenden();stufe('farben');
   model.add(marks);model.add(hoverObj);wahlMark=new THREE.Group();model.add(wahlMark);festMark=new THREE.Group();model.add(festMark);rissMark=new THREE.Group();model.add(rissMark);if(triade)model.add(triade);
   fest=null;festWahl=false;festAnzeigen();riss=[];rissAnzeigen(null);faltObj=null;faltNetzCache=null;if(faltLauf){cancelAnimationFrame(faltLauf);faltLauf=null}$('faltRegler').disabled=$('faltPlay').disabled=true;$('faltAus').hidden=true;huelle=null;huellObj=null;spObj=null;$('huellinfo').innerHTML='';$('schwerpunktZeigen').checked=false;
   ursprung=data.inst.map(I=>I.m.slice());undoStapel=[];redoStapel=[];isoSnap=null;selNode=null;selMenge=new Set();selAnker=null;bewegenOffen=false;
@@ -223,7 +252,11 @@ let laufPfad=null;
 async function oeffnePfad(pfad){if(!pfad||laufPfad===pfad)return;laufPfad=pfad;try{await loadPath(pfad)}catch(e){$('status').textContent=e.message||String(e)}finally{setTimeout(()=>{if(laufPfad===pfad)laufPfad=null},1500)}}
 window.__oeffnePfad=oeffnePfad;
 window.__dateiZiehen=an=>{const h=$('dropHint');if(h)h.hidden=!an};
-{const inv=window.__TAURI_INTERNALS__?.invoke;if(inv)inv('start_pfad').then(p=>{if(p)oeffnePfad(p)}).catch(()=>{})}
+// Einzelteil-Fenster: ?datei=<Pfad> (Desktop-App) bzw. ?oeffnen=<Blob-URL>&name=<Name> (Browser); sonst die Datei aus dem Programmstart
+const startParam=new URLSearchParams(location.search);
+if(startParam.get('datei'))oeffnePfad(startParam.get('datei'));
+else if(startParam.get('oeffnen')){const u=startParam.get('oeffnen'),nm=startParam.get('name')||'Einzelteil.step';fetch(u).then(r=>r.arrayBuffer()).then(b=>load(b,nm)).then(()=>URL.revokeObjectURL(u)).catch(e=>$('status').textContent='Einzelteil konnte nicht geöffnet werden: '+(e.message||e))}
+else{const inv=window.__TAURI_INTERNALS__?.invoke;if(inv)inv('start_pfad').then(p=>{if(p)oeffnePfad(p)}).catch(()=>{})}
 const key=p=>p.map(x=>x.toFixed(5)).join(',');let vIdx=new Map();
 const vIndexOf=u=>{if(!vIdx.has(u)){const m=new Map();data.uniq[u].verts.forEach((p,i)=>m.set(key(p),i));vIdx.set(u,m)}return vIdx.get(u)};
 const toModel=(i,p)=>V3(p).applyMatrix4(bodies[i].matrix).toArray();
@@ -295,37 +328,39 @@ async function act(a,n){
   if(a==='isoEnde'){if(!isoSnap)return;const map=new Map(isoSnap);nodes.forEach(x=>{if(map.has(x.id))x.checked=map.get(x.id)});isoSnap=null;applyVis();renderTree()}
   if(a==='showall'){isoSnap=null;nodes.forEach(x=>x.checked=true);applyVis();renderTree()}
   if(a==='invert'){umkehren();applyVis();renderTree()}
-  if(a==='transp'){const ziel=n&&selMenge.has(n)&&selMenge.size?[...selMenge]:[n];const an=!n.transp;if(!transpMat){transpMat=baseMat.clone();transpMat.transparent=true;transpMat.opacity=.3;transpMat.depthWrite=false}ziel.forEach(x=>{x.transp=an;x.all.forEach(i=>{if(bodies[i])bodies[i].material=an?transpMat:baseMat})});needs=true;renderTree()}
+  if(a==='transp'){const ziel=n&&selMenge.has(n)&&selMenge.size?[...selMenge]:[n];const an=!n.transp;if(!transpMat){transpMat=baseMat.clone();transpMat.transparent=true;transpMat.opacity=.3;transpMat.depthWrite=false}ziel.forEach(x=>{x.transp=an;x.all.forEach(i=>{const b=bodies[i];if(b){b.userData.transp=an;b.material=an?transpVon(b.userData.mat||baseMat):(b.userData.mat||baseMat)}})});needs=true;renderTree()}
   if(a==='zoom')zoomTo(n);
   if(a==='move'){bewegenOffen=true;if($('bewegenPanel'))$('bewegenPanel').hidden=false;triadeAktualisieren()}
   if(a==='measure'){tabTo('messen');if(n.all.length===1){clearSel();await select({k:'solid',inst:n.all[0]})}else{$('selinfo').textContent='Messen: bitte ein einzelnes Teil wählen.'}}
   if(a==='props')showProps(n);
+  if(a==='einzelOeffnen'||a==='einzelStep'||a==='alleStep')einzelDialog(a,n);
   if(a==='sheet'){if(n.all.length!==1)return;sheetSolid=n.all[0];tabTo('blech');await calcSheet()}}
 function zoomTo(n){const b=boxOf(n.all);if(b.isEmpty())return;const s=b.getSize(new THREE.Vector3()).length(),c=b.getCenter(new THREE.Vector3());
   const d=camera.position.clone().sub(controls.target).normalize();camera.position.copy(c).add(d.multiplyScalar(s*1.6));controls.target.copy(c);controls.update();needs=true}
 function ctxMenu(x,y,n,items,run){closeCtx();const m=document.createElement('div');m.id='ctx';
   const one=n?n.all.length===1:false;
-  items=items||[['toggle',n.checked?'Ausblenden':'Einblenden'],['isolate','Nur dieses anzeigen'],['isoEnde','Isolieren beenden',!isoSnap],['showall','Alle einblenden'],['invert','Ausgeblendete umkehren'],['-'],['transp',n.transp?'Undurchsichtig':'Transparent'],['move','Komponente verschieben'],['zoom','Heranzoomen'],['-'],['measure','Messen',!one],['props','Eigenschaften'],['sheet','Blech-Abwicklung',!one]];
+  items=items||[['toggle',n.checked?'Ausblenden':'Einblenden'],['isolate','Nur dieses anzeigen'],['isoEnde','Isolieren beenden',!isoSnap],['showall','Alle einblenden'],['invert','Ausgeblendete umkehren'],['-'],['transp',n.transp?'Undurchsichtig':'Transparent'],['move','Komponente verschieben'],['zoom','Heranzoomen'],['-'],['measure','Messen',!one],['props','Eigenschaften'],['sheet','Blech-Abwicklung',!one],['-'],...EINZEL_MENUE];
   run=run||(a=>act(a,n));
-  m.innerHTML=items.map(([a,t,dis])=>a==='-'?'<hr>':`<button data-a="${a}" ${dis?`disabled title="${a==='isoEnde'?'Zuerst „Nur dieses anzeigen“':'Nur bei genau einem Körper'}"`:''}>${t}</button>`).join('');
+  m.innerHTML=items.map(([a,t,dis,tip])=>a==='-'?'<hr>':`<button data-a="${a}" ${dis?`disabled title="${tip||(a==='isoEnde'?'Zuerst „Nur dieses anzeigen“':'Nur bei genau einem Körper')}"`:''}>${t}</button>`).join('');
   m.style.left=x+'px';m.style.top=y+'px';document.body.append(m);
   const r=m.getBoundingClientRect();if(r.bottom>innerHeight)m.style.top=Math.max(0,y-r.height)+'px';if(r.right>innerWidth)m.style.left=Math.max(0,x-r.width)+'px';
   m.querySelectorAll('button').forEach(b=>b.onclick=()=>{closeCtx();run(b.dataset.a)})}
 // Kontextmenü in der 3D-Ansicht (wie eDrawings): Rechtsklick ohne Ziehen öffnet das Menü, mit Ziehen wird geschwenkt
 function viewMenu(x,y){const s=pickAt(x,y);const n=s&&s.body?nodeOfBody(s.body.userData.inst):null;
   if(n){const one=n.all.length===1;selNode=n;selMenge=new Set([n]);selAnker=n;renderTree();
-    ctxMenu(x,y,n,[['toggle','Ausblenden'],['isolate','Nur dieses anzeigen'],['isoEnde','Isolieren beenden',!isoSnap],['showall','Alle einblenden'],['invert','Ausgeblendete umkehren'],['transp',n.transp?'Undurchsichtig':'Transparent'],['move','Komponente verschieben'],['zoom','Heranzoomen'],['tree','Im Baum zeigen'],['-'],['measureHere','Messen ab hier'],['props','Eigenschaften'],['-'],['sheet','Blech-Abwicklung',!one],['bendtab','Biegetabelle',!one]],
+    ctxMenu(x,y,n,[['toggle','Ausblenden'],['isolate','Nur dieses anzeigen'],['isoEnde','Isolieren beenden',!isoSnap],['showall','Alle einblenden'],['invert','Ausgeblendete umkehren'],['transp',n.transp?'Undurchsichtig':'Transparent'],['move','Komponente verschieben'],['zoom','Heranzoomen'],['tree','Im Baum zeigen'],['-'],['measureHere','Messen ab hier'],['props','Eigenschaften'],['-'],['sheet','Blech-Abwicklung',!one],['bendtab','Biegetabelle',!one],['-'],...EINZEL_MENUE],
       async a=>{if(a==='tree'){selectNode(n);$('tree').querySelector(`.trow[data-id="${n.id}"]`)?.scrollIntoView({block:'center'})}
         else if(a==='measureHere'){tabTo('messen');clearSel();await select(s,false)}
         else if(a==='bendtab'){await act('sheet',n);$('bends').scrollIntoView({block:'start'})}
         else act(a,n)});return}
   const cutOn=!!$('axis').value;
-  ctxMenu(x,y,null,[['showall','Alle einblenden'],['invert','Ausgeblendete umkehren'],['fit','Ansicht einpassen'],['-'],['vorne','Vorne'],['hinten','Hinten'],['links','Links'],['rechts','Rechts'],['oben','Oben'],['unten','Unten'],['iso','Iso'],['-'],['cut',cutOn?'Schnitt aus':'Schnitt ein'],['dims','Alle Bemaßungen löschen',!dims.length],['shot','Screenshot speichern …']],
+  ctxMenu(x,y,null,[['showall','Alle einblenden'],['invert','Ausgeblendete umkehren'],['fit','Ansicht einpassen'],['-'],['vorne','Vorne'],['hinten','Hinten'],['links','Links'],['rechts','Rechts'],['oben','Oben'],['unten','Unten'],['iso','Iso'],['-'],['cut',cutOn?'Schnitt aus':'Schnitt ein'],['dims','Alle Bemaßungen löschen',!dims.length],['shot','Screenshot speichern …'],['-'],EINZEL_MENUE[2]],
     a=>{if(a==='showall')act('showall');if(a==='invert')act('invert');
       if(a==='fit'){$('fit').click()}if(views[a])animiereAnsicht(a);
       if(a==='cut'){$('axis').value=cutOn?'':(lastAxis||'X');setCut()}
       if(a==='dims'){dims=[];renderDims()}
-      if(a==='shot')screenshot()})}
+      if(a==='shot')screenshot();
+      if(a==='alleStep')einzelDialog('alleStep',null)})}
 let lastAxis='';$('axis').addEventListener('change',()=>{if($('axis').value)lastAxis=$('axis').value});
 async function screenshot(){const url=ansichtBild().toDataURL('image/png');
   const bin=atob(url.split(',')[1]);const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
@@ -719,8 +754,8 @@ $('dxf').onclick=async()=>{if(!sheetCache?.dxf||sheetCache.flat?.incomplete)retu
 
 // ---------- Biegetabelle exportieren (PDF / XLSX) ----------
 async function saveBytes(name,bytes,filter,ext,mime){window.__lastExport={name,bytes,ext};const inv=window.__TAURI_INTERNALS__?.invoke;
-  if(inv){try{const ok=await inv('save_bytes',{name,data:Array.from(bytes),filter,ext});if(ok)$('status').textContent='Gespeichert: '+name}catch(e){$('status').textContent='Fehler beim Speichern: '+e}}
-  else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([bytes],{type:mime}));a.download=name;a.click();$('status').textContent='Gespeichert: '+name}}
+  if(inv){try{const ok=await inv('save_bytes',{name,data:Array.from(bytes),filter,ext});if(ok)$('status').textContent='Gespeichert: '+name;return !!ok}catch(e){$('status').textContent='Fehler beim Speichern: '+e;return false}}
+  else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([bytes],{type:mime}));a.download=name;a.click();$('status').textContent='Gespeichert: '+name;return true}}
 const exportMeta=()=>{const rows=[...$('sheetinfo').children].map(d=>d.textContent);const get=k=>{const i=rows.indexOf(k);return i>=0?rows[i+1]:undefined};
   return {teil:(sheetSolid!=null&&nodeOfBody(sheetSolid)?.name)||window.__lastLoad?.name||'Teil',werkstoff:$('mat2').selectedOptions[0].textContent,kfaktor:get('K-Faktor'),masse:get('Masse')}};
 async function exportMetaMarke(){const m=exportMeta();if(!MARKE.logo)return m;return {...m,produkt:MARKE.produkt,kopfFarbe:MARKE.akzentRgb,primaer:MARKE.primaerRgb,logo:await logoDaten(),vermerk:MARKE.vermerk}}
@@ -749,7 +784,7 @@ function drucken(){if(!model){$('status').textContent='Keine Datei zum Drucken';
   const doc=f.contentDocument;doc.open();doc.write('<!doctype html><title>Drucken</title><style>html,body{margin:0}img{max-width:100%}</style><img src="'+url+'">');doc.close();
   setTimeout(()=>{try{f.contentWindow.focus();f.contentWindow.print()}catch{$('status').textContent='Drucken ist in dieser Ansicht nicht verfügbar'}},60)}
 function oeffneExport(anker){const m=$('exportMenue');document.querySelectorAll('.menuliste').forEach(x=>{if(x!==m)x.hidden=true});m.hidden=false;const r=anker.getBoundingClientRect();m.style.position='fixed';m.style.left=Math.max(8,r.left)+'px';m.style.top=(r.bottom+4)+'px'}
-const aktion={
+const aktion={stepFarben:()=>farbenUmschalten(),
   oeffnen:()=>$('file').click(),screenshot:()=>screenshot(),exportPng:()=>$('dimPng').click(),exportPdf:()=>$('dimPdf').click(),dxf:()=>$('dxf').click(),expPdf:()=>$('expPdf').click(),expXlsx:()=>$('expXlsx').click(),
   drucken,schliessen:dateiSchliessen,einpassen:()=>$('fit').click(),f9,f10,schnitt:()=>$('btnSchnitt').click(),messen:()=>tabTo('messen'),bemassung:()=>$('btnMass').click(),blech:()=>tabTo('blech'),
   baum:()=>$('baum').classList.contains('zu')?$('baumLasche').click():$('baumZu').click(),drehen:()=>$('btnDreh').click(),zurueck:()=>animiereAnsicht('iso'),verschieben:()=>selNode?act('move',selNode):($('status').textContent='Bitte zuerst ein Bauteil im Baum oder in der Ansicht wählen.'),hilfe:()=>{$('hilfeDlg').hidden=false},einstellungen:()=>{$('einstDlg').hidden=false},
@@ -924,8 +959,93 @@ $('posResetAlle')?.addEventListener('click',()=>{resetPos(bodies.map((_,i)=>i));
 function knotenNachName(name){return nodes.find(n=>n.name===name)||null}
 
 // ---------- Test-Schnittstelle ----------
+// ---------- Einzelteile: als Einzelteil öffnen, als STEP speichern ----------
+// Nativer Kern (OCCT STEPControl_Writer in hasi-kern) mit Rückfall auf den WASM-Kern. Immer mm, Produktname = Teilname.
+const EINZEL_MENUE=[['einzelOeffnen','Als Einzelteil öffnen'],['einzelStep','Als STEP speichern …'],['alleStep','Alle Einzelteile als STEP speichern …']];
+const einzelWahl=(()=>{try{return {lage:'eigen',schema:'AP214',...JSON.parse(localStorage.getItem('einzelteil')||'{}')}}catch{return {lage:'eigen',schema:'AP214'}}})();
+// Aktuelle Lage (mit „Komponente verschieben“) als 3×4-Matrix zeilenweise
+function lageAktuell(i){const e=bodies[i].matrix.elements;return [e[0],e[4],e[8],e[12],e[1],e[5],e[9],e[13],e[2],e[6],e[10],e[14]]}
+// Ein Körper: eigenes Koordinatensystem (m=null) oder Lage in der Baugruppe; Unterbaugruppe: immer in Baugruppenlage
+// Farben eines Körpers für den Kern-Auftrag: „RRGGBB;Fläche:RRGGBB,…“ (Instanz vor Teil), null = ohne Farbe
+const hex6=c=>(c&0xffffff).toString(16).padStart(6,'0');
+function farbAuftrag(i){const I=data.inst[i],u=data.uniq[I.u];const k=I.farbe??u.farbe;const fl=new Map();
+  if(u.ff)u.ff.forEach((c,fi)=>{if(c)fl.set(fi,c&0xffffff)});if(I.ff)for(const [fi,c] of Object.entries(I.ff))fl.set(+fi,c);
+  if(k==null&&!fl.size)return null;return (k!=null?hex6(k):'-')+(fl.size?';'+[...fl].map(([fi,c])=>fi+':'+hex6(c)).join(','):'')}
+function einzelTeile(n,lage){const ids=n.all||[];if(ids.length===1){const i=ids[0];return [{u:data.inst[i].u,m:lage==='baugruppe'?lageAktuell(i):null,f:farbAuftrag(i)}]}
+  return ids.map(i=>({u:data.inst[i].u,m:lageAktuell(i),f:farbAuftrag(i)}))}
+// Jedes Unikat einmal, benannt nach seiner ersten Instanz, im eigenen Koordinatensystem
+function alleEinzelteile(){const ges=new Map();data.inst.forEach((I,i)=>{if(!ges.has(I.u))ges.set(I.u,{name:ohneNummer(nodeOfBody(i)?.name||I.name),teile:[{u:I.u,m:null,f:farbAuftrag(i)}]})});return [...ges.values()]}
+let exportStop=false;
+function exportAnzeige(text){const el=$('exportLauf');if(text==null){el.hidden=true;return}el.hidden=false;$('exportText').textContent=text}
+window.__exportStufe=(k,n)=>{if(!$('exportLauf').hidden)exportAnzeige(n>1?`STEP wird geschrieben … ${k} von ${n}`:'STEP wird geschrieben …')};
+$('exportStop').onclick=()=>{exportStop=true;$('exportText').textContent='Wird abgebrochen …';window.__TAURI_INTERNALS__?.invoke('step_export_abbrechen').catch(()=>{})};
+const ABGEBROCHEN='abgebrochen';
+// Schreibt die Dateien. ziel: 'datei' | 'ordner' | 'temp'. Ergebnis: Liste (Pfade bzw. im Browser Namen/Bytes), null = Dialog abgebrochen.
+async function stepSchreiben(dateien,schema,ziel){
+  const inv=window.__TAURI_INTERNALS__?.invoke;exportStop=false;
+  if(inv&&data.kernArt==='nativ'&&localStorage.getItem('export')!=='wasm'){
+    try{return await inv('step_export',{dateien:dateien.map(d=>({name:sichererName(d.name),produkt:stepText(d.name),teile:d.teile})),schema,ziel})}
+    catch(e){if(String(e)===ABGEBROCHEN||exportStop)throw new Error(ABGEBROCHEN);console.warn('Nativer STEP-Export fehlgeschlagen, WASM-Kern übernimmt:',e)}}
+  // WASM-Kern: Ziel zuerst wählen (der Browser verlangt den Ordnerdialog direkt nach dem Klick)
+  let ordner=null,dirH=null;
+  if(ziel==='ordner'){if(inv){ordner=await inv('ordner_waehlen');if(!ordner)return null}
+    else if(window.showDirectoryPicker){try{dirH=await window.showDirectoryPicker({mode:'readwrite'})}catch{return null}}}
+  if(window.__messBereit)await window.__messBereit;
+  const belegt=[];if(dirH)for await(const k of dirH.keys())belegt.push(k);
+  const namen=eindeutigeNamen(dateien.map(d=>d.name),'.step',belegt);const aus=[];
+  for(let k=0;k<dateien.length;k++){if(exportStop)throw new Error(ABGEBROCHEN);
+    if(!$('exportLauf').hidden&&dateien.length>1)exportAnzeige(`STEP wird geschrieben … ${k+1} von ${dateien.length}`);
+    const d=dateien[k];const roh=await call('stepSchreiben',{name:'HASI_PRODUKTNAME',schema,teile:d.teile});
+    const bytes=new TextEncoder().encode(stepNachbearbeiten(new TextDecoder().decode(roh),{name:d.name,schema}));
+    if(ziel==='datei'){if(!await saveBytes(namen[k],bytes,'STEP-Datei','step','model/step'))return null;aus.push(namen[k])}
+    else if(inv){aus.push(await inv('datei_ablegen',bytes,{headers:{'x-ordner':encodeURIComponent(ordner||''),'x-name':encodeURIComponent(sichererName(d.name))}}))}
+    else if(dirH){const fh=await dirH.getFileHandle(namen[k],{create:true});const w=await fh.createWritable();await w.write(bytes);await w.close();aus.push(namen[k])}
+    else if(ziel==='temp')aus.push({name:namen[k],bytes});
+    else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([bytes],{type:'model/step'}));a.download=namen[k];a.click();aus.push(namen[k]);await new Promise(r=>setTimeout(r,250))}}
+  return aus}
+async function einzelAusfuehren(art,n,lage,schema){
+  const inv=window.__TAURI_INTERNALS__?.invoke;
+  if(art==='einzelOeffnen'){const name=ohneNummer(n.name);
+    const fenster=inv?null:window.open('','_blank');
+    exportAnzeige('Einzelteil wird vorbereitet …');
+    try{const r=await stepSchreiben([{name,teile:einzelTeile(n,lage)}],'AP214','temp');if(!r)return;
+      if(inv)await inv('einzelteil_fenster',{pfad:r[0],titel:name});
+      else{const url=URL.createObjectURL(new Blob([r[0].bytes],{type:'model/step'}));const ziel=`./?oeffnen=${encodeURIComponent(url)}&name=${encodeURIComponent(r[0].name)}`;if(fenster)fenster.location=ziel;else location.assign(ziel)}
+      $('status').textContent='Als Einzelteil geöffnet: '+name}
+    catch(e){fenster?.close();throw e}finally{exportAnzeige(null)}
+    return}
+  const dateien=art==='alleStep'?alleEinzelteile():[{name:ohneNummer(n.name),teile:einzelTeile(n,lage)}];
+  exportAnzeige(dateien.length>1?`STEP wird geschrieben … 0 von ${dateien.length}`:'STEP wird geschrieben …');
+  try{const r=await stepSchreiben(dateien,schema,art==='alleStep'?'ordner':'datei');
+    if(!r){$('status').textContent='Speichern abgebrochen';return}
+    const ort=typeof r[0]==='string'&&/[\\/]/.test(r[0])?r[0].replace(/[\\/][^\\/]*$/,''):'';
+    $('status').textContent=r.length>1?`${r.length} Einzelteile als STEP gespeichert${ort?' in '+ort:''}`:'Gespeichert: '+String(r[0]).split(/[\\/]/).pop();window.__letzterExport=r}
+  finally{exportAnzeige(null)}}
+function einzelDialog(art,n){
+  if(!data||!bodies.length)return;
+  if(art!=='alleStep'&&!(n&&n.all&&n.all.length))return;
+  const dlg=$('einzelDlg');const einer=art==='alleStep'||n.all.length===1;
+  const anzahl=art==='alleStep'?alleEinzelteile().length:0;
+  $('einzelTitel').textContent=art==='einzelOeffnen'?'Als Einzelteil öffnen':art==='alleStep'?'Alle Einzelteile als STEP speichern':'Als STEP speichern';
+  $('einzelText').textContent=art==='alleStep'?`${anzahl} verschiedene Einzelteile – jedes wird einmal gespeichert, im eigenen Koordinatensystem. Gleiche Namen werden durchnummeriert.`:`„${ohneNummer(n.name)}“${einer?'':` (Unterbaugruppe mit ${n.all.length} Körpern, Lage wie in der Baugruppe)`}`;
+  $('einzelLageF').hidden=art==='alleStep'||!einer;$('einzelSchemaF').hidden=art==='einzelOeffnen';
+  dlg.querySelector(`input[name=einzelLage][value=${einzelWahl.lage==='baugruppe'?'baugruppe':'eigen'}]`).checked=true;
+  dlg.querySelector(`input[name=einzelSchema][value=${einzelWahl.schema==='AP242'?'AP242':'AP214'}]`).checked=true;
+  const nativ=!!window.__TAURI_INTERNALS__&&data.kernArt==='nativ'&&localStorage.getItem('export')!=='wasm';const hw=dlg.querySelector('.einzelHinweis');
+  hw.textContent='Einheit: mm · Produktname = Teilname · '+(nativ?'Farben werden übernommen':'ohne Farben');
+  hw.title=nativ?'Teil- und Flächenfarben aus der STEP-Datei werden mitgespeichert':'Der WASM-Kern (Browser) kann keine STEP-Farben lesen oder schreiben – die Datei wird ohne Farben gespeichert. Mit der Desktop-App (nativer Kern) bleiben die Farben erhalten.';
+  $('einzelOk').textContent=art==='einzelOeffnen'?'Öffnen':art==='alleStep'?'Ordner wählen …':'Speichern …';
+  dlg.hidden=false;$('einzelOk').focus();
+  const zu=()=>{dlg.hidden=true;document.removeEventListener('keydown',taste,true)};
+  const taste=e=>{if(e.key==='Escape'){e.stopPropagation();zu()}if(e.key==='Enter'&&!e.target.matches('button')){e.preventDefault();$('einzelOk').click()}};
+  document.addEventListener('keydown',taste,true);
+  $('einzelAbbr').onclick=zu;dlg.onclick=e=>{if(e.target===dlg)zu()};
+  $('einzelOk').onclick=()=>{einzelWahl.lage=dlg.querySelector('input[name=einzelLage]:checked').value;einzelWahl.schema=dlg.querySelector('input[name=einzelSchema]:checked').value;
+    try{localStorage.setItem('einzelteil',JSON.stringify(einzelWahl))}catch{}
+    zu();einzelAusfuehren(art,n,einzelWahl.lage,einzelWahl.schema).catch(e=>{$('status').textContent=e.message===ABGEBROCHEN?'Speichern abgebrochen':'Fehler beim Speichern: '+(e.message||e)})}}
 window.__viewMenu=(x,y)=>viewMenu(x,y);window.__loadUrl=async u=>load(await (await fetch(u)).arrayBuffer(),u.split('/').pop());
 window.__loadBytes=(buf,name)=>load(buf,name);window.__call=call;
+window.__einzelteil={dialog:(a,id)=>einzelDialog(a,id==null?null:nodes.find(x=>x.id===id)),ausfuehren:(a,id,lage,schema)=>einzelAusfuehren(a,id==null?null:nodes.find(x=>x.id===id),lage,schema),alle:()=>alleEinzelteile(),teile:(id,lage)=>einzelTeile(nodes.find(x=>x.id===id),lage)};
 window.__steuerung=()=>({daempfung:controls.enableDamping,autoRotate:controls.autoRotate,autodrehen:drehen,ziel:controls.target.toArray(),pos:camera.position.toArray(),mitte:model?box.getCenter(new THREE.Vector3()).toArray():null});
 window.__app={huelle:a=>huelleRechnen(a),schwerpunkt:()=>{$('schwerpunktZeigen').checked=true;return schwerpunktZeigen()},protokollDaten:()=>protokollDatenSammeln(),faltSetzen,faltEnde,faltNetz:()=>faltNetzHolen(),rissSetzen,riss:()=>riss,huellObj:()=>huellObj&&!!huellObj.parent,hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position.toArray(),fitIso:()=>fit(views.iso),dimLabels:()=>dimHits.map(h=>[[h.x,h.y,0],h.no]),exportPng,exportPdf,editDim:no=>editDim(dims.find(d=>d.no===no)),stil:()=>STIL,dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
   screenOf:p=>{const r=renderer.domElement.getBoundingClientRect();const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*r.width+r.left,(1-w.y)/2*r.height+r.top]},

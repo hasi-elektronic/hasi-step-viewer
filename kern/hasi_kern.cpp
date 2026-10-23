@@ -1,11 +1,41 @@
 // Hasi 3D / MS3D – nativer Kern (Sidecar). OCCT (LGPL-2.1 mit Ausnahme), dynamisch gelinkt.
 // Aufruf: hasi-kern <eingabe.step> <ausgabe-ordner> [--threads N] [--pruefen] [--seriell]
+//         hasi-kern --step-export <modell.brep> <auftrag.txt> <ausgabe-ordner>   (Einzelteile als STEP, siehe stepExport)
 // Ausgabe: modell.bin (JSON-Kopf + Binärdaten für die Anzeige) und modell.brep (Unikate als BREP für das Messen im WASM-Kern).
 // Ablauf: STEP einmal parsen; Blatt-Teile (bei Mehrkörper-Teilen jeder Körper einzeln) parallel übersetzen;
 // Baugruppen-Lagen aus CONTEXT_DEPENDENT_SHAPE_REPRESENTATION; Unikate parallel tessellieren und indizieren.
 // Bei unbekannten Strukturen: serieller OCCT-Transfer (TransferRoots) als Rückfall.
 #define _USE_MATH_DEFINES
 #include <STEPControl_Reader.hxx>
+#include <STEPControl_Writer.hxx>
+#include <STEPCAFControl_Writer.hxx>
+#include <STEPCAFControl_Controller.hxx>
+#include <STEPConstruct_Styles.hxx>
+#include <StepVisual_StyledItem.hxx>
+#include <StepVisual_OverRidingStyledItem.hxx>
+#include <StepVisual_ContextDependentOverRidingStyledItem.hxx>
+#include <StepVisual_PresentationStyleByContext.hxx>
+#include <StepVisual_PresentationStyleAssignment.hxx>
+#include <StepVisual_StyleContextSelect.hxx>
+#include <StepVisual_StyledItemTarget.hxx>
+#include <StepVisual_Colour.hxx>
+#include <StepRepr_RepresentationRelationship.hxx>
+#include <ShapeProcess_ShapeContext.hxx>
+#include <TopTools_DataMapOfShapeShape.hxx>
+#include <Quantity_Color.hxx>
+#include <TDocStd_Document.hxx>
+#include <XCAFApp_Application.hxx>
+#include <XCAFDoc_DocumentTool.hxx>
+#include <XCAFDoc_ShapeTool.hxx>
+#include <XCAFDoc_ColorTool.hxx>
+#include <TDataStd_Name.hxx>
+#include <TDF_Label.hxx>
+#include <TCollection_ExtendedString.hxx>
+#include <Message.hxx>
+#include <Message_Messenger.hxx>
+#include <Message_PrinterOStream.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <TopoDS_Iterator.hxx>
 #include <STEPControl_Controller.hxx>
 #include <STEPControl_ActorRead.hxx>
 #include <StepData_StepModel.hxx>
@@ -77,6 +107,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -111,7 +142,9 @@ static std::string arr3(const gp_XYZ& p) { return "[" + num(p.X()) + "," + num(p
 static std::vector<double> trsfArr(const gp_Trsf& t) { std::vector<double> m; for (int r = 1; r <= 3; r++) for (int c = 1; c <= 4; c++) m.push_back(t.Value(r, c)); return m; }
 
 // ---------- Ergebnisstrukturen ----------
-struct Uniq { TopoDS_Shape shape; std::vector<float> p; std::vector<uint32_t> i, f; std::string facesJ, edgesJ, vertsJ; Bnd_Box bb; double vol = 0, area = 0; gp_XYZ c; int nf = 0, ne = 0, nv = 0; };
+// farbe: 0 = keine, sonst 0x01RRGGBB (Körperfarbe); ff: je Fläche ebenso (leer = keine Flächenfarben); fts: TShape je Flächenindex
+struct Uniq { TopoDS_Shape shape; std::vector<float> p; std::vector<uint32_t> i, f; std::string facesJ, edgesJ, vertsJ; Bnd_Box bb; double vol = 0, area = 0; gp_XYZ c; int nf = 0, ne = 0, nv = 0;
+  std::vector<const void*> fts; uint32_t farbe = 0; std::vector<uint32_t> ff; };
 struct Inst { int u; gp_Trsf t; };
 struct Item { int pd; int ent; int rep; bool whole; long cost; std::vector<TopoDS_Shape> out; };
 
@@ -183,14 +216,17 @@ public:
     if (!an || s.IsNull() || strncmp(seq, "read.", 5) != 0) return XSAlgo_AlgoContainer::ProcessShape(s, p, t, rsc, seq, info, rs, pr, nm, det);
     std::lock_guard<std::mutex> g(mx); liste.push_back({s, p, t, rsc, seq, (bool)nm, det}); return s;
   }
-  TopoDS_Shape heile(const Aufschub& a) const { Handle(Standard_Transient) info; Handle(ShapeBuild_ReShape) rs = new ShapeBuild_ReShape();
-    return XSAlgo_AlgoContainer::ProcessShape(a.s, a.prec, a.tol, a.rsc.c_str(), a.seq.c_str(), info, rs, Message_ProgressRange(), a.nm, a.det); }
+  TopoDS_Shape heile(const Aufschub& a, Handle(Standard_Transient)* infoAus = nullptr) const { Handle(Standard_Transient) info; Handle(ShapeBuild_ReShape) rs = new ShapeBuild_ReShape();
+    TopoDS_Shape r = XSAlgo_AlgoContainer::ProcessShape(a.s, a.prec, a.tol, a.rsc.c_str(), a.seq.c_str(), info, rs, Message_ProgressRange(), a.nm, a.det);
+    if (infoAus) *infoAus = info; return r; }
 };
 // Heilt alle gemerkten Formen; Ergebnis: Ersetzungen (ungeheilt -> geheilt) für die Übersetzungsergebnisse.
-static Handle(ShapeBuild_ReShape) heileParallel(const Heiler& H, int T, std::map<std::string, long>& times) {
+// infos (optional): Heil-Verlauf je Form (ungeheilte -> geheilte Teilformen), damit Farben ihre Flächen wiederfinden.
+static Handle(ShapeBuild_ReShape) heileParallel(const Heiler& H, int T, std::map<std::string, long>& times, std::vector<Handle(Standard_Transient)>* infos = nullptr) {
   long t0 = ms(); std::vector<Aufschub> L; { std::lock_guard<std::mutex> g(H.mx); L.swap(H.liste); }
   Handle(ShapeBuild_ReShape) ers = new ShapeBuild_ReShape();
   const size_t n = L.size(); if (!n) return ers;
+  if (infos) infos->assign(2 * n, Handle(Standard_Transient)());
   std::unordered_map<const void*, size_t> wurzel; std::vector<char> doppelt(n, 0);
   for (size_t k = 0; k < n; k++) { auto r = wurzel.emplace(L[k].s.TShape().get(), k); if (!r.second) doppelt[k] = 1; }
   // umschließend = enthält eine andere gemerkte Form; gemeinsame Kanten/Ecken -> gleiche Gruppe (Union-Find)
@@ -232,7 +268,7 @@ static Handle(ShapeBuild_ReShape) heileParallel(const Heiler& H, int T, std::map
   std::reverse(bereit.begin(), bereit.end());
   stufe("heilen", 0, (long)ord.size());
   auto heileGruppe = [&](size_t g) { projVorratLokal = mitVorrat ? &gVorrat[g] : nullptr;
-    for (auto k : G[g]) { long tk = ms(); fehlLokal = 0; try { erg[k] = H.heile(L[k]); } catch (...) { erg[k] = L[k].s; }
+    for (auto k : G[g]) { long tk = ms(); fehlLokal = 0; try { erg[k] = H.heile(L[k], infos ? &(*infos)[k] : nullptr); } catch (...) { erg[k] = L[k].s; }
       if (getenv("HASI_KERN_PROFIL") && ms() - tk > 200) fprintf(stderr, "  heilen %zu: flaechen=%ld zeit=%ld start=%ld fehl=%ld\n", k, gewicht[k] - 1, ms() - tk, tk, fehlLokal); }
     projVorratLokal = nullptr; ProjVorrat().swap(gVorrat[g]);
     size_t f = ++fertig; if (f % schritt == 0 || f == ord.size()) stufe("heilen", (long)f, (long)ord.size()); };
@@ -255,7 +291,7 @@ static Handle(ShapeBuild_ReShape) heileParallel(const Heiler& H, int T, std::map
   for (size_t k = 0; k < n; k++) if (!doppelt[k] && !aussen[k] && !erg[k].IsNull() && !erg[k].IsSame(L[k].s)) ers->Replace(L[k].s, erg[k]);
   times["heilenParallel"] = ms() - t1; times["heilenVorratFlaechen"] = (long)fl.size(); long t2 = ms(); int na = 0;
   times["heilenTreffer"] = projTreffer.load(); times["heilenFehl"] = projFehl.load();
-  for (size_t k = 0; k < n; k++) if (aussen[k]) { na++; TopoDS_Shape s = ers->Apply(L[k].s, TopAbs_FACE); Aufschub a = L[k]; a.s = s; TopoDS_Shape r; try { r = H.heile(a); } catch (...) { r = s; }
+  for (size_t k = 0; k < n; k++) if (aussen[k]) { na++; TopoDS_Shape s = ers->Apply(L[k].s, TopAbs_FACE); Aufschub a = L[k]; a.s = s; TopoDS_Shape r; try { r = H.heile(a, infos ? &(*infos)[n + k] : nullptr); } catch (...) { r = s; }
       if (!r.IsNull() && !r.IsSame(L[k].s)) ers->Replace(L[k].s, r); }
   times["heilenAussen"] = ms() - t2; times["heilenFormen"] = (long)n; times["heilenGruppen"] = (long)G.size();
   return ers;
@@ -270,7 +306,75 @@ static void allSolids(const TopoDS_Shape& sh, std::vector<TopoDS_Shape>& out) {
   if (out.size() == n0 && sh.ShapeType() == TopAbs_SHELL) out.push_back(sh);
 }
 
+// Einzelteile als STEP schreiben. modell.brep = Verbund der Unikate (gleiche Reihenfolge wie modell.bin).
+// Auftrag: eine Zeile je Datei, Tabulator-getrennt: <datei im Ausgabe-Ordner> <AP214|AP242> <anzahl> dann je Teil <unikat> <12 Matrixwerte mit Komma oder ->
+// [<farbe: RRGGBB oder ->[;<fläche>:RRGGBB,…]]. Geschrieben wird mit STEPCAFControl_Writer (Farben, Namen).
+// Der Produktname ist der Platzhalter HASI_PRODUKTNAME; die App setzt den Teilnamen (Unicode, STEP-kodiert) danach ein.
+// Fortschritt: „STUFE schreiben k/n“ je fertiger Datei.
+static int stepExport(const char* brepPfad, const char* auftragPfad, const std::string& outDir) {
+  BRep_Builder bb; TopoDS_Shape alle;
+  if (!BRepTools::Read(alle, brepPfad, bb) || alle.IsNull()) { fprintf(stderr, "FEHLER: Messdaten (modell.brep) konnten nicht gelesen werden\n"); return 2; }
+  std::vector<TopoDS_Shape> U; for (TopoDS_Iterator it(alle, true, true); it.More(); it.Next()) U.push_back(it.Value());
+  std::ifstream af(auftragPfad); if (!af) { fprintf(stderr, "FEHLER: Auftrag fehlt\n"); return 2; }
+  std::vector<std::string> zeilen; for (std::string z; std::getline(af, z);) { if (!z.empty() && z.back() == '\r') z.pop_back(); if (!z.empty()) zeilen.push_back(z); }
+  STEPCAFControl_Controller::Init();
+  Message::DefaultMessenger()->RemovePrinters(STANDARD_TYPE(Message_PrinterOStream)); // keine OCCT-Statistik auf stdout
+  Handle(XCAFApp_Application) app = XCAFApp_Application::GetApplication();
+  // Farbe „RRGGBB“ (Körper) und/oder „;fi:RRGGBB,…“ (Flächen, Index wie in modell.bin); „-“ = keine
+  auto farbe = [](const std::string& h, Quantity_Color& q) { if (h.size() != 6) return false; char* e = nullptr; unsigned long v = strtoul(h.c_str(), &e, 16); if (*e) return false;
+    q.SetValues(((v >> 16) & 255) / 255.0, ((v >> 8) & 255) / 255.0, (v & 255) / 255.0, Quantity_TOC_sRGB); return true; };
+  int n = (int)zeilen.size(), k = 0;
+  for (auto& z : zeilen) {
+    std::vector<std::string> f; { std::stringstream ss(z); std::string t; while (std::getline(ss, t, '\t')) f.push_back(t); }
+    if (f.size() < 3) { fprintf(stderr, "FEHLER: Auftragszeile %d ungültig\n", k + 1); return 2; }
+    int anz = atoi(f[2].c_str()); if (anz < 1) { fprintf(stderr, "FEHLER: Auftragszeile %d ungültig\n", k + 1); return 2; }
+    int je = (int)f.size() == 3 + 3 * anz ? 3 : 2; // mit oder ohne Farbfeld je Teil
+    if ((int)f.size() != 3 + je * anz) { fprintf(stderr, "FEHLER: Auftragszeile %d ungültig\n", k + 1); return 2; }
+    struct Teil { TopoDS_Shape s; Quantity_Color c; bool hatC = false; std::vector<std::pair<TopoDS_Shape, Quantity_Color>> fl; };
+    std::vector<Teil> teile;
+    for (int j = 0; j < anz; j++) {
+      int u = atoi(f[3 + je * j].c_str()); if (u < 0 || u >= (int)U.size()) { fprintf(stderr, "FEHLER: Teil %d nicht vorhanden\n", u); return 2; }
+      Teil t; t.s = U[u]; const std::string& ms = f[4 + je * j]; std::unique_ptr<BRepBuilderAPI_Transform> tf;
+      if (ms != "-") {
+        double m[12]; int c = 0; std::stringstream mm(ms); std::string w; while (c < 12 && std::getline(mm, w, ',')) m[c++] = strtod(w.c_str(), nullptr);
+        if (c != 12) { fprintf(stderr, "FEHLER: Lage ungültig\n"); return 2; }
+        gp_Trsf tr; tr.SetValues(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11]);
+        tf.reset(new BRepBuilderAPI_Transform(U[u], tr, true)); t.s = tf->Shape();
+      }
+      if (je == 3 && f[5 + je * j] != "-") {
+        std::string cs = f[5 + je * j], koerper = cs, liste; auto semi = cs.find(';'); if (semi != std::string::npos) { koerper = cs.substr(0, semi); liste = cs.substr(semi + 1); }
+        if (koerper != "-" && !koerper.empty()) t.hatC = farbe(koerper, t.c);
+        if (!liste.empty()) { TopTools_IndexedMapOfShape fm; for (TopExp_Explorer e(U[u], TopAbs_FACE); e.More(); e.Next()) fm.Add(e.Current());
+          std::stringstream ls(liste); std::string p; while (std::getline(ls, p, ',')) { auto dp = p.find(':'); if (dp == std::string::npos) continue; int fi = atoi(p.substr(0, dp).c_str()); Quantity_Color q;
+            if (fi < 0 || fi >= fm.Extent() || !farbe(p.substr(dp + 1), q)) continue; TopoDS_Shape fl = fm(fi + 1); if (tf) fl = tf->ModifiedShape(fl); t.fl.push_back({fl, q}); } }
+      }
+      teile.push_back(t);
+    }
+    TopoDS_Shape form; if (teile.size() == 1) form = teile[0].s; else { TopoDS_Compound c; bb.MakeCompound(c); for (auto& t : teile) bb.Add(c, t.s); form = c; }
+    Interface_Static::SetCVal("write.step.schema", f[1] == "AP242" ? "AP242DIS" : "AP214IS");
+    Interface_Static::SetCVal("write.step.unit", "MM");
+    Interface_Static::SetCVal("write.step.product.name", "HASI_PRODUKTNAME");
+    // XCAF-Dokument: Namen = Platzhalter (die App setzt den Teilnamen ein), Farben je Teil und Fläche
+    Handle(TDocStd_Document) doc; app->NewDocument("MDTV-XCAF", doc);
+    Handle(XCAFDoc_ShapeTool) st = XCAFDoc_DocumentTool::ShapeTool(doc->Main()); Handle(XCAFDoc_ColorTool) ct = XCAFDoc_DocumentTool::ColorTool(doc->Main());
+    TDF_Label wurzel = st->AddShape(form, teile.size() > 1); TDataStd_Name::Set(wurzel, TCollection_ExtendedString("HASI_PRODUKTNAME"));
+    for (size_t j = 0; j < teile.size(); j++) {
+      TDF_Label tl = wurzel; if (teile.size() > 1) { if (!st->FindShape(teile[j].s, tl)) continue; TDataStd_Name::Set(tl, TCollection_ExtendedString(("HASI_PRODUKTNAME 1." + std::to_string(j + 1)).c_str())); }
+      if (teile[j].hatC) ct->SetColor(tl, teile[j].c, XCAFDoc_ColorSurf);
+      for (auto& fc : teile[j].fl) { TDF_Label fl = st->AddSubShape(tl, fc.first); if (!fl.IsNull()) ct->SetColor(fl, fc.second, XCAFDoc_ColorSurf); }
+    }
+    STEPCAFControl_Writer w; w.SetColorMode(true); w.SetNameMode(true); w.SetLayerMode(false); w.SetPropsMode(false); w.SetSHUOMode(false);
+    if (!w.Transfer(doc, STEPControl_AsIs)) { fprintf(stderr, "FEHLER: STEP konnte nicht erzeugt werden (Datei %d)\n", k + 1); return 3; }
+    std::string ziel = outDir + "/" + f[0];
+    if (w.Write(ziel.c_str()) != IFSelect_RetDone) { fprintf(stderr, "FEHLER: %s konnte nicht geschrieben werden\n", ziel.c_str()); return 3; }
+    app->Close(doc);
+    stufe("schreiben", ++k, n);
+  }
+  return 0;
+}
+
 int main(int argc, char** argv) {
+  if (argc >= 5 && !strcmp(argv[1], "--step-export")) return stepExport(argv[2], argv[3], argv[4]);
   if (argc < 3) { fprintf(stderr, "Aufruf: hasi-kern <eingabe.step> <ausgabe-ordner> [--threads N] [--pruefen] [--seriell]\n"); return 1; }
   std::string in = argv[1], outDir = argv[2]; int T = std::max(1u, std::thread::hardware_concurrency()); bool pruefen = false, seriell = false; int splitMin = 2;
   for (int k = 3; k < argc; k++) { if (!strcmp(argv[k], "--threads") && k + 1 < argc) T = std::max(1, atoi(argv[++k])); else if (!strcmp(argv[k], "--pruefen")) pruefen = true; else if (!strcmp(argv[k], "--seriell")) seriell = true; else if (!strcmp(argv[k], "--split-min") && k + 1 < argc) splitMin = atoi(argv[++k]); }
@@ -326,13 +430,17 @@ int main(int argc, char** argv) {
   std::unordered_map<int, Handle(StepShape_ContextDependentShapeRepresentation)> cdsrOfPds;
   std::vector<std::pair<Handle(StepRepr_Representation), Handle(StepRepr_Representation)>> srr; // Formbeziehungen ohne Transformation
   std::vector<int> pds; std::unordered_map<int, int> nauoChild;
+  std::vector<Handle(StepVisual_StyledItem)> stile;            // Farben (STYLED_ITEM und Varianten)
+  std::unordered_multimap<int, int> pdsOfRep;                   // Darstellung -> PRODUCT_DEFINITION_SHAPE (alle SDR)
+  std::unordered_map<int, int> defOfPds;                        // PDS -> PD oder NAUO
   bool unbekannt = false;
   for (int i = 1; i <= N; i++) {
     const Handle(Standard_Transient)& e = model->Value(i);
     if (e->IsKind(STANDARD_TYPE(StepRepr_NextAssemblyUsageOccurrence))) { auto a = Handle(StepRepr_NextAssemblyUsageOccurrence)::DownCast(e); nauoOf[model->Number(a->RelatingProductDefinition())].push_back(i); nauoChild[i] = model->Number(a->RelatedProductDefinition()); }
     else if (e->IsKind(STANDARD_TYPE(StepBasic_ProductDefinition))) pds.push_back(i);
-    else if (e->IsKind(STANDARD_TYPE(StepRepr_ProductDefinitionShape))) { auto p = Handle(StepRepr_ProductDefinitionShape)::DownCast(e); StepRepr_CharacterizedDefinition d = p->Definition(); Handle(Standard_Transient) v = d.Value(); if (!v.IsNull()) pdsOfDef[model->Number(v)] = i; }
-    else if (e->IsKind(STANDARD_TYPE(StepShape_ShapeDefinitionRepresentation))) { auto s = Handle(StepShape_ShapeDefinitionRepresentation)::DownCast(e); auto pd = s->Definition().PropertyDefinition(); if (!pd.IsNull()) repOfPds[model->Number(pd)] = s->UsedRepresentation(); }
+    else if (e->IsKind(STANDARD_TYPE(StepRepr_ProductDefinitionShape))) { auto p = Handle(StepRepr_ProductDefinitionShape)::DownCast(e); StepRepr_CharacterizedDefinition d = p->Definition(); Handle(Standard_Transient) v = d.Value(); if (!v.IsNull()) { pdsOfDef[model->Number(v)] = i; defOfPds[i] = model->Number(v); } }
+    else if (e->IsKind(STANDARD_TYPE(StepShape_ShapeDefinitionRepresentation))) { auto s = Handle(StepShape_ShapeDefinitionRepresentation)::DownCast(e); auto pd = s->Definition().PropertyDefinition(); if (!pd.IsNull() && !s->UsedRepresentation().IsNull()) { int pn = model->Number(pd); pdsOfRep.emplace(model->Number(s->UsedRepresentation()), pn); repOfPds[pn] = s->UsedRepresentation(); } }
+    else if (e->IsKind(STANDARD_TYPE(StepVisual_StyledItem))) stile.push_back(Handle(StepVisual_StyledItem)::DownCast(e));
     else if (e->IsKind(STANDARD_TYPE(StepShape_ContextDependentShapeRepresentation))) { auto c = Handle(StepShape_ContextDependentShapeRepresentation)::DownCast(e); cdsrOfPds[model->Number(c->RepresentedProductRelation())] = c; }
     else if (e->IsKind(STANDARD_TYPE(StepRepr_ShapeRepresentationRelationship)) && !e->IsKind(STANDARD_TYPE(StepRepr_RepresentationRelationshipWithTransformation))) { auto r = Handle(StepRepr_ShapeRepresentationRelationship)::DownCast(e); srr.push_back({r->Rep1(), r->Rep2()}); }
   }
@@ -388,8 +496,9 @@ int main(int argc, char** argv) {
   for (auto& t : th) t.join();
   heiler->an = false;
   lap("uebersetzen");
+  std::vector<Handle(Standard_Transient)> heilInfos; Handle(ShapeBuild_ReShape) ersAlle;
   if (!unbekannt && !sofortHeilen) {
-    Handle(ShapeBuild_ReShape) ers = heileParallel(*heiler, T, times);
+    Handle(ShapeBuild_ReShape) ers = heileParallel(*heiler, T, times, stile.empty() ? nullptr : &heilInfos); ersAlle = ers;
     long tA = ms(); for (auto& it : items) for (auto& s : it.out) { s = ers->Apply(s, TopAbs_FACE); if (it.whole && tolang > 0 && !s.IsNull()) ShapeFix::EncodeRegularity(s, tolang); }
     times["heilenAnwenden"] = ms() - tA;
     lap("heilen");
@@ -454,7 +563,7 @@ int main(int argc, char** argv) {
       TopTools_IndexedMapOfShape faces, edges, verts; std::vector<std::vector<int>> edgeFaces;
       std::ostringstream fj, ej, vj; fj << "["; ej << "[";
       for (TopExp_Explorer ex(u.shape, TopAbs_FACE); ex.More(); ex.Next()) {
-        TopoDS_Face f = TopoDS::Face(ex.Current()); int fi = faces.FindIndex(f); bool isNew = !fi; if (isNew) fi = faces.Add(f); fi -= 1;
+        TopoDS_Face f = TopoDS::Face(ex.Current()); int fi = faces.FindIndex(f); bool isNew = !fi; if (isNew) { fi = faces.Add(f); u.fts.push_back(f.TShape().get()); } fi -= 1;
         if (isNew) { // Flächeninfo wie faceInfo (Typ, Zylinderachse)
           BRepAdaptor_Surface a(f, true); auto t = a.GetType(); const char* ty = "sonstige"; std::string ax;
           if (t == GeomAbs_Plane) ty = "eben"; else if (t == GeomAbs_Cylinder) { ty = "zylindrisch"; gp_Cylinder c = a.Cylinder(); ax = ",\"ax\":{\"c\":" + arr3(c.Location().XYZ()) + ",\"d\":" + arr3(c.Axis().Direction().XYZ()) + ",\"r\":" + num(c.Radius()) + "}"; }
@@ -488,6 +597,76 @@ int main(int argc, char** argv) {
   { std::vector<std::thread> th; for (int k = 0; k < T; k++) th.emplace_back(work); for (auto& t : th) t.join(); }
   lap("tessellieren");
 
+  // ---------- Farben (STEP-Darstellungsstile, wie STEPCAFControl_Reader) ----------
+  // Teilfarben: STYLED_ITEM auf Körper/Schale/Fläche -> Unikat bzw. Fläche. Instanzfarben (Baugruppe): Stil mit
+  // PRESENTATION_STYLE_BY_CONTEXT (Darstellung einer NAUO) oder CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM (Kontext =
+  // Lage-Beziehungen der NAUOs) -> Liste „ueber“ mit NAUO-Pfad, die App wendet sie auf die passenden Instanzen an.
+  std::ostringstream ueberJ; int nUeber = 0;
+  if (!stile.empty()) {
+    long tF = ms(); long fehlFarbe = 0, nFarbe = 0;
+    Handle(Transfer_TransientProcess) TP = main.WS()->TransferReader()->TransientProcess();
+    STEPConstruct_Styles styles(main.WS());
+    TopTools_DataMapOfShapeShape heilKarte;
+    for (auto& inf : heilInfos) { auto c = Handle(ShapeProcess_ShapeContext)::DownCast(inf); if (c.IsNull()) continue;
+      for (TopTools_DataMapIteratorOfDataMapOfShapeShape it(c->Map()); it.More(); it.Next()) heilKarte.Bind(it.Key(), it.Value()); }
+    heilInfos.clear();
+    auto geheilt = [&](TopoDS_Shape x) { for (int z = 0; z < 4 && !x.IsNull(); z++) { const TopoDS_Shape* q = heilKarte.Seek(x);
+        if (!q && !x.Location().IsIdentity()) q = heilKarte.Seek(x.Located(TopLoc_Location()));
+        if (q && !q->IsNull() && !q->IsSame(x)) { x = *q; continue; }
+        if (!ersAlle.IsNull() && ersAlle->IsRecorded(x)) { TopoDS_Shape y = ersAlle->Value(x); if (!y.IsNull() && !y.IsSame(x)) { x = y; continue; } }
+        break; } return x; };
+    std::unordered_map<const void*, int> solidU; for (int k = 1; k <= uniqMap.Extent(); k++) solidU[uniqMap(k).TShape().get()] = k - 1;
+    std::unordered_map<const void*, std::pair<int, int>> faceU; for (size_t k = 0; k < U.size(); k++) for (size_t fi = 0; fi < U[k].fts.size(); fi++) faceU.emplace(U[k].fts[fi], std::make_pair((int)k, (int)fi));
+    auto flaeche = [&](const TopoDS_Shape& f0, std::vector<std::pair<int, int>>& out) { auto b = faceU.find(geheilt(f0).TShape().get()); if (b == faceU.end()) b = faceU.find(f0.TShape().get()); if (b != faceU.end()) { out.push_back(b->second); return true; } return false; };
+    // Zielformen eines Stils: (Unikat, -1) = ganzer Körper, (Unikat, Fläche)
+    auto ziele = [&](const TopoDS_Shape& s0, std::vector<std::pair<int, int>>& out) {
+      if (s0.IsNull()) return; TopoDS_Shape x = geheilt(s0);
+      auto a = solidU.find(x.TShape().get()); if (a == solidU.end()) a = solidU.find(s0.TShape().get()); if (a != solidU.end()) { out.push_back({a->second, -1}); return; }
+      if (s0.ShapeType() == TopAbs_FACE) { flaeche(s0, out); return; }
+      bool koerper = false; for (TopExp_Explorer e(s0, TopAbs_SOLID); e.More(); e.Next()) { TopoDS_Shape g = geheilt(e.Current()); auto a2 = solidU.find(g.TShape().get()); if (a2 == solidU.end()) a2 = solidU.find(e.Current().TShape().get()); if (a2 != solidU.end()) { out.push_back({a2->second, -1}); koerper = true; } }
+      if (!koerper) for (TopExp_Explorer e(s0, TopAbs_FACE); e.More(); e.Next()) flaeche(e.Current(), out); };
+    auto farbeVon = [&](const Handle(StepVisual_StyledItem)& si, uint32_t& rgb) -> bool {
+      Handle(StepVisual_Colour) sc, bc, cc, rc; Standard_Real tr = 0; Standard_Boolean komp = Standard_False;
+      try { if (!styles.GetColors(si, sc, bc, cc, rc, tr, komp)) return false; } catch (...) { return false; }
+      Handle(StepVisual_Colour) col = !sc.IsNull() ? sc : rc; if (col.IsNull()) return false; Quantity_Color q;
+      if (!STEPConstruct_Styles::DecodeColor(col, q)) return false;
+      auto b8 = [](double v) { return (uint32_t)std::lround(std::min(1.0, std::max(0.0, v)) * 255.0); };
+      Standard_Real r, g, b; q.Values(r, g, b, Quantity_TOC_sRGB); // wie in der Datei (sRGB)
+      rgb = 0x01000000u | (b8(r) << 16) | (b8(g) << 8) | b8(b); return true; };
+    std::unordered_map<int, int> rrNauo; // Lage-Beziehung (aus CDSR) -> NAUO
+    for (auto& kv : cdsrOfPds) { auto d = defOfPds.find(kv.first); if (d == defOfPds.end() || !nauoChild.count(d->second)) continue; auto rr = kv.second->RepresentationRelation(); if (!rr.IsNull()) rrNauo[model->Number(rr)] = d->second; }
+    auto pdsVon = [&](int rep, std::vector<int>& defs) { auto r = pdsOfRep.equal_range(rep); for (auto it = r.first; it != r.second; ++it) { auto d = defOfPds.find(it->second); if (d != defOfPds.end()) defs.push_back(d->second); } };
+    // erst einfache Stile, dann überschreibende (spätere gewinnen)
+    std::stable_sort(stile.begin(), stile.end(), [](const Handle(StepVisual_StyledItem)& a, const Handle(StepVisual_StyledItem)& b) { return !a->IsKind(STANDARD_TYPE(StepVisual_OverRidingStyledItem)) && b->IsKind(STANDARD_TYPE(StepVisual_OverRidingStyledItem)); });
+    auto hex = [](uint32_t c) { char b[8]; snprintf(b, 8, "%06x", c & 0xffffff); return std::string(b); };
+    for (auto& si : stile) {
+      uint32_t rgb; if (!farbeVon(si, rgb)) continue;
+      std::vector<int> pfad; bool inst = false;
+      if (auto cd = Handle(StepVisual_ContextDependentOverRidingStyledItem)::DownCast(si)) { inst = true;
+        for (int k = 1; k <= cd->NbStyleContext(); k++) { auto v = cd->StyleContextValue(k).Value(); if (v.IsNull()) continue; auto q = rrNauo.find(model->Number(v)); if (q != rrNauo.end()) pfad.push_back(q->second); } }
+      for (int j = 1; j <= si->NbStyles(); j++) { auto pbc = Handle(StepVisual_PresentationStyleByContext)::DownCast(si->StylesValue(j)); if (pbc.IsNull()) continue;
+        auto sr = pbc->StyleContext().Representation(); if (sr.IsNull()) continue; std::vector<int> defs; pdsVon(model->Number(sr), defs);
+        for (int d : defs) if (nauoChild.count(d)) { pfad.push_back(d); inst = true; } }
+      Handle(Standard_Transient) item = si->ItemAP242().Value(); if (item.IsNull()) continue;
+      std::vector<std::pair<int, int>> z; std::vector<int> pdZiel;
+      if (item->IsKind(STANDARD_TYPE(StepRepr_Representation))) { std::vector<int> defs; pdsVon(model->Number(item), defs); for (int d : defs) if (bodiesOfPd.count(d)) pdZiel.push_back(d); else if (nauoChild.count(d)) { pfad.push_back(d); inst = true; int c = nauoChild[d]; if (bodiesOfPd.count(c)) pdZiel.push_back(c); } }
+      else { Handle(Transfer_Binder) bd = TP->Find(item); if (!bd.IsNull()) { TopoDS_Shape x = TransferBRep::ShapeResult(TP, bd); ziele(x, z); } }
+      if (z.empty() && pdZiel.empty()) { fehlFarbe++; continue; }
+      nFarbe++;
+      if (inst && pfad.empty()) inst = false;
+      if (!inst) {
+        for (int d : pdZiel) for (auto& b : bodiesOfPd[d]) U[b.first].farbe = rgb;
+        for (auto& t : z) { Uniq& u = U[t.first]; if (t.second < 0) u.farbe = rgb; else { if (u.ff.empty()) u.ff.assign(u.fts.size(), 0); if (t.second < (int)u.ff.size()) u.ff[t.second] = rgb; } }
+        continue; }
+      // Instanzfarbe: Pfad aus NAUO-Nummern (Reihenfolge egal), Ziel ganze Komponente (pd) oder Körper/Fläche eines Unikats
+      auto pfadJ = [&] { std::string r = "["; for (size_t k = 0; k < pfad.size(); k++) r += (k ? "," : "") + std::to_string(model->IdentLabel(model->Value(pfad[k]))); return r + "]"; };
+      for (int d : pdZiel) { ueberJ << (nUeber++ ? "," : "") << "{\"pfad\":" << pfadJ() << ",\"pd\":" << model->IdentLabel(model->Value(d)) << ",\"farbe\":\"" << hex(rgb) << "\"}"; }
+      std::map<int, std::vector<int>> flaechen; for (auto& t : z) { if (t.second < 0) ueberJ << (nUeber++ ? "," : "") << "{\"pfad\":" << pfadJ() << ",\"u\":" << t.first << ",\"farbe\":\"" << hex(rgb) << "\"}"; else flaechen[t.first].push_back(t.second); }
+      for (auto& kv : flaechen) { ueberJ << (nUeber++ ? "," : "") << "{\"pfad\":" << pfadJ() << ",\"u\":" << kv.first << ",\"f\":["; for (size_t k = 0; k < kv.second.size(); k++) ueberJ << (k ? "," : "") << kv.second[k]; ueberJ << "],\"farbe\":\"" << hex(rgb) << "\"}"; }
+    }
+    times["farben"] = ms() - tF; times["farbenStile"] = (long)stile.size(); times["farbenTreffer"] = nFarbe; times["farbenFehl"] = fehlFarbe;
+  }
+
   // ---------- Ausgabe ----------
   std::ostringstream js; uint64_t off = 0; std::vector<std::pair<const void*, size_t>> blobs;
   auto blob = [&](const void* p, size_t n) { std::string r = "[" + std::to_string(off) + "," + std::to_string(n) + "]"; blobs.push_back({p, n}); off += n; while (off % 4) { off++; blobs.push_back({nullptr, 1}); } return r; };
@@ -495,10 +674,14 @@ int main(int argc, char** argv) {
   for (size_t k = 0; k < U.size(); k++) { auto& u = U[k]; gp_XYZ a, b; double x0, y0, z0, x1, y1, z1; if (u.bb.IsVoid()) { x0 = y0 = z0 = x1 = y1 = z1 = 0; } else u.bb.Get(x0, y0, z0, x1, y1, z1);
     js << (k ? "," : "") << "{\"p\":" << blob(u.p.data(), u.p.size() * 4) << ",\"i\":" << blob(u.i.data(), u.i.size() * 4) << ",\"f\":" << blob(u.f.data(), u.f.size() * 4)
        << ",\"faces\":" << u.facesJ << ",\"edges\":" << u.edgesJ << ",\"verts\":" << u.vertsJ << ",\"n\":[" << u.nf << "," << u.ne << "," << u.nv << "]"
-       << ",\"bb\":{\"min\":[" << num(x0) << "," << num(y0) << "," << num(z0) << "],\"max\":[" << num(x1) << "," << num(y1) << "," << num(z1) << "]},\"vp\":{\"v\":" << num(u.vol) << ",\"a\":" << num(u.area) << ",\"c\":" << arr3(u.c) << "}}"; }
+       << ",\"bb\":{\"min\":[" << num(x0) << "," << num(y0) << "," << num(z0) << "],\"max\":[" << num(x1) << "," << num(y1) << "," << num(z1) << "]},\"vp\":{\"v\":" << num(u.vol) << ",\"a\":" << num(u.area) << ",\"c\":" << arr3(u.c) << "}";
+    if (u.farbe) { char b[8]; snprintf(b, 8, "%06x", u.farbe & 0xffffff); js << ",\"farbe\":\"" << b << "\""; }
+    if (!u.ff.empty()) js << ",\"ff\":" << blob(u.ff.data(), u.ff.size() * 4);
+    js << "}"; }
   js << "]";
   if (unbekannt) { js << ",\"tree\":" << serialTree << ",\"inst\":["; for (size_t k = 0; k < I.size(); k++) { auto m = trsfArr(I[k].t); js << (k ? "," : "") << "{\"u\":" << I[k].u << ",\"m\":["; for (int z = 0; z < 12; z++) js << (z ? "," : "") << num(m[z]); js << "]}"; } js << "]"; }
   else js << ",\"pd\":" << pdJ.str();
+  if (nUeber) js << ",\"ueber\":[" << ueberJ.str() << "]";
   times["gesamt"] = ms(); times["speicherMB"] = hwmMB();
   js << ",\"times\":{"; bool f = true; for (auto& kv : times) { js << (f ? "" : ",") << "\"" << kv.first << "\":" << kv.second; f = false; } js << "}}";
   std::string head = js.str(); std::ofstream o(outDir + "/modell.bin", std::ios::binary); uint32_t hl = head.size(); o.write((char*)&hl, 4); o.write(head.data(), hl);

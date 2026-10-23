@@ -25,6 +25,7 @@ jobs:
       - run: node tools/test-export.mjs
       - run: node tools/test-baum.mjs
       - run: node tools/test-baugruppe-messen.mjs
+      - run: node tools/test-einzelteil.mjs
       - run: node tools/test-werkzeugleiste.mjs
       - run: node tools/test-sprache.mjs
       - run: npm run build
@@ -52,6 +53,7 @@ jobs:
           node tools/smoke-drehen.mjs
           node tools/smoke-messen.mjs
           SHOTDIR=docs/seitenleiste node tools/smoke-seitenleiste.mjs
+          node tools/smoke-einzelteil.mjs
           node tools/smoke-baugruppe.mjs
           SHOT=docs/hasi-baugruppe.png node tools/smoke-baugruppe-ui.mjs
           SHOTDIR=docs/werkzeugleiste node tools/smoke-werkzeugleiste.mjs
@@ -83,6 +85,7 @@ jobs:
           PORT=4174 SHOT=docs/sickinger-baugruppe.png node tools/smoke-baugruppe-ui.mjs
           PORT=4174 SHOTDIR=docs/werkzeugleiste node tools/smoke-werkzeugleiste.mjs
           PORT=4174 MARKE=ms3d SHOTDIR=docs/seitenleiste node tools/smoke-seitenleiste.mjs
+          PORT=4174 node tools/smoke-einzelteil.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: werkzeugleiste
@@ -156,6 +159,40 @@ jobs:
           node tools/test-export.mjs
           node tools/test-baum.mjs
           node tools/test-baugruppe-messen.mjs
+          node tools/test-einzelteil.mjs
+      - name: STEP-Export der App (Rust) mit dem nativen Kern
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -q libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+          mkdir -p "$RUNNER_TEMP/tb"
+          kern/build/hasi-kern testdaten/testbaugruppe.step "$RUNNER_TEMP/tb"
+          mkdir -p dist
+          cd src-tauri && HASI_TEST_KERN="$GITHUB_WORKSPACE/kern/build/hasi-kern" HASI_TEST_BREP="$RUNNER_TEMP/tb/modell.brep" cargo test --locked
+      - name: STEP-Farben in der Anzeige (nativer Kern, Hasi 3D und MS3D) und Ablegen im Einzelteil-Fenster
+        env: { HASI_KERN: kern/build/hasi-kern }
+        run: |
+          set -euo pipefail
+          if [ -x /usr/bin/google-chrome ]; then export CHROME=/usr/bin/google-chrome
+          elif [ -x /usr/bin/google-chrome-stable ]; then export CHROME=/usr/bin/google-chrome-stable
+          else
+            sudo node node_modules/playwright-core/cli.js install-deps chromium
+            node node_modules/playwright-core/cli.js install chromium
+            CHROME="$(find "$HOME/.cache/ms-playwright" -type f -name chrome -path '*chrome-linux*' -print -quit)"
+            export CHROME
+          fi
+          npm run build
+          npm run preview >/tmp/vite-farbe.log 2>&1 &
+          for i in $(seq 1 40); do curl -sf -o /dev/null http://localhost:4173/ && break; sleep 1; done
+          SHOTDIR=docs/farbe/hasi node tools/smoke-farbe.mjs
+          MARKE=sickinger npm run build
+          npm run preview -- --port 4174 --strictPort >/tmp/vite-farbe2.log 2>&1 &
+          for i in $(seq 1 40); do curl -sf -o /dev/null http://localhost:4174/ && break; sleep 1; done
+          PORT=4174 SHOTDIR=docs/farbe/ms3d node tools/smoke-farbe.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: farbe
+          path: docs/farbe/
+          if-no-files-found: error
       - name: Paket (Probe)
         run: python3 tools/kern-paket.py kern/build/hasi-kern "${{ runner.temp }}/occt" kern-paket --triple x86_64-unknown-linux-gnu
   build:
