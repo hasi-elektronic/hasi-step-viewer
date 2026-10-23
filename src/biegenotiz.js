@@ -1,6 +1,7 @@
 // Biegenotizen für Vorschau und PDF (ZW3D: Biegerichtungspfeile + „AUF 90° Ri 2“ an jeder Biegelinie).
 // AUF = Lasche biegt aus der Zeichenebene nach vorn (Blick auf die Abwicklung wie im DXF), AB = nach hinten.
 // Der Pfeil steht in der Mitte der Biegelinie und zeigt zur Seite der Lasche, die beim Biegen bewegt wird.
+import { biegeNr } from './biegungen.js';
 const zahl = (v, n) => (+Number(v).toFixed(n)).toLocaleString('de-DE', { maximumFractionDigits: n });
 export function notizText(q) {
   return `${q.dir === 'nach oben' ? 'AUF' : 'AB'} ${zahl(q.ang, 1)}° Ri ${zahl(q.ri, 2)}${q.angenommen ? ' (angenommen)' : ''}`;
@@ -18,6 +19,6 @@ export function biegeNotizen(flat) {
     // Text entlang der Biegelinie bei drei Vierteln der Länge, auf der Seite der festen Fläche (gegenüber dem Pfeil):
     // so überdecken sich Text und Pfeil auch bei eng liegenden Biegungen nicht
     const anker = [m[0] + (b[1][0] - m[0]) * 0.5, m[1] + (b[1][1] - m[1]) * 0.5];
-    return { nr: q.nr, auf: q.dir === 'nach oben', text: `B${q.nr} ${notizText(q)}`, mitte: m, richtung: s, pfeil: [m, [m[0] + s[0] * L, m[1] + s[1] * L]], winkel: w, laenge: L, anker };
+    return { nr: biegeNr(q), zone: q.nr, auf: q.dir === 'nach oben', text: `B${biegeNr(q)} ${notizText(q)}`, mitte: m, richtung: s, pfeil: [m, [m[0] + s[0] * L, m[1] + s[1] * L]], winkel: w, laenge: L, anker };
   });
 }
