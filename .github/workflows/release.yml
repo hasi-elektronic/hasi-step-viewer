@@ -21,7 +21,7 @@ jobs:
       - run: node tools/test-einheit.mjs public/testblech.step
       - run: node tools/test-messen.mjs
       - run: node tools/test-abwicklung.mjs
-      - run: sudo apt-get install -y poppler-utils unzip
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils unzip
       - run: node tools/test-export.mjs
       - run: node tools/test-baum.mjs
       - run: node tools/test-baugruppe-messen.mjs
@@ -49,6 +49,8 @@ jobs:
           grep -q 'id="dropHint"' dist/index.html
           node tools/smoke-drop.mjs
           SHOT=docs/hasi-oberflaeche.png node tools/smoke-ui.mjs
+          node tools/smoke-drehen.mjs
+          node tools/smoke-messen.mjs
           node tools/smoke-baugruppe.mjs
           SHOT=docs/hasi-baugruppe.png node tools/smoke-baugruppe-ui.mjs
           SHOTDIR=docs/werkzeugleiste node tools/smoke-werkzeugleiste.mjs
@@ -129,7 +131,13 @@ jobs:
       - run: node tools/make-testblech.mjs public/testblech.step
       - name: Abgleich mit dem seriellen OCCT-Transfer (--pruefen)
         run: for f in testdaten/*.step public/testblech.step; do kern/build/hasi-kern "$f" "$RUNNER_TEMP" --pruefen; done
-      - run: sudo apt-get install -y poppler-utils unzip
+      - name: Öffnen-Leistungstest (synthetisches Großteil, keine Kundendaten)
+        run: |
+          set -euo pipefail
+          node tools/make-grossteil.mjs "$RUNNER_TEMP/grossteil.step" 160
+          kern/build/hasi-kern "$RUNNER_TEMP/grossteil.step" "$RUNNER_TEMP" --pruefen
+          node tools/perf-oeffnen.mjs "$RUNNER_TEMP/grossteil.step" 30000
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils unzip
       - name: Tests über den nativen Kern
         env: { KERN: native, KERN_PRUEFEN: '1' }
         run: |
