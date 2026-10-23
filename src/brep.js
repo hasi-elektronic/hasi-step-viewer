@@ -1,4 +1,5 @@
 import {biegung} from './kfaktor.js';
+import {methodenZeile,projiziere,normalAbstand,PROJ_NORMALE,RICHTUNGEN,richtungsVektor} from './messen-hilfen.js';
 // B-Rep-Kern: Einlesen, Topologie, Messen, Blech. Läuft im Worker (Browser) und in Node (Tests).
 // Alle Längen intern in mm (OCCT rechnet STEP-Dateien beim Import in mm um).
 const V = {
@@ -112,7 +113,7 @@ export function createBrep(oc){
     M.faces=U[0]?.faces||[];M.edges=U[0]?.edges||[];
     times.gesamt=Date.now()-t0;
     return {name,unit,tree,times,stats:{...stats,unikate:U.length,instanzen:inst.length},
-      uniq:U.map(u=>({p:u.p,i:u.i,f:u.f,faces:u.faces.map(f=>({type:f.type,ax:f.cyl&&{c:f.cyl.c,d:f.cyl.d,r:f.cyl.r}})),edges:u.edges.map(e=>({type:e.type,pts:e.pts,c:e.circle?.c,n:e.circle?.n,r:e.circle?.r,mid:e.mid})),verts:u.verts.map(v=>v.p)})),
+      uniq:U.map(u=>({p:u.p,i:u.i,f:u.f,faces:u.faces.map(f=>({type:f.type,ax:f.cyl?{c:f.cyl.c,d:f.cyl.d,r:f.cyl.r}:f.cone?{c:f.cone.c,d:f.cone.d,r:f.cone.rGross}:undefined})),edges:u.edges.map(e=>({type:e.type,pts:e.pts,c:e.circle?.c,n:e.circle?.n,r:e.circle?.r,mid:e.mid})),verts:u.verts.map(v=>v.p)})),
       inst:inst.map((x,i)=>({u:x.u,m:x.m,name:nameOf[i]})),ms:Date.now()-t0}};
   // ---------- Nativer Kern ----------
   // fromNative: Anzeige-Daten aus modell.bin des nativen Kerns (Netze, Flächen-/Kanteninfo, Baum, Lagen).
@@ -213,7 +214,12 @@ export function createBrep(oc){
     o.mid=P(a.Value((u0+u1)/2,(v0+v1)/2));
     if(t===ST.GeomAbs_Plane){const pl=a.Plane();let n=D(pl.Axis().Direction());if(rev)n=V.mul(n,-1);o.type='eben';o.plane={o:P(pl.Location()),n}}
     else if(t===ST.GeomAbs_Cylinder){const c=a.Cylinder();o.type='zylindrisch';o.cyl={c:P(c.Location()),d:D(c.Axis().Direction()),r:c.Radius(),ang:u1-u0,v0,v1,rev}}
-    else if(t===ST.GeomAbs_Cone)o.type='kegelig';else if(t===ST.GeomAbs_Sphere)o.type='kugelig';else if(t===ST.GeomAbs_Torus)o.type='torisch';else o.type='Freiform';
+    else if(t===ST.GeomAbs_Cone){const k=a.Cone(),al=k.SemiAngle(),R0=k.RefRadius();o.type='kegelig';
+      // Kegelpunkt(u,v) = Ort + (R0 + v·sin α)·(cos u·X + sin u·Y) + v·cos α·Z  → Radien und Höhe aus dem v-Bereich der Fläche
+      const ra=Math.abs(R0+v0*Math.sin(al)),rb=Math.abs(R0+v1*Math.sin(al));
+      o.cone={c:P(k.Location()),d:D(k.Axis().Direction()),apex:P(k.Apex()),semi:Math.abs(al),rGross:Math.max(ra,rb),rKlein:Math.min(ra,rb),h:Math.abs((v1-v0)*Math.cos(al)),mantel:Math.abs(v1-v0),ang:u1-u0}}
+    else if(t===ST.GeomAbs_Sphere){const k=a.Sphere();o.type='kugelig';o.sph={c:P(k.Location()),r:k.Radius()}}
+    else if(t===ST.GeomAbs_Torus)o.type='torisch';else o.type='Freiform';
     return o};
   M.edgeInfo=e=>{
     const a=new oc.BRepAdaptor_Curve_2(e);const t=a.GetType();const u0=a.FirstParameter(),u1=a.LastParameter();
@@ -229,12 +235,12 @@ export function createBrep(oc){
   const RES=s=>{if(s._r)return s._r;const I=M.inst[s.inst??0],U=M.uniq[I.u],m=I.m;const o={};
     if(s.k==='solid'){o.shape=U.shape.Moved(I.loc)}
     const cylW=c=>c&&{...c,c:T.p(m,c.c),d:T.d(m,c.d)};
-    if(s.k==='face'||(s.k==='axis'&&s.src==='face')){const f=U.faces[s.id];o.f={type:f.type,area:f.area,plane:f.plane&&{o:T.p(m,f.plane.o),n:T.d(m,f.plane.n)},cyl:cylW(f.cyl)};o.shape=f.shape.Moved(I.loc)}
+    if(s.k==='face'||(s.k==='axis'&&s.src==='face')){const f=U.faces[s.id];o.f={type:f.type,area:f.area,plane:f.plane&&{o:T.p(m,f.plane.o),n:T.d(m,f.plane.n)},cyl:cylW(f.cyl),cone:f.cone&&{...f.cone,c:T.p(m,f.cone.c),d:T.d(m,f.cone.d),apex:T.p(m,f.cone.apex)},sph:f.sph&&{...f.sph,c:T.p(m,f.sph.c)}};o.shape=f.shape.Moved(I.loc)}
     if(s.k==='edge'||s.k==='center'||s.k==='mid'||(s.k==='axis'&&s.src!=='face')){const e=U.edges[s.id];o.e={type:e.type,len:e.len,mid:T.p(m,e.mid),line:e.line&&{p:T.p(m,e.line.p),d:T.d(m,e.line.d)},circle:e.circle&&{...e.circle,c:T.p(m,e.circle.c),n:T.d(m,e.circle.n)}};o.shape=e.shape.Moved(I.loc)}
     if(s.k==='vertex'){o.p=T.p(m,U.verts[s.id].p);o.shape=U.verts[s.id].shape.Moved(I.loc)}
     if(s.k==='center'){o.p=o.e.circle.c;o.shape=mkVertex(o.p)}
     if(s.k==='mid'){o.p=o.e.mid;o.shape=mkVertex(o.p)}
-    if(s.k==='axis'){const a=o.f?o.f.cyl:o.e.circle&&{c:o.e.circle.c,d:o.e.circle.n,r:o.e.circle.r};if(!a)throw new Error('Keine Achse vorhanden');
+    if(s.k==='axis'){const a=o.f?(o.f.cyl||(o.f.cone&&{c:o.f.cone.c,d:o.f.cone.d,r:o.f.cone.rGross})):o.e.circle&&{c:o.e.circle.c,d:o.e.circle.n,r:o.e.circle.r};if(!a)throw new Error('Keine Achse vorhanden');
       o.axis={c:a.c,d:V.norm(a.d),r:a.r};const L=1e5;o.shape=new oc.BRepBuilderAPI_MakeEdge_3(new oc.gp_Pnt_3(...V.add(a.c,V.mul(o.axis.d,-L))),new oc.gp_Pnt_3(...V.add(a.c,V.mul(o.axis.d,L)))).Edge()}
     if(s.k==='point'){o.p=s.p;o.shape=mkVertex(s.p)}
     return s._r=o};
@@ -242,14 +248,14 @@ export function createBrep(oc){
   const selPoint=s=>RES(s).p;
   const isP=s=>['vertex','center','mid','point'].includes(s.k);
   // Richtung: n = Normale (ebene Fläche, Kreisebene), a = Achse/Richtung (Gerade, Zylinder, Achse)
-  const dirOf=s=>{const r=RES(s);if(r.axis)return{kind:'a',d:r.axis.d};if(r.f){if(r.f.plane)return{kind:'n',d:r.f.plane.n};if(r.f.cyl)return{kind:'a',d:r.f.cyl.d}}
+  const dirOf=s=>{const r=RES(s);if(r.axis)return{kind:'a',d:r.axis.d};if(r.f){if(r.f.plane)return{kind:'n',d:r.f.plane.n};if(r.f.cyl)return{kind:'a',d:r.f.cyl.d};if(r.f.cone)return{kind:'a',d:r.f.cone.d}}
     if(r.e&&s.k==='edge'){if(r.e.line)return{kind:'a',d:r.e.line.d};if(r.e.circle)return{kind:'n',d:r.e.circle.n}}return null};
   // Mitte einer Auswahl (für Mitte-Mitte): Punkt, Kreismitte, Kantenmitte, Flächen-/Körperschwerpunkt (Zylinder: auf die Achse projiziert)
   const centerOf=s=>{const r=RES(s);if(r.p)return r.p;if(r.axis)return r.axis.c;
     if(r.e)return r.e.circle?r.e.circle.c:r.e.mid;
-    if(r.f){const c=props('S',r.shape).c;if(r.f.cyl){const a=r.f.cyl,dd=V.norm(a.d);return V.add(a.c,V.mul(dd,V.dot(V.sub(c,a.c),dd)))}return c}
+    if(r.f){if(r.f.sph)return r.f.sph.c;const c=props('S',r.shape).c;const a=r.f.cyl||r.f.cone;if(a){const dd=V.norm(a.d);return V.add(a.c,V.mul(dd,V.dot(V.sub(c,a.c),dd)))}return c}
     return props('V',r.shape).c};
-  const holeAxis=s=>{const r=RES(s);if(r.axis)return r.axis;if(r.f&&r.f.cyl)return{c:r.f.cyl.c,d:V.norm(r.f.cyl.d),r:r.f.cyl.r};if(r.e&&r.e.circle&&(s.k==='edge'||s.k==='center'))return{c:r.e.circle.c,d:r.e.circle.n,r:r.e.circle.r};return null};
+  const holeAxis=s=>{const r=RES(s);if(r.axis)return r.axis;if(r.f&&r.f.cyl)return{c:r.f.cyl.c,d:V.norm(r.f.cyl.d),r:r.f.cyl.r};if(r.f&&r.f.cone)return{c:r.f.cone.c,d:V.norm(r.f.cone.d),r:r.f.cone.rGross};if(r.e&&r.e.circle&&(s.k==='edge'||s.k==='center'))return{c:r.e.circle.c,d:r.e.circle.n,r:r.e.circle.r};return null};
   M.minDist=(a,b)=>{const d=new oc.BRepExtrema_DistShapeShape_1();d.LoadS1(a);d.LoadS2(b);tryCall(()=>d.Perform(),()=>d.Perform(new oc.Message_ProgressRange_1()));
     if(!d.IsDone())throw new Error('Abstand konnte nicht berechnet werden');return {d:d.Value(),p1:P(d.PointOnShape1(1)),p2:P(d.PointOnShape2(1))}};
   // ---- Maximaler Abstand ----
@@ -290,41 +296,108 @@ export function createBrep(oc){
         const w=V.sub(e.line.p,C.c),rad=V.norm(V.sub(w,V.mul(ax,V.dot(w,ax))));
         let L=0;U.edges.forEach(e2=>{if(!e2.faces.includes(gi))return;e2.pts.forEach(p=>{const q=V.sub(p,e.line.p);L=Math.max(L,V.len(V.sub(q,V.mul(e.line.d,V.dot(q,e.line.d)))))})});
         out.push({rad,L})});return out};
-    const li=legs(ii),lo=legs(oi),tn=phi<Math.PI-1e-6?Math.tan(phi/2):NaN;
+    // Umschlag (Falz): φ = 180° ± 0,006°. tan(φ/2) ist dort unendlich, einen Biegepunkt gibt es nicht (Schenkel parallel).
+    const art=phi<Math.PI-1e-4?'normal':phi<=Math.PI+1e-4?'umschlag':'ueber180';
+    const li=legs(ii),lo=legs(oi),tn=art==='normal'?Math.tan(phi/2):null;
     const pair=lo.map(o=>({o,i:li.find(x=>V.dot(x.rad,o.rad)>0.99)}));
-    return {ri,ro,t:ro-ri,phi,inner:ii,outer:oi,legs:pair.map(({o,i})=>({aussen:o.L+ro*tn,innen:i?i.L+ri*tn:null,geradeAussen:o.L,geradeInnen:i?i.L:null}))}};
+    return {ri,ro,t:ro-ri,phi,art,inner:ii,outer:oi,legs:pair.map(({o,i})=>({aussen:tn==null?null:o.L+ro*tn,innen:tn==null||!i?null:i.L+ri*tn,geradeAussen:o.L,geradeInnen:i?i.L:null,bisAussenkante:art==='umschlag'?o.L+ro:null}))}};
+  // ---- Fase (ZW3D-PMI „Chamfer“): ebene Streifenfläche zwischen zwei nicht parallelen ebenen Nachbarflächen ----
+  // Schenkel = Abstand der Fasenkanten zur gedachten Schnittkante der Nachbarflächen (im Querschnitt senkrecht zur Fase).
+  const deZahl=(v,n=3)=>(+v.toFixed(n)).toLocaleString('de-DE',{maximumFractionDigits:n});
+  M.fase=(u,fi)=>{const U=M.uniq[u],F=U.faces,f=F[fi];if(!f||!f.plane)return null;
+    const rand=U.edges.filter(e=>e.faces.includes(fi));if(rand.length!==4)return null;
+    const es=rand.filter(e=>e.line&&e.faces.length===2).map(e=>({e,g:F[e.faces.find(x=>x!==fi)]})).filter(x=>x.g&&x.g.plane&&Math.abs(V.dot(x.g.plane.n,f.plane.n))<1-1e-6);
+    let best=null;
+    for(let i=0;i<es.length;i++)for(let j=i+1;j<es.length;j++){const A=es[i],B=es[j];
+      if(Math.abs(V.dot(A.e.line.d,B.e.line.d))<1-1e-9||Math.abs(V.dot(A.g.plane.n,B.g.plane.n))>1-1e-6)continue;
+      const L=Math.min(A.e.len,B.e.len);if(!best||L>best.L)best={A,B,L}}
+    if(!best)return null;
+    const d=best.A.e.line.d,P1=best.A.e.line.p,Q=best.B.e.line.p,P2=V.sub(Q,V.mul(d,V.dot(V.sub(Q,P1),d)));const breite=V.len(V.sub(P2,P1));
+    if(breite<1e-9||breite>best.L+1e-9)return null;
+    const nA=best.A.g.plane.n,nB=best.B.g.plane.n,tA=V.norm(V.cross(nA,d)),tB=V.norm(V.cross(nB,d));
+    const dA=V.dot(tA,nB),dB=V.dot(tB,nA);if(Math.abs(dA)<1e-9||Math.abs(dB)<1e-9)return null;
+    const sA=V.dot(V.sub(P2,P1),nB)/dA,sB=V.dot(V.sub(P1,P2),nA)/dB,X=V.add(P1,V.mul(tA,sA));
+    if(V.len(V.sub(X,V.add(P2,V.mul(tB,sB))))>1e-6)return null;
+    let a=Math.abs(sA),b=Math.abs(sB);const wi=(p,q)=>Math.acos(Math.max(-1,Math.min(1,V.dot(V.norm(V.sub(q,p)),V.norm(V.sub(X,p))))))*DEG;
+    let winkel=wi(P1,P2);if(b>a+1e-9){[a,b]=[b,a];winkel=wi(P2,P1)}
+    // Fasenwinkel = Winkel zwischen Fase und der Fläche mit dem längeren Schenkel
+    const gleich=Math.abs(a-b)<1e-6;const text=gleich?`${deZahl(a)} × ${deZahl(winkel,2)}°`:`${deZahl(a)} × ${deZahl(b)} (${deZahl(winkel,2)}°)`;
+    return {a,b,winkel,breite,text,ecke:X,p1:P1,p2:P2}};
   M.describe=s=>{const R0=RES(s),R=[];if(s.k==='solid'){const q=M.solidProps([s.inst]);R.push(['Volumen',q.volume,'V'],['Oberfläche',q.area,'A']);return R}
     if(s.k==='face'){const f=R0.f;R.push(['Fläche',f.type,'t'],['Flächeninhalt',f.area,'A']);const u=perimeter(R0.shape);R.push(['Umfang (gesamt)',u.s,'L']);if(Math.abs(u.outer-u.s)>1e-9)R.push(['Umfang (außen)',u.outer,'L']);
       if(f.cyl){const bi=M.bendInfo(M.inst[s.inst??0].u,s.id);
         if(bi){R.unshift(['Radius innen Ri',bi.ri,'L','!'],['Radius außen Ra',bi.ro,'L','!'],['Bogenlänge (angeklickt)',f.cyl.r*f.cyl.ang,'L','!'],['Biegewinkel',bi.phi*DEG,'W','!']);
-          R.push(['Blechdicke',bi.t,'L'],['Bogenlänge innen',bi.ri*bi.phi,'L'],['Bogenlänge außen',bi.ro*bi.phi,'L'],['Öffnungswinkel der Schenkel',180-bi.phi*DEG,'W']);
+          R.push(['Blechdicke',bi.t,'L'],['Bogenlänge innen',bi.ri*bi.phi,'L'],['Bogenlänge außen',bi.ro*bi.phi,'L'],['Öffnungswinkel der Schenkel',Math.abs(180-bi.phi*DEG)<1e-6?0:Math.abs(180-bi.phi*DEG),'W']);
+          if(bi.art==='umschlag')R.push(['Biegeart','Umschlag 180° (Falz)','t'],['Hinweis','Schenkel parallel: kein Biegepunkt. Angegeben sind gerader Teil und Maß bis Außenkante Umschlag.','t']);
+          if(bi.art==='ueber180')R.push(['Biegeart','Biegung über 180°','t'],['Hinweis','Biegewinkel über 180°: Schenkellänge bis Biegepunkt ist nicht definiert. Angegeben ist der gerade Teil.','t']);
           // Schenkellänge in zwei Varianten: bis Biegepunkt (gerader Teil + R·tan(φ/2)) und gerader Teil ohne Biegung
-          bi.legs.forEach((l,i)=>{const n='Schenkel '+(i+1);R.push([n+' (bis Biegepunkt) außen',l.aussen,'L']);if(l.innen!=null)R.push([n+' (bis Biegepunkt) innen',l.innen,'L']);
-            R.push([n+' gerader Teil außen',l.geradeAussen,'L']);if(l.geradeInnen!=null)R.push([n+' gerader Teil innen',l.geradeInnen,'L'])});
-          if(bi.legs.length===2)R.push(['Außenmaß über die Biegung',bi.legs[0].aussen+bi.legs[1].aussen,'L'])}
+          bi.legs.forEach((l,i)=>{const n='Schenkel '+(i+1);if(l.aussen!=null)R.push([n+' (bis Biegepunkt) außen',l.aussen,'L']);if(l.innen!=null)R.push([n+' (bis Biegepunkt) innen',l.innen,'L']);
+            R.push([n+' gerader Teil außen',l.geradeAussen,'L']);if(l.geradeInnen!=null)R.push([n+' gerader Teil innen',l.geradeInnen,'L']);
+            if(l.bisAussenkante!=null)R.push([n+' bis Außenkante Umschlag',l.bisAussenkante,'L'])});
+          if(bi.legs.length===2&&bi.art==='normal')R.push(['Außenmaß über die Biegung',bi.legs[0].aussen+bi.legs[1].aussen,'L']);
+          if(bi.art==='umschlag')R.push(['Außenmaß über Umschlag',2*bi.ro,'L'])}
         else{R.unshift(['Radius R',f.cyl.r,'L','!'],['Bogenlänge',f.cyl.r*f.cyl.ang,'L','!']);R.push(['Durchmesser Ø',2*f.cyl.r,'L'],['Radius R',f.cyl.r,'L'],['Öffnungswinkel',f.cyl.ang*DEG,'W'],['Bogenlänge',f.cyl.r*f.cyl.ang,'L'])}}
-      if(f.plane)R.push(['Normale',f.plane.n.map(x=>x.toFixed(4)).join(' / '),'t'])}
+      if(f.cone){const k=f.cone;R.unshift(['Kegelwinkel (Senkwinkel)',2*k.semi*DEG,'W','!'],['Durchmesser groß Ø',2*k.rGross,'L','!'],['Durchmesser klein Ø',2*k.rKlein,'L','!'],['Kegelhöhe',k.h,'L','!']);
+        R.push(['Halber Kegelwinkel',k.semi*DEG,'W'],['Mantellinie',k.mantel,'L'],['Kegelspitze',k.apex,'P'],['Achse durch',k.c,'P'],['Richtung',V.norm(k.d).map(x=>x.toFixed(4)).join(' / '),'t'])}
+      if(f.sph){R.unshift(['Kugelradius R',f.sph.r,'L','!'],['Kugeldurchmesser Ø',2*f.sph.r,'L','!']);R.push(['Kugelmittelpunkt',f.sph.c,'P'])}
+      if(f.plane){const fa=M.fase(M.inst[s.inst??0].u,s.id);
+        if(fa)R.push(['Fase',fa.text,'t'],['Fase Schenkel 1',fa.a,'L'],['Fase Schenkel 2',fa.b,'L'],['Fasenwinkel',fa.winkel,'W'],['Fasenbreite',fa.breite,'L']);
+        R.push(['Normale',f.plane.n.map(x=>x.toFixed(4)).join(' / '),'t'])}}
     if(s.k==='edge'){const e=R0.e;R.push(['Kante',e.type,'t'],['Kantenlänge',e.len,'L']);
       if(e.circle){R.unshift(e.circle.ang>2*Math.PI-1e-6?['Durchmesser Ø',2*e.circle.r,'L','!']:['Radius R',e.circle.r,'L','!'],['Bogenlänge',e.circle.r*e.circle.ang,'L','!']);R.push(['Durchmesser Ø',2*e.circle.r,'L'],['Radius R',e.circle.r,'L'],['Bogenwinkel',e.circle.ang*DEG,'W'],['Bogenlänge',e.circle.r*e.circle.ang,'L'],['Mittelpunkt',e.circle.c,'P'])}
       R.push(['Kantenmitte',e.mid,'P'])}
     if(s.k==='axis'){const a=R0.axis;R.push(['Achse durch',a.c,'P'],['Richtung',a.d.map(x=>x.toFixed(4)).join(' / '),'t']);if(a.r)R.push(['Durchmesser Ø',2*a.r,'L'],['Radius R',a.r,'L'])}
     if(isP(s))R.push([{center:'Kreismittelpunkt',vertex:'Eckpunkt',mid:'Kantenmitte',point:'Punkt'}[s.k],selPoint(s),'P']);
     const seen=new Set();return R.filter(r=>!seen.has(r[0])&&seen.add(r[0]))};
+  const GROSS=1e5;
+  const unendlich=s=>{const r=RES(s);
+    if(s.k==='face'&&r.f&&r.f.plane){const pl=new oc.gp_Pln_3(new oc.gp_Pnt_3(...r.f.plane.o),new oc.gp_Dir_4(...V.norm(r.f.plane.n)));return new oc.BRepBuilderAPI_MakeFace_9(pl,-GROSS,GROSS,-GROSS,GROSS).Face()}
+    if(s.k==='edge'&&r.e&&r.e.line){const p=r.e.mid,d=V.norm(r.e.line.d);return new oc.BRepBuilderAPI_MakeEdge_3(new oc.gp_Pnt_3(...V.add(p,V.mul(d,-GROSS))),new oc.gp_Pnt_3(...V.add(p,V.mul(d,GROSS)))).Edge()}
+    return null};
   const delta=(rows,p1,p2,pre='')=>rows.push([pre+'ΔX',Math.abs(p2[0]-p1[0]),'L'],[pre+'ΔY',Math.abs(p2[1]-p1[1]),'L'],[pre+'ΔZ',Math.abs(p2[2]-p1[2]),'L']);
-  M.measure=sels=>{
+  // Projektion: opts.projektion = {art:'keine'|'bildschirm'|'xy'|'xz'|'yz'|'flaeche', n:[…] (Bildschirm: Blickrichtung in Modellkoordinaten)}
+  const projZeilen=(rows,paar,sels,opts)=>{const pj=opts&&opts.projektion;if(!pj||!pj.art||pj.art==='keine'||!paar)return;
+    let n=null,name='';
+    if(pj.art==='bildschirm'){n=pj.n;name='Bildschirm'}
+    else if(PROJ_NORMALE[pj.art]){n=PROJ_NORMALE[pj.art];name='Ebene '+pj.art.toUpperCase()}
+    else if(pj.art==='flaeche'){const f=sels.find(x=>x.k==='face'&&RES(x).f.plane);if(f){n=RES(f).f.plane.n;name='gewählte Ebene'}}
+    if(!n||V.len(n)<1e-12){rows.push(['Projektion','keine ebene Fläche gewählt','t']);return}
+    const q=projiziere(paar[0],paar[1],n);rows.push(['Projiziert auf '+name,q.inEbene,'L'],['Senkrecht zu '+name,q.normal,'L'])};
+  // Höhe, waagerechter Abstand und gewählte Maßrichtung (opts.richtung) zur gewählten Strecke; Hochachse = Modell-Z,
+  // bei „Projiziert auf: Bildschirm“ der Bildschirm (opts.sicht = {oben, rechts, blick} in Modellkoordinaten).
+  const richtungZeilen=(rows,paar,opts)=>{if(!paar)return null;const sicht=opts.sicht||{},bs=opts.projektion?.art==='bildschirm'&&!!sicht.oben;const v=V.sub(paar[1],paar[0]);
+    const hv=richtungsVektor('vertikal',paar[0],paar[1],sicht,bs),hz=richtungsVektor('horizontal',paar[0],paar[1],sicht,bs);
+    const zus=bs?' (Bildschirm)':'';rows.push(['Höhe (vertikal)'+zus,Math.abs(V.dot(v,hv)),'L'],['Horizontal (waagerecht)'+zus,hz?Math.abs(V.dot(v,hz)):0,'L']);
+    const art=opts.richtung||'ausgerichtet';if(art==='ausgerichtet')return null;
+    if(art==='vertikal'||art==='horizontal')return {art,name:(art==='vertikal'?'Höhe (vertikal)':'Horizontal (waagerecht)')+zus,dir:art==='vertikal'?hv:hz};
+    const d=richtungsVektor(art,paar[0],paar[1],sicht,bs);const name=(RICHTUNGEN.find(x=>x[0]===art)||[])[2];if(!name)return null;
+    rows.push([name,d?Math.abs(V.dot(v,d)):0,'L']);return {art,name,dir:d}};
+  M.measure=(sels,opts={})=>{
     const rows=[],gfx=[];
-    if(sels.length===1)return {rows:M.describe(sels[0]),gfx};
+    if(sels.length===1){const s0=sels[0],out={rows:M.describe(s0),gfx};
+      // Fase: Anker (Mitte der Fasenfläche im Querschnitt, Modellkoordinaten) für die Fasenbemaßung „2 × 45°“
+      if(s0.k==='face'){const I=M.inst[s0.inst??0],fa=M.uniq[I.u].faces[s0.id]?.plane?M.fase(I.u,s0.id):null;
+        if(fa)out.fase={a:fa.a,b:fa.b,winkel:fa.winkel,p:T.p(I.m,V.mul(V.add(fa.p1,fa.p2),0.5))}}
+      return out}
     if(sels.length>2){const ed=sels.filter(s=>s.k==='edge');
       if(ed.length)rows.push(['Gesamtlänge ('+ed.length+' Kanten)',ed.reduce((a,s)=>a+RES(s).e.len,0),'L']);
       const fa=sels.filter(s=>s.k==='face');if(fa.length)rows.push(['Gesamtfläche ('+fa.length+' Flächen)',fa.reduce((a,s)=>a+RES(s).f.area,0),'A']);
       if(!rows.length)rows.push(['Hinweis','Mehrfachauswahl nur für Kanten (Gesamtlänge) oder Flächen','t']);
       return {rows,gfx}}
     const [a,b]=sels;
-    if(isP(a)&&isP(b)){const pa=selPoint(a),pb=selPoint(b);rows.push(['Abstand',V.len(V.sub(pb,pa)),'L']);delta(rows,pa,pb);gfx.push([pa,pb]);return {rows,gfx,label:rows[0]}}
-    const md=M.minDist(sel2shape(a),sel2shape(b));
-    rows.push(['Abstand min.',md.d,'L']);delta(rows,md.p1,md.p2);gfx.push([md.p1,md.p2]);
-    const mx=M.maxDist(a,b);if(mx)rows.push(['Abstand max.',mx.d,'L']);
-    if(a.k!=='axis'&&b.k!=='axis'){const ca=centerOf(a),cb=centerOf(b);rows.push(['Abstand Mitte–Mitte',V.len(V.sub(cb,ca)),'L']);delta(rows,ca,cb,'Mitte ')}
+    if(isP(a)&&isP(b)){const pa=selPoint(a),pb=selPoint(b);rows.push(['Abstand',V.len(V.sub(pb,pa)),'L']);delta(rows,pa,pb);gfx.push([pa,pb]);const ri=richtungZeilen(rows,[pa,pb],opts);projZeilen(rows,[pa,pb],sels,opts);
+      const wahl=ri?ri.name:'Abstand';return {rows,gfx,label:rows.find(r=>r[0]===wahl)||rows[0],delta:[pa,pb],wahl,richtung:ri}}
+    const md=M.minDist(sel2shape(a),sel2shape(b));const paare={min:[md.p1,md.p2]};
+    rows.push(['Abstand min.',md.d,'L']);delta(rows,md.p1,md.p2);
+    const mx=M.maxDist(a,b);if(mx){rows.push(['Abstand max.',mx.d,'L']);paare.max=[mx.p1,mx.p2]}
+    if(a.k!=='axis'&&b.k!=='axis'){const ca=centerOf(a),cb=centerOf(b);
+      // Rand–Mitte: kürzester Abstand vom Element A zur Mitte von B; Mitte–Rand umgekehrt (ZW3D „Bound to Center“ / „Center to Bound“)
+      if(!isP(a)&&!isP(b)){const rm=M.minDist(sel2shape(a),mkVertex(cb)),mr=M.minDist(mkVertex(ca),sel2shape(b));
+        rows.push(['Abstand Rand–Mitte',rm.d,'L'],['Abstand Mitte–Rand',mr.d,'L']);paare['rand-mitte']=[rm.p1,rm.p2];paare['mitte-rand']=[mr.p1,mr.p2]}
+      rows.push(['Abstand Mitte–Mitte',V.len(V.sub(cb,ca)),'L']);delta(rows,ca,cb,'Mitte ');paare.mitte=[ca,cb]}
+    const ia=unendlich(a),ib=unendlich(b);
+    if(ia||ib){const u=M.minDist(ia||sel2shape(a),ib||sel2shape(b));rows.push(['Abstand unendlich verlängert',u.d,'L']);paare.unendlich=[u.p1,u.p2]}
+    for(const [p,f] of [[a,b],[b,a]])if(isP(p)&&f.k==='face'&&RES(f).f.plane){const pl=RES(f).f.plane;rows.push(['Normalabstand Punkt–Ebene',normalAbstand(selPoint(p),pl.o,pl.n),'L'])}
     const da=dirOf(a),db=dirOf(b);
     if(da&&db){const c=Math.min(1,Math.abs(V.dot(da.d,db.d)));let ang=Math.acos(c)*DEG;
       // Fläche–Fläche: Winkel zwischen den Flächen (über die Normalen), Kante–Kante: zwischen den Richtungen, Kante–Fläche: Winkel zur Fläche (90° − Winkel zur Normalen)
@@ -336,20 +409,26 @@ export function createBrep(oc){
       if(da.kind==='a'&&db.kind==='a'&&c>1-1e-9&&a.k==='edge'&&b.k==='edge'&&RES(a).e.line&&RES(b).e.line){const pa=RES(a).e.line.p,pb=RES(b).e.line.p,w=V.sub(pb,pa);rows.push(['Paralleler Abstand',V.len(V.sub(w,V.mul(da.d,V.dot(w,da.d)))),'L'])}}
     const ha=holeAxis(a),hb=holeAxis(b);
     if(ha&&hb&&Math.abs(V.dot(ha.d,hb.d))>1-1e-9){const w=V.sub(hb.c,ha.c);const d=V.len(V.sub(w,V.mul(ha.d,V.dot(w,ha.d))));rows.push(['Lochabstand Mitte–Mitte',d,'L'])}
-    return {rows,gfx,label:rows[0]}};
+    // Gewählte Abstandsmethode bestimmt Messlinie, ΔX/ΔY/ΔZ-Linien und Bemaßung. Fehlt sie (z. B. Rand–Mitte bei einem Punkt), gilt die nächstliegende.
+    let w=opts.methode||'min';if(!paare[w])w=w==='rand-mitte'?(isP(a)?'mitte':'min'):w==='mitte-rand'?(isP(b)?'mitte':'min'):'min';if(!paare[w])w='min';
+    const ri=richtungZeilen(rows,paare[w],opts);const name=ri?ri.name:methodenZeile(w);gfx.push(paare[w]);projZeilen(rows,paare[w],sels,opts);
+    return {rows,gfx,label:rows.find(r=>r[0]===name)||rows[0],delta:paare[w],wahl:name,richtung:ri}};
   const meshVA=u=>{const U=M.uniq[u];if(U.mva)return U.mva;const p=U.p,ix=U.i;let v=0,A=0,cx=0,cy=0,cz=0;
     for(let t=0;t<ix.length;t+=3){const a=ix[t]*3,b=ix[t+1]*3,c=ix[t+2]*3;const ax=p[a],ay=p[a+1],az=p[a+2],bx=p[b],by=p[b+1],bz=p[b+2],qx=p[c],qy=p[c+1],qz=p[c+2];
       const dv=(ax*(by*qz-bz*qy)-ay*(bx*qz-bz*qx)+az*(bx*qy-by*qx))/6;v+=dv;cx+=dv*(ax+bx+qx)/4;cy+=dv*(ay+by+qy)/4;cz+=dv*(az+bz+qz)/4;
       const ux=bx-ax,uy=by-ay,uz=bz-az,wx=qx-ax,wy=qy-ay,wz=qz-az;A+=Math.hypot(uy*wz-uz*wy,uz*wx-ux*wz,ux*wy-uy*wx)/2}
     return U.mva={v:Math.abs(v),a:A,c:v?[cx/v,cy/v,cz/v]:[0,0,0]}};
-  M.modelFast=()=>{let vol=0,area=0,cx=[0,0,0];const mn=[Infinity,Infinity,Infinity],mx=[-Infinity,-Infinity,-Infinity];
-    M.inst.forEach(I=>{const q=meshVA(I.u);vol+=q.v;area+=q.a;const c=T.p(I.m,q.c);for(let k=0;k<3;k++)cx[k]+=c[k]*q.v;
+  // ids: nur diese Instanzen (z. B. die sichtbaren). Ohne ids: alle. Ausgeblendete Bauteile zählen nicht (wie ZW3D Mass Properties).
+  const instListe=ids=>Array.isArray(ids)?[...new Set(ids)].filter(i=>i>=0&&i<M.inst.length):M.inst.map((_,i)=>i);
+  M.modelFast=(ids)=>{let vol=0,area=0,cx=[0,0,0];const mn=[Infinity,Infinity,Infinity],mx=[-Infinity,-Infinity,-Infinity];const L=instListe(ids),II=L.map(i=>M.inst[i]);
+    II.forEach(I=>{const q=meshVA(I.u);vol+=q.v;area+=q.a;const c=T.p(I.m,q.c);for(let k=0;k<3;k++)cx[k]+=c[k]*q.v;
       const b=M.uniq[I.u].bb;for(let k=0;k<8;k++){const pt=T.p(I.m,[k&1?b.max[0]:b.min[0],k&2?b.max[1]:b.min[1],k&4?b.max[2]:b.min[2]]);for(let j=0;j<3;j++){mn[j]=Math.min(mn[j],pt[j]);mx[j]=Math.max(mx[j],pt[j])}}});
     if(vol)cx=cx.map(x=>x/vol);
-    return {approx:true,volume:vol,area,centroid:cx,bbox:{min:mn,max:mx},solids:M.inst.length,unique:M.uniq.length,faces:M.inst.reduce((s,I)=>s+(M.uniq[I.u].nf??M.uniq[I.u].faces.length),0),edges:M.inst.reduce((s,I)=>s+(M.uniq[I.u].ne??M.uniq[I.u].edges.length),0)}};
-  M.model=()=>{const all=M.inst.map((_,i)=>i);const q=M.solidProps(all);let cx=[0,0,0];
-    M.inst.forEach(I=>{const v=uProps(I.u);const c=T.p(I.m,v.c);for(let k=0;k<3;k++)cx[k]+=c[k]*v.v});if(q.volume)cx=cx.map(x=>x/q.volume);
-    return {volume:q.volume,area:q.area,centroid:cx,bbox:isFinite(q.bbox.min[0])?q.bbox:M.bbox(M.shape),solids:M.inst.length,unique:M.uniq.length,faces:M.inst.reduce((s,I)=>s+M.uniq[I.u].faces.length,0),edges:M.inst.reduce((s,I)=>s+M.uniq[I.u].edges.length,0)}};
+    return {approx:true,volume:vol,area,centroid:cx,bbox:{min:mn,max:mx},solids:II.length,unique:new Set(II.map(I=>I.u)).size,faces:II.reduce((s,I)=>s+(M.uniq[I.u].nf??M.uniq[I.u].faces.length),0),edges:II.reduce((s,I)=>s+(M.uniq[I.u].ne??M.uniq[I.u].edges.length),0),ausgeblendet:M.inst.length-II.length}};
+  M.model=(ids)=>{const L=instListe(ids),II=L.map(i=>M.inst[i]);const q=M.solidProps(L);let cx=[0,0,0];
+    II.forEach(I=>{const v=uProps(I.u);const c=T.p(I.m,v.c);for(let k=0;k<3;k++)cx[k]+=c[k]*v.v});if(q.volume)cx=cx.map(x=>x/q.volume);
+    const bbox=isFinite(q.bbox.min[0])?q.bbox:(L.length===M.inst.length&&M.shape?M.bbox(M.shape):{min:[0,0,0],max:[0,0,0]});
+    return {volume:q.volume,area:q.area,centroid:cx,bbox,solids:II.length,unique:new Set(II.map(I=>I.u)).size,faces:II.reduce((s,I)=>s+M.uniq[I.u].faces.length,0),edges:II.reduce((s,I)=>s+M.uniq[I.u].edges.length,0),ausgeblendet:M.inst.length-II.length}};
   // ---------- Blech ----------
   // Abwicklung als Baum über den Flächengraphen einer Blechseite („Haut“): Start an der größten ebenen Hautfläche,
   // Übergänge nur über tangentiale gerade Kanten (Ebene↔Zylinder, Zylinder↔Zylinder bei direkt aufeinanderfolgenden Biegungen,
@@ -377,7 +456,14 @@ export function createBrep(oc){
     // Gleich große Flächen (z. B. Innen-/Außenseite eines Flansches) geometrisch entscheiden, nicht nach Flächenreihenfolge (die hängt von der OCCT-Version ab)
     const byArea=(a,b)=>{const d=b[0].area-a[0].area;if(Math.abs(d)>1e-6*Math.max(a[0].area,b[0].area))return d;const na=a[0].plane.n,nb=b[0].plane.n;
       for(let k=0;k<3;k++)if(Math.abs(na[k]-nb[k])>1e-9)return nb[k]-na[k];return V.dot(b[0].plane.o,nb)-V.dot(a[0].plane.o,na)};
-    const base=pl.filter(hasOpp).sort(byArea)[0]||pl.sort(byArea)[0];
+    // Feste Fläche (ZW3D „Set Stationary Face“): vom Benutzer gewählt (opts.basis = Flächen-Nr. im Teil) oder automatisch die größte Blechfläche
+    let base;
+    if(opts.basis!=null){const c=pl.find(([,i])=>i===opts.basis);
+      if(!c){res.fehler.push('Die gewählte feste Fläche ist nicht eben. Bitte eine ebene Blechfläche wählen.');return res}
+      if(!hasOpp(c)){res.fehler.push('Die gewählte feste Fläche ist keine Blechseite (Stirnfläche?). Bitte eine Ober- oder Unterseite wählen.');return res}
+      base=c;res.basisGewaehlt=true}
+    else base=pl.filter(hasOpp).sort(byArea)[0]||pl.sort(byArea)[0];
+    if(base)res.basis=base[1];
     if(!base){res.warn.push('Keine ebene Basisfläche gefunden.');res.fehler.push('Keine ebene Basisfläche – keine Abwicklung möglich.');return res}
     const lineEdgesOf=fi=>E.map((e,i)=>[e,i]).filter(([e])=>e.faces.includes(fi)&&e.line&&e.faces.length===2);
     const n0=base[0].plane.n;let e1=null;
@@ -420,12 +506,22 @@ export function createBrep(oc){
         skin.add(gi);queue.push(gi);tree.add(ei)}
     }
     // ---- Kontur ----
-    const lines=[];
-    E.forEach(e=>{const inSkin=e.faces.filter(f=>skin.has(f));if(!inSkin.length||inSkin.length===2)return;const m=maps.get(inSkin[0]);lines.push(e.pts.map(m.f))});
+    // Kreiskanten auf ebenen Hautflächen sind in der Abwicklung exakte Kreise/Bögen (Ebenen-Abbildung ist eine Bewegung) → DXF CIRCLE/ARC/Bulge.
+    const lines=[],kanten=[],TW=2*Math.PI,ccwW=(a,b)=>((b-a)%TW+TW)%TW;
+    E.forEach(e=>{const inSkin=e.faces.filter(f=>skin.has(f));if(!inSkin.length||inSkin.length===2)return;const m=maps.get(inSkin[0]);const pts=e.pts.map(m.f);lines.push(pts);
+      let bogen=null;
+      if(e.circle&&m.kind==='p'){const c=m.f(e.circle.c),r=e.circle.r;const rr=Math.hypot(pts[0][0]-c[0],pts[0][1]-c[1]);
+        if(Math.abs(rr-r)<1e-6*Math.max(1,r)){if(e.circle.ang>TW-1e-6)bogen={c,r,voll:true};
+          else{const w=p=>Math.atan2(p[1]-c[1],p[0]-c[0]);const as=w(pts[0]),ae=w(pts.at(-1)),am=w(m.f(e.mid));const ccw=ccwW(as,am)<ccwW(as,ae);
+            bogen={c,r,voll:false,ccw,a0:ccw?as:ae,a1:ccw?ae:as};bogen.sweep=ccwW(bogen.a0,bogen.a1)}}}
+      kanten.push({pts,bogen})});
     const all=lines.flat();
     if(!all.length){res.fehler.push('Keine Kontur erzeugt.');return res}
-    const mn=[Math.min(...all.map(p=>p[0])),Math.min(...all.map(p=>p[1]))],mx=[Math.max(...all.map(p=>p[0])),Math.max(...all.map(p=>p[1]))];
-    res.flat={contour:lines,bendLines,min:mn,max:mx,size:[mx[0]-mn[0],mx[1]-mn[1]]};
+    // Zuschnitt exakt: Bögen über ihre Extrempunkte (0°, 90°, 180°, 270°), nicht nur über die Stützpunkte
+    const ext=[];kanten.forEach(k=>{ext.push(...k.pts);const b=k.bogen;if(!b)return;
+      for(let q=0;q<4;q++){const a=q*Math.PI/2;if(b.voll||ccwW(b.a0,a)<=b.sweep+1e-12)ext.push([b.c[0]+b.r*Math.cos(a),b.c[1]+b.r*Math.sin(a)])}});
+    const mn=[Math.min(...ext.map(p=>p[0])),Math.min(...ext.map(p=>p[1]))],mx=[Math.max(...ext.map(p=>p[0])),Math.max(...ext.map(p=>p[1]))];
+    res.flat={contour:lines,kanten,bendLines,bendInfo:res.bends.map(b=>({nr:b.nr,dir:b.dir,ang:b.ang,ri:b.ri})),min:mn,max:mx,size:[mx[0]-mn[0],mx[1]-mn[1]]};
     // ---- Prüfungen ----
     const free=F.filter(f=>!f.plane&&!f.cyl);if(free.length)res.fehler.push(`Das Teil enthält ${free.length} nicht abwickelbare Fläche(n) (${[...new Set(free.map(f=>f.type))].join(', ')}).`);
     // Zyklen im Flächengraphen: Kanten zwischen zwei Hautflächen, die nicht im Abwicklungsbaum liegen, müssen in 2D
@@ -450,15 +546,63 @@ export function createBrep(oc){
     res.skinArea=[...skin].reduce((s,i)=>s+F[i].area,0);
     return res};
 
-  M.dxf=(flat,unitsMm=true)=>{const L=[];const g=(c,v)=>L.push(String(c),String(v));
-    g(0,'SECTION');g(2,'HEADER');g(9,'$INSUNITS');g(70,4);g(0,'ENDSEC');
-    g(0,'SECTION');g(2,'TABLES');g(0,'TABLE');g(2,'LAYER');g(70,2);
-    for(const [n,c] of [['KONTUR',7],['BIEGELINIEN',1]]){g(0,'LAYER');g(2,n);g(70,0);g(62,c);g(6,n==='KONTUR'?'CONTINUOUS':'DASHED')}
-    g(0,'ENDTAB');g(0,'ENDSEC');g(0,'SECTION');g(2,'ENTITIES');
-    const line=(a,b,layer)=>{g(0,'LINE');g(8,layer);g(10,(a[0]-flat.min[0]).toFixed(4));g(20,(a[1]-flat.min[1]).toFixed(4));g(30,0);g(11,(b[0]-flat.min[0]).toFixed(4));g(21,(b[1]-flat.min[1]).toFixed(4));g(31,0)};
-    flat.contour.forEach(pl=>{for(let i=1;i<pl.length;i++)line(pl[i-1],pl[i],'KONTUR')});
-    flat.bendLines.forEach(b=>line(b[0],b[1],'BIEGELINIEN'));
-    g(0,'ENDSEC');g(0,'EOF');return L.join('\n')+'\n'};
+  // ---- DXF für den Laser ----
+  // Kreise = CIRCLE, Konturen = geschlossene LWPOLYLINE (Bögen als Bulge), Biegelinien je Richtung auf eigenem Layer, 1:1 in mm ($INSUNITS = 4).
+  // Ursprung = linke untere Ecke des Zuschnitts. opts.beschriftung: Biegenotizen auf Layer BESCHRIFTUNG (Standard: aus).
+  M.konturSchleifen=(flat,tol=1e-3)=>{const ks=(flat.kanten||flat.contour.map(pts=>({pts,bogen:null}))).filter(k=>k.pts.length>1||k.bogen?.voll);
+    const used=new Array(ks.length).fill(false),out=[];const nah=(p,q)=>Math.hypot(p[0]-q[0],p[1]-q[1])<tol;
+    for(let i=0;i<ks.length;i++){if(used[i])continue;used[i]=true;const k0=ks[i];
+      if(k0.bogen?.voll){out.push({kreis:k0.bogen,segs:[{k:k0,rev:false}],zu:true});continue}
+      const segs=[{k:k0,rev:false}];const start=k0.pts[0];let end=k0.pts.at(-1);
+      for(let guard=0;guard<ks.length&&!nah(end,start);guard++){let hit=-1,rev=false;
+        for(let j=0;j<ks.length;j++){if(used[j]||ks[j].bogen?.voll)continue;if(nah(ks[j].pts[0],end)){hit=j;rev=false;break}if(nah(ks[j].pts.at(-1),end)){hit=j;rev=true;break}}
+        if(hit<0)break;used[hit]=true;segs.push({k:ks[hit],rev});end=rev?ks[hit].pts[0]:ks[hit].pts.at(-1)}
+      const zu=nah(end,start);
+      // Schleife nur aus Bögen eines Kreises (z. B. in zwei Hälften geteilte Bohrung) → ein Kreis
+      const b0=segs[0].k.bogen;let kreis=null;
+      if(zu&&b0&&segs.every(x=>x.k.bogen&&!x.k.bogen.voll&&Math.abs(x.k.bogen.r-b0.r)<1e-6&&nah(x.k.bogen.c,b0.c))&&Math.abs(segs.reduce((a,x)=>a+x.k.bogen.sweep,0)-2*Math.PI)<1e-6)kreis={c:b0.c,r:b0.r,voll:true};
+      out.push({segs,zu,kreis})}
+    return out};
+  const lwPunkte=(segs,zu)=>{const v=[];
+    const gerade=pts=>{const r=[pts[0]];for(let i=1;i<pts.length-1;i++){const a=r.at(-1),b=pts[i],c=pts[i+1];const cr=(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
+      const l=Math.hypot(c[0]-a[0],c[1]-a[1])||1;if(Math.abs(cr)/l>1e-7)r.push(b)}r.push(pts.at(-1));return r};
+    for(const {k,rev} of segs){const pts=rev?[...k.pts].reverse():k.pts;
+      if(k.bogen&&!k.bogen.voll){const ccw=rev?!k.bogen.ccw:k.bogen.ccw;v.push({p:pts[0],bulge:Math.tan(k.bogen.sweep/4)*(ccw?1:-1)})}
+      else{const g=gerade(pts);for(let i=0;i<g.length-1;i++)v.push({p:g[i],bulge:0})}}
+    if(!zu){const l=segs.at(-1);v.push({p:l.rev?l.k.pts[0]:l.k.pts.at(-1),bulge:0})}
+    return v};
+  M.dxf=(flat,opts={})=>{if(typeof opts!=='object'||!opts)opts={};const L=[];const g=(c,v)=>L.push(String(c),String(v));
+    let h=0x100;const H=()=>(h++).toString(16).toUpperCase();const f4=v=>(Math.abs(v)<5e-5?0:v).toFixed(4);
+    const X=p=>f4(p[0]-flat.min[0]),Y=p=>f4(p[1]-flat.min[1]);
+    const layer=[['KONTUR',7,'CONTINUOUS'],['BIEGELINIEN_AUF',1,'DASHED'],['BIEGELINIEN_AB',5,'DASHED']];if(opts.beschriftung)layer.push(['BESCHRIFTUNG',3,'CONTINUOUS']);
+    g(0,'SECTION');g(2,'HEADER');g(9,'$ACADVER');g(1,'AC1015');g(9,'$INSUNITS');g(70,4);g(9,'$MEASUREMENT');g(70,1);g(9,'$HANDSEED');g(5,'FFFFF');g(0,'ENDSEC');
+    g(0,'SECTION');g(2,'TABLES');
+    g(0,'TABLE');g(2,'LTYPE');g(5,H());g(100,'AcDbSymbolTable');g(70,2);
+    g(0,'LTYPE');g(5,H());g(100,'AcDbSymbolTableRecord');g(100,'AcDbLinetypeTableRecord');g(2,'CONTINUOUS');g(70,0);g(3,'Durchgezogen');g(72,65);g(73,0);g(40,0);
+    g(0,'LTYPE');g(5,H());g(100,'AcDbSymbolTableRecord');g(100,'AcDbLinetypeTableRecord');g(2,'DASHED');g(70,0);g(3,'Gestrichelt __ __ __');g(72,65);g(73,2);g(40,9);g(49,6);g(74,0);g(49,-3);g(74,0);
+    g(0,'ENDTAB');
+    g(0,'TABLE');g(2,'LAYER');g(5,H());g(100,'AcDbSymbolTable');g(70,layer.length);
+    for(const [n,c,lt] of layer){g(0,'LAYER');g(5,H());g(100,'AcDbSymbolTableRecord');g(100,'AcDbLayerTableRecord');g(2,n);g(70,0);g(62,c);g(6,lt)}
+    g(0,'ENDTAB');g(0,'ENDSEC');
+    g(0,'SECTION');g(2,'ENTITIES');
+    const kopf=(typ,lay,sub)=>{g(0,typ);g(5,H());g(100,'AcDbEntity');g(8,lay);g(100,sub)};
+    const kreis=(b,lay)=>{kopf('CIRCLE',lay,'AcDbCircle');g(10,X(b.c));g(20,Y(b.c));g(30,0);g(40,f4(b.r))};
+    const linie=(a,b,lay)=>{kopf('LINE',lay,'AcDbLine');g(10,X(a));g(20,Y(a));g(30,0);g(11,X(b));g(21,Y(b));g(31,0)};
+    const stat={kreise:0,konturen:0,offen:0};
+    for(const s of M.konturSchleifen(flat)){
+      if(s.kreis){kreis(s.kreis,'KONTUR');stat.kreise++;continue}
+      const v=lwPunkte(s.segs,s.zu);if(v.length<2)continue;
+      kopf('LWPOLYLINE','KONTUR','AcDbPolyline');g(90,v.length);g(70,s.zu?1:0);g(43,0);
+      for(const q of v){g(10,X(q.p));g(20,Y(q.p));if(Math.abs(q.bulge)>1e-12)g(42,q.bulge.toFixed(10))}
+      stat.konturen++;if(!s.zu)stat.offen++}
+    const bi=flat.bendInfo||[];
+    flat.bendLines.forEach((b,i)=>{const auf=(bi[i]?.dir||'nach oben')==='nach oben';linie(b[0],b[1],auf?'BIEGELINIEN_AUF':'BIEGELINIEN_AB')});
+    if(opts.beschriftung){const de=(v,n)=>(+v.toFixed(n)).toLocaleString('de-DE',{maximumFractionDigits:n});
+      flat.bendLines.forEach((b,i)=>{const q=bi[i];if(!q)return;const m=[(b[0][0]+b[1][0])/2,(b[0][1]+b[1][1])/2];let w=Math.atan2(b[1][1]-b[0][1],b[1][0]-b[0][0])*DEG;if(w>90)w-=180;if(w<=-90)w+=180;
+        // Text mittig 2 mm neben der Biegelinie (72 = 1: zentriert am Ausrichtpunkt 11/21)
+        const wr=w/DEG,nx=-Math.sin(wr)*2,ny=Math.cos(wr)*2,t=[m[0]+nx,m[1]+ny];
+        kopf('TEXT','BESCHRIFTUNG','AcDbText');g(10,X(t));g(20,Y(t));g(30,0);g(40,'3.5000');g(1,`B${q.nr} ${q.dir==='nach oben'?'AUF':'AB'} ${de(q.ang,1)}%%d Ri ${de(q.ri,2)}`);g(50,w.toFixed(4));g(72,1);g(11,X(t));g(21,Y(t));g(31,0);g(100,'AcDbText')})}
+    g(0,'ENDSEC');g(0,'EOF');M.letzteDxf=stat;return L.join('\n')+'\n'};
   return M;
 }
 

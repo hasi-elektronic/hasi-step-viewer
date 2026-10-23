@@ -32,8 +32,17 @@ export function sucheTabelle(rows,s,ri,wDeg){
   return mitW[0]||ok.find(r=>isNaN(r.w))||null;
 }
 /** Biegezugabe BZ, Ausgleichswert v und K für eine Biegung. opts: {modus:'din'|'manuell', K, tabelle} */
+// Umschlag (φ = 180°) und φ > 180°: tan(φ/2) ist unendlich bzw. negativ. Für 180° gilt der DIN-Fall β = 0°: v = BZ − 2·(ri + s)
+// (Schenkel bis Außenkante Umschlag gemessen). Über 180° gibt es keinen Ausgleichswert v; die Biegezugabe BZ bleibt gültig.
+const UMSCHLAG_TOL=1e-4;
+export function biegeArt(phi){return phi<Math.PI-UMSCHLAG_TOL?'normal':phi<=Math.PI+UMSCHLAG_TOL?'umschlag':'ueber180'}
 export function biegung(ri,s,phi,opts){
-  const ossb=Math.tan(Math.min(phi,Math.PI-1e-9)/2)*(ri+s);
+  const r=biegungRoh(ri,s,phi,opts);const art=biegeArt(phi);
+  if(art==='umschlag'){r.v=r.ba-2*(ri+s);r.vBezug='Außenkante Umschlag'}
+  if(art==='ueber180'){r.v=null;r.hinweis='Biegewinkel über 180°: kein Ausgleichswert v (nur Biegezugabe BZ).'}
+  r.art=art;return r}
+function biegungRoh(ri,s,phi,opts){
+  const art=biegeArt(phi);const ossb=art==='normal'?Math.tan(phi/2)*(ri+s):(ri+s);
   const tab=sucheTabelle(opts.tabelle,s,ri,phi*180/Math.PI);
   if(tab&&!isNaN(tab.v)){const ba=tab.v+2*ossb;return {ba,v:tab.v,K:(ba/phi-ri)/s,quelle:'Tabelle'}}
   if(tab&&!isNaN(tab.K)){const ba=phi*(ri+tab.K*s);return {ba,v:ba-2*ossb,K:tab.K,quelle:'Tabelle'}}

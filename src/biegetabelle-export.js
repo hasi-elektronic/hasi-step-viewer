@@ -3,7 +3,8 @@ import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
 import writeExcelFile from 'write-excel-file/universal';
 
-const de = (v, d = 2) => Number(v).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d });
+// Fehlende Werte (z. B. Biegepunkt beim 180°-Umschlag, v über 180°) als „–“, nie als 0 oder NaN
+const de = (v, d = 2) => (v == null || !Number.isFinite(Number(v)) ? '–' : Number(v).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d }));
 
 /** Lage einer Biegelinie im Zuschnitt (Ursprung: linke untere Ecke, wie im DXF). */
 export function biegelinie(b, flat) {
@@ -61,7 +62,7 @@ export function pdf(sheet, meta = {}) {
     body: T.zeilen.map(z => [z.nr, de(z.winkel, 1), de(z.ri), z.richtung, z.lage, de(z.laenge), de(z.bz), de(z.v), de(z.k, 3), z.quelle]),
     columnStyles: { 0: { halign: 'right' }, 1: { halign: 'right' }, 2: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' } },
   });
-  const sch = T.zeilen.flatMap(z => z.schenkel.map((l, i) => [z.nr, i + 1, de(l.aussen), l.innen != null ? de(l.innen) : '–', de(l.geradeAussen), l.geradeInnen != null ? de(l.geradeInnen) : '–']));
+  const sch = T.zeilen.flatMap(z => z.schenkel.map((l, i) => [z.nr, i + 1, de(l.aussen), de(l.innen), de(l.geradeAussen), de(l.geradeInnen)]));
   let y = doc.lastAutoTable.finalY + 6;
   if (sch.length) {
     autoTable(doc, { startY: y, head: [['Nr.', 'Schenkel', 'bis Biegepunkt außen [mm]', 'bis Biegepunkt innen [mm]', 'gerader Teil außen [mm]', 'gerader Teil innen [mm]']], body: sch, theme: 'grid', styles: { fontSize: 9, cellPadding: 1.4, halign: 'right' }, headStyles: { fillColor: [120, 120, 125] }, tableWidth: 170 });
@@ -90,7 +91,7 @@ export function pdf(sheet, meta = {}) {
 export async function xlsx(sheet, meta = {}) {
   const T = tabelle(sheet, meta);
   const B = v => ({ value: v, fontWeight: 'bold' });
-  const N = (v, fmt = '0.00') => (v == null ? { value: '–' } : { value: Number(v), type: Number, format: fmt });
+  const N = (v, fmt = '0.00') => (v == null || !Number.isFinite(Number(v)) ? { value: '–' } : { value: Number(v), type: Number, format: fmt });
   const rows = [[{ value: 'Biegetabelle', fontWeight: 'bold', fontSize: 14 }], ...T.kopf.map(([a, b]) => [{ value: a }, B(b)]), []];
   rows.push(T.spalten.concat(['x1 [mm]', 'y1 [mm]', 'x2 [mm]', 'y2 [mm]']).map(B));
   T.zeilen.forEach(z => rows.push([N(z.nr, '0'), N(z.winkel, '0.0'), N(z.ri), { value: z.richtung }, { value: z.lage }, N(z.laenge), N(z.bz), N(z.v), N(z.k, '0.000'), { value: z.quelle },

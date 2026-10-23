@@ -18,3 +18,4 @@ r=run('wanne-ohne-freischnitt.step');assert(r.flat.incomplete&&r.fehler.some(f=>
 r=run('winkel-senkung.step');assert(r.flat.incomplete&&r.fehler.some(f=>f.includes('kegelig')));console.log('  ok  Winkel mit Senkung → '+r.fehler[0]);
 r=run('kuppel.step');assert(!r.ok&&/Nicht abwickelbar/.test(r.msg));console.log('  ok  Kuppel → '+r.msg);
 console.log('OK: Abwicklung');
+await import('./test-dxf.mjs');

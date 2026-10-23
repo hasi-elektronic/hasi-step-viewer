@@ -22,3 +22,4 @@ const Lx=L[0]&&L[0].y1!==L[0].y2?s.flat.size[0]:s.flat.size[1];const fits=p=>p.e
 const mir=Lx?pos.map(v=>Lx-v).sort((a,b)=>a-b):[];assert(fits(pos)||(Lx&&fits(mir)),`Biegelinien: ${pos} ≠ ${exp}`);
 console.log('  ok  Lage der Biegelinien am Testblech',pos.map(v=>v.toFixed(4)).join(' / '));
 console.log('OK: Export Biegetabelle');
+await import('./test-bemassung-faz1.mjs');
