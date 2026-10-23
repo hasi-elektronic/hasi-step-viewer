@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import {chromium} from 'playwright-core';
 import {checkMessartenUi} from './check-messarten-ui.mjs';
+import {checkGrosseMessung} from './check-grosse-messung.mjs';
 const browser=await chromium.connectOverCDP(process.argv[2]);
 try {
   const page=browser.contexts().flatMap(context=>context.pages()).find(page=>page.url().includes('tauri.localhost'));
@@ -36,5 +37,6 @@ try {
   assert(!/Fehler|CompileError/.test(result.ui),result.ui);
   assert(result.ui.includes('118,322'),result.ui);
   const messarten=await checkMessartenUi(page);
-  console.log(JSON.stringify({wasmBytes:bytes.length,nativeImport:true,distanceMm:distance,measurementUi:result.ui,messarten}));
+  const grosseBaugruppe=process.argv[4]?await checkGrosseMessung(page,path.resolve(process.argv[4])):null;
+  console.log(JSON.stringify({wasmBytes:bytes.length,nativeImport:true,distanceMm:distance,measurementUi:result.ui,messarten,...(grosseBaugruppe?{grosseBaugruppe}:{})}));
 } finally { await browser.close(); }
