@@ -21,7 +21,7 @@ jobs:
       - run: node tools/test-einheit.mjs public/testblech.step
       - run: node tools/test-messen.mjs
       - run: node tools/test-abwicklung.mjs
-      - run: sudo apt-get install -y poppler-utils unzip
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils unzip
       - run: node tools/test-export.mjs
       - run: node tools/test-baum.mjs
       - run: node tools/test-baugruppe-messen.mjs
@@ -137,7 +137,7 @@ jobs:
           node tools/make-grossteil.mjs "$RUNNER_TEMP/grossteil.step" 160
           kern/build/hasi-kern "$RUNNER_TEMP/grossteil.step" "$RUNNER_TEMP" --pruefen
           node tools/perf-oeffnen.mjs "$RUNNER_TEMP/grossteil.step" 30000
-      - run: sudo apt-get install -y poppler-utils unzip
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils unzip
       - name: Tests über den nativen Kern
         env: { KERN: native, KERN_PRUEFEN: '1' }
         run: |
