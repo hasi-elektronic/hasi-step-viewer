@@ -7,7 +7,7 @@ const p=await b.newPage({viewport:{width:1500,height:900}});const errs=[];p.on('
 await p.route('**/'+NAME,r=>r.fulfill({status:200,body:fs.readFileSync('testdaten/'+NAME),headers:{'content-type':'application/octet-stream'}}));
 await p.goto(`http://localhost:${port}/`);await p.evaluate(()=>{localStorage.clear()});await p.reload();await p.waitForFunction(()=>window.__app&&window.__loadUrl);
 const A=(f,a)=>p.evaluate(f,a);
-await A(n=>{window.__lastLoad=null;return window.__loadUrl('./'+n)},NAME);await p.waitForFunction(()=>window.__lastLoad&&window.__lastLoad.bodies>0,null,{timeout:180000});await p.waitForTimeout(800);
+await A(n=>{return window.__loadUrl('./'+n)},NAME);await p.waitForFunction(()=>window.__lastLoad&&window.__lastLoad.bodies>0,null,{timeout:180000});await p.waitForTimeout(800);
 await A(async()=>{const a=window.__app;a.clearSel();await a.act('sheet',a.nodes()[0])});
 await p.waitForFunction(()=>window.__lastSheet,null,{timeout:180000});await p.waitForTimeout(500);
 const r=await A(()=>({info:document.getElementById('sheetinfo').innerText,nr:[...document.querySelectorAll('#bends table:not(.schenkel) tr td:first-child')].map(td=>td.textContent),

@@ -6,6 +6,16 @@
 // Baugruppen-Lagen aus CONTEXT_DEPENDENT_SHAPE_REPRESENTATION; Unikate parallel tessellieren und indizieren.
 // Bei unbekannten Strukturen: serieller OCCT-Transfer (TransferRoots) als Rückfall.
 #define _USE_MATH_DEFINES
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+// Vor OCCT einbinden: Standard_Macro.hxx deaktiviert sonst die NLS-Deklarationen.
+#include <windows.h>
+#endif
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
 #include <STEPCAFControl_Writer.hxx>
@@ -106,6 +116,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -315,7 +326,7 @@ static int stepExport(const char* brepPfad, const char* auftragPfad, const std::
   BRep_Builder bb; TopoDS_Shape alle;
   if (!BRepTools::Read(alle, brepPfad, bb) || alle.IsNull()) { fprintf(stderr, "FEHLER: Messdaten (modell.brep) konnten nicht gelesen werden\n"); return 2; }
   std::vector<TopoDS_Shape> U; for (TopoDS_Iterator it(alle, true, true); it.More(); it.Next()) U.push_back(it.Value());
-  std::ifstream af(auftragPfad); if (!af) { fprintf(stderr, "FEHLER: Auftrag fehlt\n"); return 2; }
+  std::ifstream af(std::filesystem::u8path(auftragPfad)); if (!af) { fprintf(stderr, "FEHLER: Auftrag fehlt\n"); return 2; }
   std::vector<std::string> zeilen; for (std::string z; std::getline(af, z);) { if (!z.empty() && z.back() == '\r') z.pop_back(); if (!z.empty()) zeilen.push_back(z); }
   STEPCAFControl_Controller::Init();
   Message::DefaultMessenger()->RemovePrinters(STANDARD_TYPE(Message_PrinterOStream)); // keine OCCT-Statistik auf stdout
@@ -373,7 +384,7 @@ static int stepExport(const char* brepPfad, const char* auftragPfad, const std::
   return 0;
 }
 
-int main(int argc, char** argv) {
+static int kernMain(int argc, char** argv) {
   if (argc >= 5 && !strcmp(argv[1], "--step-export")) return stepExport(argv[2], argv[3], argv[4]);
   if (argc < 3) { fprintf(stderr, "Aufruf: hasi-kern <eingabe.step> <ausgabe-ordner> [--threads N] [--pruefen] [--seriell]\n"); return 1; }
   std::string in = argv[1], outDir = argv[2]; int T = std::max(1u, std::thread::hardware_concurrency()); bool pruefen = false, seriell = false; int splitMin = 2;
@@ -684,14 +695,14 @@ int main(int argc, char** argv) {
   if (nUeber) js << ",\"ueber\":[" << ueberJ.str() << "]";
   times["gesamt"] = ms(); times["speicherMB"] = hwmMB();
   js << ",\"times\":{"; bool f = true; for (auto& kv : times) { js << (f ? "" : ",") << "\"" << kv.first << "\":" << kv.second; f = false; } js << "}}";
-  std::string head = js.str(); std::ofstream o(outDir + "/modell.bin", std::ios::binary); uint32_t hl = head.size(); o.write((char*)&hl, 4); o.write(head.data(), hl);
+  std::string head = js.str(); std::ofstream o(std::filesystem::u8path(outDir) / "modell.bin", std::ios::binary); uint32_t hl = head.size(); o.write((char*)&hl, 4); o.write(head.data(), hl);
   static const char z4[4] = {0, 0, 0, 0}; while ((4 + hl) % 4) { hl++; o.write(z4, 1); }
   for (auto& b : blobs) { if (b.first) o.write((const char*)b.first, b.second); else o.write(z4, b.second); }
   o.close(); if (!o) { fprintf(stderr, "FEHLER: %s/modell.bin konnte nicht geschrieben werden\n", outDir.c_str()); return 3; }
   // Die App kann jetzt anzeigen; modell.brep (für das Messen) folgt
   fprintf(stdout, "BIN %ld\n", ms()); fflush(stdout);
   { long tB = ms(); BRep_Builder bb; TopoDS_Compound c; bb.MakeCompound(c); for (auto& u : U) bb.Add(c, u.shape);
-    std::ofstream f(outDir + "/modell.brep"); BRepTools::Write(c, f, false, false, TopTools_FormatVersion_VERSION_1); f.close(); times["brep"] = ms() - tB;
+    std::ofstream f(std::filesystem::u8path(outDir) / "modell.brep"); BRepTools::Write(c, f, false, false, TopTools_FormatVersion_VERSION_1); f.close(); times["brep"] = ms() - tB;
     if (!f) { fprintf(stderr, "FEHLER: %s/modell.brep konnte nicht geschrieben werden\n", outDir.c_str()); return 3; } }
   if (pruefen && !unbekannt) { // Abgleich mit dem seriellen OCCT-Transfer: Welt-Bounding-Boxen aller Instanzen
     std::unordered_map<int, bool> isChild; for (auto& kv : nauoChild) isChild[kv.second] = true;
@@ -713,3 +724,24 @@ int main(int argc, char** argv) {
   for (auto& kv : times) fprintf(stderr, "  %s: %ld\n", kv.first.c_str(), kv.second);
   fflush(stderr); std::_Exit(0); // Abbau der OCCT-Objekte überspringen (spart Sekunden bei großen Modellen)
 }
+
+#ifdef _WIN32
+// Windows übergibt UTF-16. main(char**) würde ß/ä/Ş/中 durch die aktive
+// ANSI-Codepage schicken, während OCCT UTF-8-Dateinamen erwartet.
+int wmain(int argc, wchar_t** wideArgv) {
+  std::vector<std::string> args; args.reserve(argc);
+  for (int i = 0; i < argc; ++i) {
+    const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wideArgv[i], -1, nullptr, 0, nullptr, nullptr);
+    if (size <= 0) { fprintf(stderr, "FEHLER: Ungültiger Unicode-Dateipfad\n"); return 2; }
+    std::string arg(size, '\0');
+    if (!WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wideArgv[i], -1, arg.data(), size, nullptr, nullptr)) return 2;
+    arg.resize(size - 1); args.push_back(std::move(arg));
+  }
+  std::vector<char*> argv; argv.reserve(argc + 1);
+  for (auto& arg : args) argv.push_back(arg.data());
+  argv.push_back(nullptr);
+  return kernMain(argc, argv.data());
+}
+#else
+int main(int argc, char** argv) { return kernMain(argc, argv); }
+#endif

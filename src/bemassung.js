@@ -9,7 +9,7 @@ import {linearArt,richtungsVektor,MODELL_OBEN} from './messen-hilfen.js';
 export const hochachseSichtbar=sicht=>!sicht.blick||Math.abs(V.dot(V.norm(sicht.blick),MODELL_OBEN))<0.9;
 export const STIL_STANDARD={groesse:14,pfeil:'pfeil',stellen:2};
 export const PFEILARTEN=[['pfeil','Pfeil (gefüllt)'],['offen','Pfeil (offen)'],['schraeg','Schrägstrich'],['punkt','Punkt']];
-export const TYPEN=[['auto','Automatisch'],['linear','Linear (beim Ziehen: waagerecht / senkrecht / ausgerichtet)'],['ausgerichtet','Linear ausgerichtet (wahre Länge)'],['hoehe','Höhe (vertikal, Modell-Hochachse)'],['waagerecht','Horizontal (waagerechter Abstand)'],['achse-x','Abstand in X'],['achse-y','Abstand in Y'],['achse-z','Abstand in Z'],['ansicht','Senkrecht zur Ansicht (wie gesehen)'],['horizontal','Linear horizontal (Bildschirm)'],['vertikal','Linear vertikal (Bildschirm)'],['kette','Kettenmaß (weiter von der letzten Bemaßung)'],['basislinie','Basislinienmaß (von derselben Basis)'],['winkel','Winkel'],['radius','Radius R'],['durchmesser','Durchmesser Ø'],['bogen','Bogenlänge'],['fase','Fase'],['koordinate','Koordinate']];
+export const TYPEN=[['auto','Automatisch'],['info','Informationsfeld (alle Messwerte)'],['linear','Linear (beim Ziehen: waagerecht / senkrecht / ausgerichtet)'],['ausgerichtet','Linear ausgerichtet (wahre Länge)'],['hoehe','Höhe (vertikal, Modell-Hochachse)'],['waagerecht','Horizontal (waagerechter Abstand)'],['achse-x','Abstand in X'],['achse-y','Abstand in Y'],['achse-z','Abstand in Z'],['ansicht','Senkrecht zur Ansicht (wie gesehen)'],['horizontal','Linear horizontal (Bildschirm)'],['vertikal','Linear vertikal (Bildschirm)'],['kette','Kettenmaß (weiter von der letzten Bemaßung)'],['basislinie','Basislinienmaß (von derselben Basis)'],['winkel','Winkel'],['radius','Radius R'],['durchmesser','Durchmesser Ø'],['bogen','Bogenlänge'],['fase','Fase'],['koordinate','Koordinate']];
 /** Lineare Bemaßungsarten. Nur „ausgerichtet“ richtet sich nach den beiden Punkten, alle anderen haben eine feste Richtung d.dir. */
 export const LINEAR=['ausgerichtet','horizontal','vertikal','kette','basislinie','linear','hoehe','waagerecht','achse-x','achse-y','achse-z','ansicht'];
 /** Feste Maßrichtung je Art (Messen-Panel „Maßrichtung“ → Bemaßungsart). */
@@ -33,6 +33,7 @@ export function artText(d){if(d.art!=null)return d.art;const t=d.typ;
 /** Maßtext: [Haupttext, Zusatz oben, Zusatz unten] (Zusätze klein gestapelt, z. B. Abmaße). */
 export function massText(d,stil){const n=stil.stellen,w=d.wert;const t=d.tol||{art:'keine'};const o=+t.o||0,u=+t.u||0;
   const art=d.ohneArt?'':artText(d),mitArt=x=>art?art+' '+x:x;
+  if(d.typ==='info')return [d.text?.trim()||'Informationsfeld','','',''];
   if(d.typ==='fase'){const gleich=Math.abs(d.a-d.b)<1e-6;const k=(v,m)=>{const z=zahl(v,m);return z.includes(',')?z.replace(/0+$/,'').replace(/,$/,''):z};const f=gleich?`${k(d.a,n)} × ${k(d.winkel,Math.min(n,2))}°`:`${k(d.a,n)} × ${k(d.b,n)}`;return [(d.praefix||'')+(d.text&&d.text.trim()?d.text:mitArt(f)),'','',d.suffix||'']}
   const wert=d.einheit==='W'?zahl(w,n)+'°':zahl(w,n);
   const vor={radius:'R ',durchmesser:'Ø ',bogen:'⌒ '}[d.typ]||'';
@@ -66,6 +67,30 @@ function text(ctx,p,ang,teile,stil,ueber=true){const [haupt,o,u,suf]=teile;const
 
 /** Zeichnet eine Bemaßung. Liefert die Trefferfläche für das Ziehen ({x,y,r}). */
 export function zeichne(ctx,d,P,stil,farbe='#0a6fb0'){ctx.strokeStyle=farbe;ctx.fillStyle=farbe;ctx.lineWidth=1.2;const s=stil.groesse,art=stil.pfeil,T=massText(d,stil);
+  if(d.typ==='info') {
+    const A=P(d.p),B=P(V.add(d.p,d.off||[0,0,0]));if(A[2]>1||B[2]>1)return null;
+    ctx.save();ctx.font=`500 ${Math.max(11,s-1)}px system-ui,sans-serif`;ctx.textBaseline='middle';
+    const grenzen=d.grenzen||{links:8,rechts:ctx.canvas.width,oben:8,unten:ctx.canvas.height};
+    const maxW=Math.max(80,Math.min(390,grenzen.rechts-grenzen.links-20)),zeilen=[];
+    for(const raw of [d.text?.trim(),...(d.zeilen||[])].filter(Boolean)) {
+      let line='';for(const word of String(raw).split(/\s+/)){if(line&&ctx.measureText(line+' '+word).width>maxW){zeilen.push(line);line=word}else line+=(line?' ':'')+word}if(line)zeilen.push(line);
+    }
+    if(!zeilen.length){ctx.restore();return null}
+    const limit=Math.max(2,Math.min(24,Math.floor((grenzen.unten-grenzen.oben-16)/(s+4))));
+    const rows=zeilen.length>limit?[...zeilen.slice(0,limit-1),'Weitere Werte im Messprotokoll …']:zeilen;
+    const w=Math.min(maxW+20,Math.max(100,...rows.map(t=>ctx.measureText(t).width+20))),h=rows.length*(s+4)+16;
+    let x=Math.max(grenzen.links,Math.min(B[0],grenzen.rechts-w)),y=Math.max(grenzen.oben,Math.min(B[1],grenzen.unten-h));
+    const belegt=d.belegt||[],frei=(x,y)=>x>=grenzen.links&&x+w<=grenzen.rechts&&y>=grenzen.oben&&y+h<=grenzen.unten&&!belegt.some(k=>x<k.x+k.w+8&&k.x<x+w+8&&y<k.y+k.h+8&&k.y<y+h+8);
+    if(!frei(x,y)) {
+      const kandidaten=belegt.flatMap(k=>[[k.x,k.y+k.h+8],[k.x,k.y-h-8],[k.x+k.w+8,k.y],[k.x-w-8,k.y]]).concat([[grenzen.links,grenzen.oben],[grenzen.rechts-w,grenzen.oben],[grenzen.links,grenzen.unten-h]]);
+      const passend=kandidaten.find(([a,b])=>frei(a,b));if(passend)[x,y]=passend;
+    }
+    ctx.strokeStyle=farbe;ctx.fillStyle='rgba(255,255,255,.97)';ctx.lineWidth=1.2;
+    linie(ctx,[A,[x,y+h/2]]);ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,8);else ctx.rect(x,y,w,h);ctx.fill();ctx.stroke();
+    ctx.fillStyle=farbe;ctx.fillRect(x+1,y+8,3,Math.max(0,h-16));ctx.fillStyle='#253b4d';
+    rows.forEach((row,i)=>ctx.fillText(row,x+10,y+8+(i+.5)*(s+4),w-20));
+    ctx.restore();return {x:x+w/2,y:y+h/2,w,h:h/2,r:Math.max(w,h)/2};
+  }
   const ext=(a,b)=>{const u=unit2(a,b),L=Math.hypot(b[0]-a[0],b[1]-a[1]);if(L<4)return;linie(ctx,[[a[0]+u[0]*3,a[1]+u[1]*3],[b[0]+u[0]*6,b[1]+u[1]*6]])};
   if(LINEAR.includes(d.typ)){const g=geomLinear(d);const A=P(d.p1),B=P(d.p2),L1=P(g.l1),L2=P(g.l2);
     ext(A,L1);ext(B,L2);linie(ctx,[L1,L2]);const u=unit2(L1,L2);pfeil(ctx,L2,u,art,s);pfeil(ctx,L1,[-u[0],-u[1]],art,s);
@@ -92,7 +117,11 @@ export function zeichne(ctx,d,P,stil,farbe='#0a6fb0'){ctx.strokeStyle=farbe;ctx.
 export function geomLinear(d){const dir=d.typ==='ausgerichtet'||!d.dir?V.norm(V.sub(d.p2,d.p1)):V.norm(d.dir);let off=d.off||[0,0,0];off=V.sub(off,V.mul(dir,V.dot(off,dir)));
   const l1=V.add(d.p1,off),l2=V.add(l1,V.mul(dir,V.dot(V.sub(d.p2,d.p1),dir)));return {dir,off,l1,l2,mid:V.mul(V.add(d.p1,d.p2),0.5)}}
 export function bogenPunkte(v,u1,u2,rr,N=32){const a=V.norm(u1),b=V.norm(u2);const om=Math.acos(Math.max(-1,Math.min(1,V.dot(a,b))));const out=[];
-  for(let i=0;i<=N;i++){const t=i/N;let w;if(om<1e-6)w=a;else{const s=Math.sin(om);w=V.add(V.mul(a,Math.sin((1-t)*om)/s),V.mul(b,Math.sin(t*om)/s))}out.push(V.add(v,V.mul(w,rr)))}return out}
+  // Orthonormale Basis statt slerp / sin(π): auch 0° und 180° bleiben endlich.
+  let quer=V.sub(b,V.mul(a,V.dot(a,b)));
+  if(V.len(quer)<1e-10){const achse=Math.abs(a[0])<0.8?[1,0,0]:[0,1,0];quer=V.cross(a,achse)}
+  quer=V.norm(quer);
+  for(let i=0;i<=N;i++){const t=om*i/N,w=V.add(V.mul(a,Math.cos(t)),V.mul(quer,Math.sin(t)));out.push(V.add(v,V.mul(w,rr)))}return out}
 /** Ziehen: Bemaßung so versetzen, dass sie durch den Modellpunkt M geht. */
 export function ziehe(d,M,sicht){
   // Linear wie AutoCAD BEMLINEAR: Richtung folgt der Zugrichtung, bis sie mit H / V / A gesperrt wird (d.sperre)
@@ -102,7 +131,7 @@ export function ziehe(d,M,sicht){
   else if(d.typ==='winkel'){const r=V.len(V.sub(M,d.v));d.off=V.mul(V.norm(d.u1),Math.max(r,1e-3))}
   else if(d.typ==='radius'||d.typ==='durchmesser'){const [e1,e2]=basis(d.n);const w=V.sub(M,d.c);d.ang=Math.atan2(V.dot(w,e2),V.dot(w,e1))}
   else if(d.typ==='bogen'){const [e1,e2]=basis(d.n);const w=V.sub(M,d.c);const r=Math.hypot(V.dot(w,e1),V.dot(w,e2));d.offR=Math.max(r-d.rad,d.rad*0.05)}
-  else if(d.typ==='koordinate'||d.typ==='fase')d.off=V.sub(M,d.p)}
+  else if(d.typ==='koordinate'||d.typ==='fase'||d.typ==='info')d.off=V.sub(M,d.p)}
 /** Bogenwinkel a0..a1 eines Kreisbogens (Kreis c,n,r) aus Anfangs- und Endpunkt. */
 export function bogenWinkel(c,n,p0,p1,voll){const [e1,e2]=basis(n);const ang=p=>{const w=V.sub(p,c);return Math.atan2(V.dot(w,e2),V.dot(w,e1))};let a0=ang(p0),a1=ang(p1);
   if(voll)return [a0,a0+2*Math.PI];while(a1<=a0)a1+=2*Math.PI;return [a0,a1]}
@@ -119,7 +148,7 @@ export function folgeMass(ref,p,art,abstand){if(!ref||!LINEAR.includes(ref.typ)|
 
 /** Bemaßungen als Begleitdatei (neben der STEP-Datei, *.hasi3d.json). Die STEP-Datei bleibt unverändert. */
 export const BEGLEIT_FORMAT='hasi3d-bemassungen';
-const FELDER=['no','typ','sels','title','opts','dir','linArt','sperre','off','ang','offR','tol','praefix','suffix','text','refNo'];
+const FELDER=['no','typ','sels','title','opts','dir','linArt','sperre','off','ang','offR','tol','praefix','suffix','text','refNo','infoOptionen'];
 export function bemassungenSpeichern(dims,meta={}){
   return JSON.stringify({format:BEGLEIT_FORMAT,version:1,datei:meta.datei||'',modell:meta.modell||null,erstellt:meta.erstellt||new Date().toISOString(),einheit:'mm',stil:meta.stil||null,
     bemassungen:dims.filter(d=>d.typ&&d.sels).map(d=>{const o={};for(const k of FELDER)if(d[k]!==undefined)o[k]=d[k];o.sels=d.sels.map(x=>{const q={k:x.k,id:x.id,inst:x.inst};if(x.src)q.src=x.src;if(x.p&&x.k==='point')q.p=x.p;return q});return o})},null,1)}

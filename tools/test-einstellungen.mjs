@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {STANDARD_EINSTELLUNGEN,pruefeEinstellungen,ladeEinstellungen,speichereEinstellungen,bildPixelRatio} from '../src/einstellungen.js';
+for(const raw of [null,[],{zoomTempo:NaN,drehTempo:Infinity,zoomRichtung:'invalid',bildqualitaet:'ultra'},'invalid'])assert.deepEqual(pruefeEinstellungen(raw),STANDARD_EINSTELLUNGEN);
+assert.equal(pruefeEinstellungen({zoomTempo:99}).zoomTempo,2);
+assert.equal(pruefeEinstellungen({drehTempo:-2}).drehTempo,.25);
+assert.equal(pruefeEinstellungen({zoomTempo:'2'}).zoomTempo,1);
+let stored='broken';const storage={getItem:()=>stored,setItem:(_key,v)=>stored=v};
+assert.deepEqual(ladeEinstellungen(storage),STANDARD_EINSTELLUNGEN);
+assert(speichereEinstellungen(storage,{zoomRichtung:'klassisch',hintergrund:'dunkel'}));
+assert.equal(ladeEinstellungen(storage).zoomRichtung,'klassisch');
+assert.equal(ladeEinstellungen(storage).hintergrund,'dunkel');
+assert.equal(speichereEinstellungen({setItem(){throw new Error('quota')}},{}),false);
+assert.deepEqual(ladeEinstellungen({getItem(){throw new Error('blocked')}}),STANDARD_EINSTELLUNGEN);
+assert.equal(bildPixelRatio('sparsam',2),1);assert.equal(bildPixelRatio('auto',4),2);assert.equal(bildPixelRatio('hoch',4),3);assert.equal(bildPixelRatio('auto',NaN),1);
+console.log('Einstellungen: ungültige/alte Daten, Grenzen, Speichern und Bildauflösung bestanden');

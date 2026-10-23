@@ -33,12 +33,12 @@
 </div></div>
 <div class="menu"><button type="button" class="menuknopf">Werkzeuge</button>
 <div class="menuliste" hidden>
-<button type="button" data-aktion="messen">Messen</button>
+<button type="button" data-aktion="messen">Messen <kbd>M</kbd></button>
 <button type="button" data-aktion="verschieben">Komponente verschieben</button>
 <button type="button" data-aktion="bemassung">Bemaßungen (im Messen)</button>
 <button type="button" data-aktion="blech">Blech-Abwicklung</button>
 <button type="button" data-aktion="baum">Baum ein-/ausblenden</button>
-<button type="button" data-aktion="drehen">Animieren</button>
+<button type="button" data-aktion="drehen" aria-pressed="false" title="Automatisch um die Hochachse drehen (ein/aus)">Autodrehen</button>
 <button type="button" data-aktion="zurueck">Ansicht zurücksetzen</button>
 </div></div>
 <div class="menu"><button type="button" class="menuknopf">Hilfe</button>
@@ -48,21 +48,21 @@
 </div></div>
 </nav>
 <div class="schnell">
-<label class="btn primary iknopf" title="STEP-Datei (.step/.stp) öffnen"><svg class="ik" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><input id="file" type="file" accept=".step,.stp,.STEP,.STP" hidden></label>
+<label class="btn primary iknopf" title="STEP-Dateien in neuen Reitern öffnen"><svg class="ik" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><input id="file" type="file" accept=".step,.stp,.STEP,.STP" multiple hidden></label>
 <button type="button" class="iknopf" id="exportKnopf" title="Speichern und Export"><svg class="ik" viewBox="0 0 24 24"><path d="M5 3h10l4 4v14H5zM8 3v5h6M8 13h8M8 17h5"/></svg></button>
 <button type="button" class="iknopf" data-aktion="drucken" title="Drucken"><svg class="ik" viewBox="0 0 24 24"><path d="M6 9V4h12v5M4 9h16v8H4zM7 14h10v6H7z"/></svg></button>
 <button type="button" class="iknopf" data-aktion="einstellungen" title="Einstellungen"><svg class="ik" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="8" cy="7" r="2" fill="var(--kopf,#3c4248)" stroke="currentColor"/><circle cx="15" cy="12" r="2" fill="var(--kopf,#3c4248)" stroke="currentColor"/><circle cx="10" cy="17" r="2" fill="var(--kopf,#3c4248)" stroke="currentColor"/></svg></button>
 </div>
 <div id="status">Keine Datei</div>
+<button type="button" id="ueber" class="ueber-knopf" title="Über diese Anwendung"><span class="info-symbol" aria-hidden="true">i</span> Über</button>
 </header>
-<div id="reiterleiste"><div id="dateitab" class="dateitab" hidden><span id="dateiname"></span><button type="button" id="dateiZu" title="Datei schließen">×</button></div></div>
-<main>
+<div id="reiterleiste"></div>
+<main id="dokumentAnsicht" role="tabpanel" aria-label="STEP-Modell">
 <aside class="left" id="baum"><div class="ahead">Baugruppe <button type="button" id="baumZu" class="zuKnopf" title="Baum einklappen">⟨</button></div><div class="search"><input id="treeSearch" type="search" placeholder="Suchen …" title="Teile und Baugruppen suchen"></div><div id="tree"></div><div class="ahead">Modell</div><div id="modelinfo" class="kv"></div></aside>
 <div id="view">
 <div id="werkzeugleiste">
 <button type="button" class="wk on" data-werkzeug="wahl" title="Auswählen"><svg class="ik" viewBox="0 0 24 24"><path d="M6 3l5 16 2.2-5.6L19 11z"/></svg></button>
 <button type="button" class="wk" data-werkzeug="schwenk" title="Schwenken"><svg class="ik" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-2.2 2.2M12 3l2.2 2.2M12 21l-2.2-2.2M12 21l2.2-2.2M3 12l2.2-2.2M3 12l2.2 2.2M21 12l-2.2-2.2M21 12l-2.2 2.2"/></svg></button>
-<button type="button" class="wk" data-werkzeug="drehen" title="Drehen"><svg class="ik" viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2-5"/><path d="M19 4v4h-4"/></svg></button>
 <button type="button" class="wk" data-werkzeug="zoom" title="Zoom"><svg class="ik" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M14.5 14.5 20 20M10 7v6M7 10h6"/></svg></button>
 <button type="button" class="wk" data-werkzeug="fenster" title="Zoom-Fenster"><svg class="ik" viewBox="0 0 24 24"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/><circle cx="11" cy="11" r="3.5"/><path d="M13.5 13.5 17 17"/></svg></button>
 <button type="button" class="wk" id="btnSchieben" title="Komponente verschieben"><svg class="ik" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><path d="M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg></button>
@@ -98,11 +98,26 @@
 <input id="cut" type="range" min="0" max="1000" value="500" disabled title="Schnittposition verschieben"></div></div>
 <div id="messenPanel" class="schweb dunkel kompakt" hidden><div class="ptitel">Messen <button type="button" class="tab on" data-tab="messen">Messen</button><button type="button" class="zuKnopf" id="messenZu" title="Einklappen">–</button></div>
 <div class="pbody"><section id="tab-messen">
-<div class="ahead">Einheiten</div>
-<div class="row"><label for="einheitLaenge">Länge</label> <select id="einheitLaenge" title="Längen einheit" disabled><option>Millimeter</option></select></div>
-<div class="row"><label for="einheitWinkel">Winkel</label> <select id="einheitWinkel" title="Winkel einheit" disabled><option>Grad</option></select></div>
-<div class="row"><label for="bogenAbstand">Bogen-/Kreismessungen</label></div>
+<div class="messkopf"><label for="messart">Messart</label><span>mm · Grad</span></div>
+<select id="messart" aria-describedby="messHinweis" title="Was möchten Sie messen?"></select>
+<div class="messschnell" aria-label="Häufige Messarten">
+<button type="button" data-messart="auto" aria-pressed="true">✦ Auto</button>
+<button type="button" data-messart="abstand" aria-pressed="false">↔ Abstand</button><button type="button" data-messart="radius" aria-pressed="false">R Radius</button><button type="button" data-messart="durchmesser" aria-pressed="false">Ø Durchmesser</button><button type="button" data-messart="bogen" aria-pressed="false">⌒ Bogenlänge</button><button type="button" data-messart="winkel" aria-pressed="false">∠ Winkel</button><button type="button" data-messart="summe" aria-pressed="false">∑ Summe</button>
+</div>
+<p id="messHinweis" class="hint messhinweis"></p>
+<div id="autoErkannt" class="auto-erkannt" hidden role="status"></div>
+<div id="messAuswahl" aria-label="Gewählte Messelemente"></div>
+<details class="mess-info-optionen"><summary>Informationen im Modell</summary>
+<p class="hint klein">Messwerte als verschiebbares Informationsfeld merken: Abstand, Normalabstand, ΔX/ΔY/ΔZ, Winkel, Radius und weitere CAD-Werte. Bei Flächen zusätzlich Fläche und Umfang.</p>
+<label><input type="checkbox" id="infoBezug" checked> Bauteil / Geometriebezug</label>
+<label><input type="checkbox" id="infoKoordinaten"> Koordinaten / Mittelpunkte</label>
+<label><input type="checkbox" id="infoFlaechen" checked> Flächen- und Körperwerte</label>
+</details>
+<button type="button" class="btn info-merken" id="keepInfo" disabled>Informationsfelder merken</button>
+<div class="row"><label for="prec">Nachkommastellen</label> <select id="prec" title="Nachkommastellen"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option></select></div>
+<div id="bogenOptionen"><div class="row"><label for="bogenAbstand">Bogen-/Kreismessungen</label></div>
 <div class="row"><select id="bogenAbstand" title="Abstand, sobald ein Bogen, Kreis oder Zylinder beteiligt ist"><option value="mitte" selected>Abstand Mitte zu Mitte</option><option value="min">Mindestabstand</option><option value="max">Maximalabstand</option></select></div>
+</div>
 <div class="ahead">Ergebnisse</div>
 <div id="ergebnis" class="ergebnis" aria-live="polite">Kante, Fläche oder Punkt anklicken.</div>
 <div id="selinfo" class="sel"></div>
@@ -124,6 +139,7 @@
 <div id="dimlist"></div>
 <div class="row"><select id="dimtyp" title="Bemaßungsart für die aktuelle Auswahl"></select> <button class="btn" id="dimSet" title="Aktuelle Auswahl mit der gewählten Art bemaßen">Bemaßen</button></div>
 <div id="dimedit" hidden><div class="ahead">Bemaßung <span id="deNo"></span> bearbeiten <button class="btn" id="deClose">Fertig</button></div>
+<div id="deDetails" class="kv"></div>
 <div class="row"><label>Art <select id="deTyp"></select></label></div>
 <div class="row"><label>Präfix <input id="dePre" size="6"></label> <label>Suffix <input id="deSuf" size="6"></label></div>
 <div class="row"><label>Text <input id="deText" size="14" placeholder="leer = Messwert"></label></div>
@@ -134,8 +150,6 @@
 <p class="hint">Kettenmaß und Basislinienmaß: einen Punkt wählen (Ecke, Kantenmitte, Kreismittelpunkt) und „Bemaßen“ – es geht von der letzten linearen Bemaßung weiter. Fase: Fasenfläche wählen.</p>
 <div class="ahead">Maßstil</div>
 <div class="row"><label>Textgröße <input id="stGroesse" type="number" min="8" max="40" style="width:4em"> px</label> <label>Pfeil <select id="stPfeil"></select></label> <label>Stellen <input id="stStellen" type="number" min="0" max="4" style="width:3em"></label></div>
-<div class="ahead">Genauigkeit</div>
-<div class="row"><label for="prec">Stellen</label> <select id="prec" title="Nachkommastellen"><option value="0">0 (1)</option><option value="1">1 (0,1)</option><option value="2">2 (0,01)</option><option value="3" selected>3 (0,001)</option><option value="4">4 (0,0001)</option></select> <span class="m">alle Maße in mm</span></div>
 <div class="ahead">Masse</div>
 <div class="row"><select id="mat" title="Werkstoff wählen"><option value="7.85">Stahl (7,85 g/cm³)</option><option value="7.90">Edelstahl (7,90 g/cm³)</option><option value="2.70">Aluminium (2,70 g/cm³)</option><option value="8.96">Kupfer (8,96 g/cm³)</option><option value="8.50">Messing (8,50 g/cm³)</option><option value="custom">Eigene Dichte</option></select>
 <input id="dens" type="number" step="0.01" min="0" value="7.85" title="Dichte in g/cm³"> <span class="m">g/cm³</span></div>
@@ -151,7 +165,7 @@
 <div class="row"><button class="btn" id="protPdf" title="Modellwerte, Hüllquader, Rohmaß, Bemaßungen und aktuelle Messung als PDF">Messprotokoll als PDF</button> <button class="btn" id="protXlsx" title="Dasselbe als Excel-Arbeitsmappe">Messprotokoll als Excel</button></div>
 <details><summary>Bedienung</summary>
 <p class="hint">Fläche zu Fläche (wie ZW3D): Q drücken, erste Fläche anklicken, zweite überfahren (Wert erscheint am Cursor) und anklicken. Parallele Flächen: Abstand senkrecht; Zylinder: Abstand zur Achse. Umschalt+Klick misst gegen die erste Fläche weiter. D zeigt die Abmessungen.</p>
-<p class="hint">Element anklicken (Rundung/Bogen: Radius und Bogenlänge sofort). Zweites Element anklicken: Abstand, Winkel, Lochabstand – wird als Bemaßung im 3D behalten. Weitere Arten über „Bemaßen“. Maus in „Auswählen“: Mitte ziehen = drehen, Rechts oder Umschalt+Mitte ziehen = schwenken, Rad = Zoom zum Cursor. Strg/Umschalt + Klick: weitere Kanten für die Gesamtlänge. Leertaste setzt die Auswahl zurück. F9 richtet eine schiefe Ansicht auf die nächste Standardansicht aus.</p>
+<p class="hint">Element anklicken (Rundung/Bogen: Radius und Bogenlänge sofort). Zweites Element anklicken: Abstand, Winkel, Lochabstand – wird als Bemaßung im 3D behalten. Weitere Arten über „Bemaßen“. Maus in „Auswählen“: Mitte ziehen = frei drehen (auch über Kopf), Rechts oder Strg/Umschalt+Mitte ziehen = schwenken, Rad = Zoom zum Cursor. Strg/Umschalt + Klick: weitere Kanten für die Gesamtlänge. Leertaste setzt die Auswahl zurück. F9 richtet eine schiefe Ansicht auf die nächste Standardansicht aus.</p>
 </details>
 </details>
 </section></div></div>
@@ -190,7 +204,6 @@
 </main>
 <footer id="boden">
 <button type="button" id="btnReset" title="Zurücksetzen – Ansicht auf Isometrie zurückstellen"><svg class="ik duo" viewBox="0 0 24 24" aria-hidden="true"><path class="fl" d="M13.6 8 18.97 11.1 13.6 14.2 8.23 11.1 Z"/><path d="M13.6 8 18.97 11.1 18.97 17.3 13.6 20.4 8.23 17.3 8.23 11.1 Z"/><path d="M8.23 11.1 13.6 14.2 18.97 11.1 M13.6 14.2 13.6 20.4"/><path d="M13 3.6A10 10 0 0 0 3.4 13"/><path d="M1.4 10.6 3.4 13.4 6 11.2"/></svg><span>Zurücksetzen</span></button>
-<button type="button" id="btnDreh" aria-pressed="false" title="Autodrehen – Teil langsam um die Hochachse drehen (ein/aus). Ein Klick in die Ansicht hält es an."><svg class="ik duo" viewBox="0 0 24 24" aria-hidden="true"><path class="fl" d="M12 5 17.37 8.1 12 11.2 6.63 8.1 Z"/><path d="M12 5 17.37 8.1 17.37 14.3 12 17.4 6.63 14.3 6.63 8.1 Z"/><path d="M6.63 8.1 12 11.2 17.37 8.1 M12 11.2 12 17.4"/><path class="ac" d="M1.6 13.6A10.4 4.2 0 0 0 20.8 16"/><path class="ac" d="M17.4 18.4 21.2 15.8 17.6 13.9"/><path class="ac thin" d="M22.4 13.2A10.4 4.2 0 0 0 18.4 10.2M5.6 10.2A10.4 4.2 0 0 0 1.6 13.2"/></svg><span>Autodrehen</span></button>
 <button type="button" id="btnMessen" title="Messen – schnell messen, wird nicht gespeichert"><svg class="ik duo" viewBox="0 0 24 24" aria-hidden="true"><g transform="rotate(-45 12 12)"><rect class="fl" x="1" y="7.8" width="22" height="8.4" rx="1.5"/><rect x="1" y="7.8" width="22" height="8.4" rx="1.5"/><path class="ac" d="M5 7.8v3.8M8.6 7.8v2.4M12.2 7.8v3.8M15.8 7.8v2.4M19.4 7.8v3.8"/></g></svg><span>Messen</span></button>
 <button type="button" id="btnSchnitt" title="Schnitt – Schnittebene durch das Teil legen"><svg class="ik duo" viewBox="0 0 24 24" aria-hidden="true"><path class="fl strong" d="M12 8.5 19.1 12.6 12 16.7 4.9 12.6 Z"/><path d="M4.9 12.6 12 16.7 19.1 12.6 19.1 16.7 12 20.8 4.9 16.7 Z"/><path d="M12 16.7 12 20.8"/><path class="thin dash" d="M4.9 12.6 4.9 8.5 12 4.4 19.1 8.5 19.1 12.6 M4.9 8.5 12 12.6 19.1 8.5 M12 12.6 12 16.7"/></svg><span>Schnitt</span></button>
 <button type="button" id="btnBlech" title="Blech – Abwicklung, Biegetabelle und DXF"><svg class="ik duo" viewBox="0 0 24 24" aria-hidden="true"><path class="fl" d="M10.2 1 10.2 6.71 10.24 7.26 10.38 7.84 10.59 8.43 10.88 9.01 11.23 9.54 11.64 10.03 12.07 10.43 12.53 10.74 18.57 14.23 11.65 18.22 5.62 14.73 5.16 14.42 4.73 14.02 4.32 13.53 3.97 13 3.68 12.42 3.47 11.83 3.33 11.25 3.29 10.7 3.29 4.99 Z"/><path d="M10.2 1 10.2 6.71 10.24 7.26 10.38 7.84 10.59 8.43 10.88 9.01 11.23 9.54 11.64 10.03 12.07 10.43 12.53 10.74 18.57 14.23 11.65 18.22 5.62 14.73 5.16 14.42 4.73 14.02 4.32 13.53 3.97 13 3.68 12.42 3.47 11.83 3.33 11.25 3.29 10.7 3.29 4.99 Z"/><path class="ac dash2" d="M10.88 9.01 3.97 13"/></svg><span>Blech</span></button>
@@ -205,11 +218,36 @@
 <button type="button" data-aktion="expPdf">Biegetabelle als PDF</button>
 <button type="button" data-aktion="expXlsx">Biegetabelle als Excel</button>
 </div>
-<div id="einstDlg" class="dlg fest" hidden><div class="dhead"><span>Einstellungen</span><button type="button" id="einstZu" title="Schließen">×</button></div>
-<p class="hint">Alle Maße werden in Millimeter angezeigt, Winkel in Grad. Die Nachkommastellen stehen im Panel „Messen“.</p>
-<p class="hint">Anzeigestil und Standardansichten liegen in der Werkzeugleiste über der 3D-Ansicht.</p></div>
+<dialog id="einstDlg" class="app-dialog" aria-labelledby="einstTitel">
+<div class="dialog-kopf"><div><span class="dialog-kategorie">ARBEITSPLATZ</span><h2 id="einstTitel">Einstellungen</h2></div><button type="button" id="einstZu" class="dialog-zu" data-dialog-close aria-label="Einstellungen schließen">×</button></div>
+<div class="dialog-inhalt">
+<fieldset><legend>Navigation</legend>
+<label class="einst-zeile" for="einst-zoomRichtung"><span>Zoomrichtung<small>Das Mausrad zoomt zum Cursor.</small></span><select id="einst-zoomRichtung"><option value="cad">Rad nach unten: näher</option><option value="klassisch">Rad nach oben: näher</option></select></label>
+<label class="einst-zeile" for="einst-zoomTempo"><span>Zoomgeschwindigkeit</span><span class="einst-regler"><input id="einst-zoomTempo" type="range" min="0.25" max="2" step="0.25"><output id="wert-zoomTempo" for="einst-zoomTempo"></output></span></label>
+<label class="einst-zeile" for="einst-drehTempo"><span>Drehgeschwindigkeit</span><span class="einst-regler"><input id="einst-drehTempo" type="range" min="0.25" max="2" step="0.25"><output id="wert-drehTempo" for="einst-drehTempo"></output></span></label>
+</fieldset>
+<fieldset><legend>Darstellung</legend>
+<label class="einst-zeile" for="einst-bildqualitaet"><span>Bildauflösung<small>Ändert nur die Anzeige, keine CAD-Maße.</small></span><select id="einst-bildqualitaet"><option value="auto">Automatisch</option><option value="hoch">Hohe Auflösung</option><option value="sparsam">Leistung sparen</option></select></label>
+<label class="einst-zeile" for="einst-hintergrund"><span>Hintergrund</span><select id="einst-hintergrund"><option value="stahl">Stahlblau</option><option value="hell">Hell</option><option value="dunkel">Graphit</option></select></label>
+<label class="einst-zeile" for="einst-baumDichte"><span>Baugruppenbaum</span><select id="einst-baumDichte"><option value="komfort">Komfortabel</option><option value="kompakt">Kompakt</option></select></label>
+<label class="einst-zeile" for="einst-farben"><span>STEP-Farben anzeigen</span><input type="checkbox" id="einst-farben"></label>
+</fieldset>
+<fieldset><legend>Messen</legend><label class="einst-zeile" for="einst-prec"><span>Nachkommastellen<small>Längen in mm, Winkel in Grad.</small></span><select id="einst-prec"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label></fieldset>
+<p class="hint" id="einst-status" role="status">Änderungen werden sofort angewendet und automatisch gespeichert.</p>
+</div><div class="dialog-fuss"><button type="button" class="btn" id="einstReset">Diese Einstellungen zurücksetzen</button><span><kbd>M</kbd> Messen</span></div>
+</dialog>
+<dialog id="ueberDlg" class="app-dialog ueber-dialog" aria-labelledby="ueberTitel">
+<div class="dialog-kopf"><div><span class="dialog-kategorie">CAD PRODUKTFAMILIE</span><h2 id="ueberTitel">Über</h2></div><button type="button" id="ueberClose" class="dialog-zu" data-dialog-close aria-label="Über schließen">×</button></div>
+<div class="dialog-inhalt"><div class="ueber-produkt"><div class="produkt-symbol" aria-hidden="true">3D</div><div><h3 id="ueberProdukt"></h3><span class="versionsbadge" id="ueberBadge"></span></div></div>
+<p class="ueber-text">STEP-Modelle und Baugruppen betrachten, frei drehen und präzise messen.</p>
+<dl class="ueber-daten"><dt>Version</dt><dd id="ueberVersion"></dd><dt>Projektpartner</dt><dd>Manfred Sickinger GmbH</dd><dt>Entwicklung</dt><dd>Hasi Elektronic</dd><dt>Softwareentwickler</dt><dd>Hamdi Güncavdi</dd><dt>Produktfamilie</dt><dd>MSCAD · Hasi CAD · MS3D · Hasi 3D</dd></dl>
+<div class="ueber-hinweis">Entwickelt von Hasi Elektronic<br><span>Lokale CAD-Dateien · B-Rep-Messungen · Desktop</span></div></div>
+</dialog>
 <div id="hilfeDlg" class="dlg fest" hidden><div class="dhead"><span>Tastenkürzel</span><button type="button" id="hilfeZu" title="Schließen">×</button></div>
-<table class="kuerzel"><tr><td><kbd>F</kbd></td><td>Einpassen (aktuelle Blickrichtung)</td></tr>
+<table class="kuerzel"><tr><td><kbd>Strg+O</kbd></td><td>STEP-Dateien in neuen Reitern öffnen</td></tr>
+<tr><td><kbd>Strg+Tab</kbd> / <kbd>Strg+Umschalt+Tab</kbd></td><td>Nächster / vorheriger Dokumentreiter</td></tr>
+<tr><td><kbd>Strg+W</kbd></td><td>Aktiven Dokumentreiter schließen</td></tr>
+<tr><td><kbd>F</kbd></td><td>Einpassen (aktuelle Blickrichtung)</td></tr>
 <tr><td><kbd>F9</kbd></td><td>Nächste Standardansicht, Rollwinkel entfernen</td></tr>
 <tr><td><kbd>F10</kbd></td><td>Normal auf die gewählte Fläche, ohne Fläche Isometrie</td></tr>
 <tr><td><kbd>Strg+1</kbd> / <kbd>1</kbd></td><td>Vorne</td></tr>
@@ -222,10 +260,11 @@
 <tr><td><kbd>Leertaste</kbd></td><td>Auswahl löschen</td></tr>
 <tr><td><kbd>Tab</kbd></td><td>Bauteil unter dem Cursor ausblenden</td></tr>
 <tr><td><kbd>Umschalt+Tab</kbd></td><td>Bauteil unter dem Cursor einblenden</td></tr>
-<tr><td><kbd>Strg+Umschalt+Tab</kbd></td><td>Alle einblenden</td></tr>
+<tr><td><kbd>Strg+Umschalt+H</kbd></td><td>Alle Bauteile einblenden</td></tr>
 <tr><td><kbd>Strg+Z</kbd></td><td>Verschieben rückgängig</td></tr>
 <tr><td><kbd>Strg+Y</kbd></td><td>Verschieben wiederholen</td></tr>
 <tr><td><kbd>Q</kbd></td><td>Nur Flächen fangen (Fläche zu Fläche messen) ein/aus</td></tr>
+<tr><td><kbd>M</kbd></td><td>Messen aktivieren</td></tr>
 <tr><td><kbd>Umschalt</kbd>+Klick</td><td>Weitere Fläche gegen die erste Fläche messen (Reihe)</td></tr>
 <tr><td><kbd>D</kbd></td><td>Abmessungen (Länge × Breite × Höhe) ein/aus</td></tr>
 <tr><td><kbd>Strg+C</kbd></td><td>Hauptwert der Messung kopieren</td></tr>

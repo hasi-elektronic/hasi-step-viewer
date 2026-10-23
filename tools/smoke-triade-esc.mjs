@@ -17,8 +17,8 @@ await p.evaluate(()=>{document.querySelectorAll('#messenErweitert,#blechDetails'
 const werte={};
 await laden('messbaugruppe.step');await triade('Boden');werte.baugruppe=await pruef('Baugruppe');
 const cv=await (await p.$('#buehne')).boundingBox();await p.mouse.move(cv.x+cv.width/2,cv.y+cv.height/2);
-await p.mouse.wheel(0,-600);await p.waitForTimeout(400);werte.zoomNah=await pruef('nah gezoomt');
-await p.mouse.wheel(0,1500);await p.waitForTimeout(400);werte.zoomFern=await pruef('fern gezoomt');
+await p.mouse.wheel(0,600);await p.waitForTimeout(400);werte.zoomNah=await pruef('nah gezoomt');
+await p.mouse.wheel(0,-1500);await p.waitForTimeout(400);werte.zoomFern=await pruef('fern gezoomt');
 await A(()=>{const s=document.getElementById('projektionWahl');if(s){s.value='orthogonal';s.dispatchEvent(new Event('change'))}});await p.waitForTimeout(400);werte.orthogonal=await pruef('orthogonal');
 await A(()=>{const s=document.getElementById('projektionWahl');if(s){s.value='perspektive';s.dispatchEvent(new Event('change'))}});
 // Griff gut treffbar: X-Pfeil in der Mitte greifen und 60 px ziehen → Teil bewegt sich
@@ -80,6 +80,6 @@ await p.keyboard.press('h');lin=await A(no=>window.__app.dims().find(d=>d.no===n
 [lx,ly]=await lab();await p.mouse.move(lx,ly);await p.mouse.down();await p.mouse.move(lx+200,ly,{steps:10});await p.mouse.up();await p.waitForTimeout(300);
 lin=await A(no=>window.__app.dims().find(d=>d.no===no),hoehe.linNo);if(lin.linArt!=='horizontal'||Math.abs(lin.wert-60)>1e-4)fail('gesperrt, aber Richtung gewechselt: '+lin.linArt);
 console.log('hoehe ok: wahre Länge',hoehe.abstand.toFixed(4),'Höhe',hoehe.hoehe,'waagerecht',hoehe.waagerecht,'| Linear seitlich → Höhe 380, H → 60 gesperrt');
-if(SHOTS){await A(()=>document.activeElement?.blur());await p.mouse.move(cv.x+80,cv.y+cv.height-80);await p.mouse.wheel(0,500);await p.waitForTimeout(300);await p.screenshot({path:path.join(SHOTS,'hoehe-schraeger-fuss.png')})}
+if(SHOTS){await A(()=>document.activeElement?.blur());await p.mouse.move(cv.x+80,cv.y+cv.height-80);await p.mouse.wheel(0,-500);await p.waitForTimeout(300);await p.screenshot({path:path.join(SHOTS,'hoehe-schraeger-fuss.png')})}
 console.log('fehler',JSON.stringify(errs));await b.close();if(errs.length)process.exit(1);console.log('OK: Triade und Esc');
 await import('./smoke-faz2.mjs');

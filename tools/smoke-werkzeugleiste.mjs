@@ -20,7 +20,7 @@ const name = marke === 'sickinger' ? 'ms3d' : 'hasi3d';
 const leiste = p.locator('#boden');
 // Normalzustand: kein Knopf aktiv
 await p.evaluate(() => document.querySelectorAll('#boden button').forEach(b => b.classList.remove('on')));
-for (const id of ['btnReset', 'btnDreh', 'btnMessen', 'btnSchnitt', 'btnBlech']) {
+for (const id of ['btnReset', 'btnMessen', 'btnSchnitt', 'btnBlech']) {
   const f = await farben(id);
   if (f.strich !== 'rgb(29, 29, 31)') fail(id + ' normal: Strich ' + f.strich);
   if (f.akzent && f.akzent !== F.a) fail(id + ' normal: Akzent ' + f.akzent);

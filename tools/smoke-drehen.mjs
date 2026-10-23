@@ -20,6 +20,7 @@ if (s.daempfung) fail('Dämpfung (Nachlauf) ist an');
 if (s.autoRotate || s.autodrehen) fail('Autodrehen läuft ohne Schalter');
 const mitte = s.mitte;
 if (!gleich(s.ziel, mitte)) fail('Drehpunkt ist nicht die Modellmitte: ' + s.ziel + ' / ' + mitte);
+const matrizen = await p.evaluate(() => window.__app.matrizen());
 const r = await p.locator('#buehne').boundingBox();
 const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
 // schnelles Ziehen mit der mittleren Taste, dann loslassen: danach darf sich nichts mehr bewegen
@@ -38,6 +39,25 @@ if (gleich(nach.pos, vor)) fail('Mitte ziehen dreht nicht');
 if (!gleich(nach.ziel, mitte)) fail('Drehen verschiebt den Drehpunkt');
 await frames(30);
 if (!gleich((await st()).pos, nach.pos)) fail('Nachlauf nach dem Drehen');
+// Über die Pole hinweg bis hinter das Modell: bei OrbitControls blieb up immer
+// (0,1,0), senkrechtes Drehen blieb an den Polen hängen.
+await p.evaluate(() => window.__app.ansicht('vorne'));
+await p.waitForFunction(() => window.__app.animFertig());
+let ueberKopf = false, hinten = false;
+for (let i = 0; i < 5; i++) {
+  await ziehen([], 0, Math.min(220, r.height * 0.3));
+  await frames(2);
+  const frei = await st();
+  ueberKopf ||= frei.up[1] < -0.2;
+  hinten ||= frei.pos[2] < frei.ziel[2];
+  if (!gleich(frei.ziel, mitte)) fail('Freies Drehen verändert den Drehpunkt');
+}
+if (!ueberKopf || !hinten) fail('Drehen erreicht die Rückseite über den Pol nicht');
+await ziehen([], 160, 80);
+const frei = await st();
+await frames(20);
+if (!gleich((await st()).up, frei.up)) fail('Rollwinkel läuft nach');
+if (JSON.stringify(await p.evaluate(() => window.__app.matrizen())) !== JSON.stringify(matrizen)) fail('Ansicht drehen verändert Bauteillagen');
 // Strg+Mitte = schwenken, ohne Nachlauf
 await ziehen(['Control'], 150, 40);
 await frames(2);
@@ -54,19 +74,31 @@ const z = await st();
 if (gleich(z.pos, pan2.pos)) fail('Rad zoomt nicht');
 await frames(30);
 if (!gleich((await st()).pos, z.pos)) fail('Nachlauf nach dem Zoomen');
+// Zoomanker bleibt unter dem Cursor, auch mit seitlich versetztem Kamerabild.
+await p.evaluate(() => window.__app.ansicht('vorne'));
+await p.waitForFunction(() => window.__app.animFertig());
+const punkt = (await st()).ziel.map((x,i) => x + (i === 0 ? 10 : 0));
+const pixel = await p.evaluate(p => window.__app.screenOf(p), punkt);
+await p.mouse.move(pixel[0], pixel[1]);await p.mouse.wheel(0, -250);await frames(2);
+const pixelDanach = await p.evaluate(p => window.__app.screenOf(p), punkt);
+if (Math.hypot(pixel[0]-pixelDanach[0],pixel[1]-pixelDanach[1]) > 0.5) fail('Zoom verschiebt den Punkt unter dem Cursor');
+// Freies Drehen bleibt per mittlerer Maustaste verfügbar, ohne redundante Schaltflächen.
+if(await p.locator('#btnDreh,[data-werkzeug=drehen]').count())fail('Entfernter Frei-drehen-Knopf ist noch vorhanden');
 // Autodrehen: Schalter an, dann dreht es; ein Griff in die Ansicht schaltet es aus und es steht danach still
-await p.locator('#btnDreh').click();
+await p.getByRole('button',{name:'Werkzeuge',exact:true}).click();
+await p.locator('[data-aktion="drehen"]').click();
 s = await st();
-if (!s.autodrehen || (await p.locator('#btnDreh').getAttribute('aria-pressed')) !== 'true') fail('Autodrehen-Schalter geht nicht an');
+if (!s.autodrehen || (await p.locator('[data-aktion="drehen"]').getAttribute('aria-pressed')) !== 'true') fail('Autodrehen-Schalter geht nicht an');
 const a0 = s.pos; await frames(10);
 if (gleich((await st()).pos, a0)) fail('Autodrehen dreht nicht');
 await ziehen([], 60, 0);
 s = await st();
-if (s.autodrehen || (await p.locator('#btnDreh').getAttribute('aria-pressed')) !== 'false') fail('Autodrehen bleibt nach dem Ziehen an');
+if (s.autodrehen || (await p.locator('[data-aktion="drehen"]').getAttribute('aria-pressed')) !== 'false') fail('Autodrehen bleibt nach dem Ziehen an');
 const a1 = s.pos; await frames(30);
 if (!gleich((await st()).pos, a1)) fail('Nach dem Loslassen dreht es von selbst weiter');
-const txt = await p.locator('#btnDreh').innerText();
-if (txt.trim() !== 'Autodrehen') fail('Beschriftung: ' + txt);
+await p.getByRole('button',{name:'Werkzeuge',exact:true}).click();await p.locator('[data-aktion="drehen"]').click();
+await p.mouse.move(cx,cy);await p.mouse.wheel(0,-50);await frames(2);
+if((await st()).autodrehen)fail('Autodrehen bleibt nach Wheel-Zoom an');
 if (errs.length) fail('Seitenfehler: ' + errs.join(' | '));
-console.log('smoke-drehen ok: kein Nachlauf (Drehen, Strg+Mitte schwenken, Rad), Drehpunkt Modellmitte, Autodrehen nur per Schalter');
+console.log('smoke-drehen ok: frei über die Pole zur Rückseite, Bauteillagen unverändert, Mitte/Links drehen, Strg+Mitte schwenken, Cursorzoom, kein Nachlauf');
 await b.close();

@@ -15,11 +15,16 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
       - run: npm ci
+      - run: node tools/test-datei-oeffnen.mjs
       - run: node tools/make-testblech.mjs public/testblech.step
       - run: node tools/test-brep.mjs public/testblech.step
       - run: node tools/test-kfaktor.mjs public/testblech.step
       - run: node tools/test-einheit.mjs public/testblech.step
       - run: node tools/test-messen.mjs
+      - run: node tools/test-messarten.mjs
+      - run: node tools/test-messauftraege.mjs
+      - run: node tools/test-einstellungen.mjs
+      - run: node tools/test-messinformationen.mjs
       - run: node tools/test-flaeche-flaeche.mjs  # Fläche zu Fläche (ZW3D), Abmessungen, offener Körper – WASM-Kern
       - run: node tools/test-hoehe.mjs
       - run: node tools/test-messen-faz1.mjs
@@ -57,9 +62,14 @@ jobs:
           grep -q 'STEP-Datei hier ablegen' dist/index.html
           grep -q 'id="dropHint"' dist/index.html
           node tools/smoke-drop.mjs
+          node tools/smoke-datei-oeffnen.mjs
           SHOT=docs/hasi-oberflaeche.png node tools/smoke-ui.mjs
+          PORT=4173 node tools/smoke-dokumente.mjs
           node tools/smoke-drehen.mjs
+          node tools/smoke-oberflaeche.mjs
+          node tools/smoke-messkern-fehler.mjs
           node tools/smoke-messen.mjs
+          node tools/smoke-messarten.mjs
           SHOTDIR=docs/flaeche/hasi node tools/smoke-flaeche.mjs
           SHOTDIR=docs/edrw/hasi node tools/smoke-edrw.mjs
           node tools/smoke-biegungen.mjs
@@ -94,6 +104,8 @@ jobs:
           curl -sf -o /dev/null http://localhost:4174/
           grep -q 'STEP-Datei hier ablegen' dist/index.html
           PORT=4174 node tools/smoke-marke.mjs
+          PORT=4174 MARKE=sickinger node tools/smoke-oberflaeche.mjs
+          PORT=4174 node tools/smoke-dokumente.mjs
           PORT=4174 node tools/smoke-drop.mjs
           PORT=4174 SHOT=docs/sickinger-baugruppe.png node tools/smoke-baugruppe-ui.mjs
           PORT=4174 SHOTDIR=docs/werkzeugleiste node tools/smoke-werkzeugleiste.mjs
@@ -182,6 +194,8 @@ jobs:
           node tools/test-kfaktor.mjs public/testblech.step
           node tools/test-einheit.mjs public/testblech.step
           node tools/test-messen.mjs
+          node tools/test-messarten.mjs
+          node tools/test-messinformationen.mjs
           node tools/test-flaeche-flaeche.mjs
           node tools/test-hoehe.mjs
           node tools/test-abwicklung.mjs
@@ -199,7 +213,7 @@ jobs:
           sudo apt-get install -y -q libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
           mkdir -p "$RUNNER_TEMP/tb"
           kern/build/hasi-kern testdaten/testbaugruppe.step "$RUNNER_TEMP/tb"
-          mkdir -p dist
+          npm run build
           cd src-tauri && HASI_TEST_KERN="$GITHUB_WORKSPACE/kern/build/hasi-kern" HASI_TEST_BREP="$RUNNER_TEMP/tb/modell.brep" cargo test --locked
       - name: STEP-Farben in der Anzeige (nativer Kern, Hasi 3D und MS3D) und Ablegen im Einzelteil-Fenster
         env: { HASI_KERN: kern/build/hasi-kern }
@@ -219,6 +233,11 @@ jobs:
           SHOTDIR=docs/farbe/hasi node tools/smoke-farbe.mjs
           OUT="$RUNNER_TEMP/geo" node tools/smoke-geo-speichern.mjs  # GEO über den Speicherweg der App (Menü und Blech-Reiter)
           KERN=native SHOTDIR=docs/farbe/flaeche-hasi node tools/smoke-flaeche.mjs
+          node tools/smoke-native-messarten.mjs
+          node tools/make-navigation-fixture.mjs "$RUNNER_TEMP/navigation.step" 512
+          mkdir -p "$RUNNER_TEMP/navigation"
+          "$HASI_KERN" "$RUNNER_TEMP/navigation.step" "$RUNNER_TEMP/navigation"
+          NAV_MESSUNG_PFLICHT=1 node tools/bench-navigation.mjs "$RUNNER_TEMP/navigation.step" "$RUNNER_TEMP/navigation"
           MARKE=sickinger npm run build
           npm run preview -- --port 4174 --strictPort >/tmp/vite-farbe2.log 2>&1 &
           for i in $(seq 1 40); do curl -sf -o /dev/null http://localhost:4174/ && break; sleep 1; done
@@ -241,6 +260,7 @@ jobs:
       - name: Paket (Probe)
         run: python3 tools/kern-paket.py kern/build/hasi-kern "${{ runner.temp }}/occt" kern-paket --triple x86_64-unknown-linux-gnu
   build:
+    needs: [test, kern]
     strategy:
       fail-fast: false
       matrix:
@@ -336,7 +356,7 @@ jobs:
           if ($env:MARKE -eq 'sickinger') {
             if ($html -notmatch '<title>MS3D</title>') { throw 'Frontend ohne Sickinger-Marke' }
           } else {
-            if ($html -notmatch '<title>Hasi 3D</title>' -or $html -match 'Sickinger') { throw 'Hasi-Frontend verändert' }
+            if ($html -notmatch '<title>Hasi 3D</title>' -or $html -match 'data-marke="sickinger"') { throw 'Hasi-Frontend verändert' }
           }
       - name: App bauen
         if: runner.os != 'Windows'
@@ -349,7 +369,7 @@ jobs:
           if [ "$MARKE" = "sickinger" ]; then EXTRA="--config src-tauri/tauri.sickinger.conf.json"; fi
           npx tauri build ${{ matrix.args }} --config src-tauri/tauri.kern.json $EXTRA
           if [ "$MARKE" = "sickinger" ]; then grep -q '<title>MS3D</title>' dist/index.html
-          else grep -q '<title>Hasi 3D</title>' dist/index.html && ! grep -q 'Sickinger' dist/index.html
+          else grep -q '<title>Hasi 3D</title>' dist/index.html && ! grep -q 'data-marke="sickinger"' dist/index.html
           fi
       - name: GEO speichern unter Windows (Schreibweg der App, cargo test)
         if: runner.os == 'Windows' && matrix.marke == 'hasi'
@@ -380,6 +400,7 @@ jobs:
             if [ "$MARKE" = "sickinger" ]; then NAME=MS3D; BIN=ms3d; else NAME='Hasi 3D'; BIN=hasi-3d; fi
             test "$(basename "$APP")" = "$NAME.app"
             test -x "$APP/Contents/MacOS/$BIN"
+            node tools/test-messkern-paket.mjs "$APP/Contents/MacOS/$BIN"
             test "$(plutil -extract CFBundleExecutable raw "$APP/Contents/Info.plist")" = "$BIN"
             test $(ls "$APP/Contents/Resources/kern" | wc -l) -ge $n
             otool -L "$APP/Contents/MacOS/hasi-kern" | grep -q '@rpath/'
@@ -397,6 +418,7 @@ jobs:
             if [ "$MARKE" = "sickinger" ]; then printf '%s\n' "$PLIST" | grep -q 'de.sickinger.step'; else printf '%s\n' "$PLIST" | grep -q 'de.hasi-elektronic.step'; fi
             DMG=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg); hdiutil attach -nobrowse -mountpoint /tmp/dmg "$DMG"
             test -x /tmp/dmg/*.app/Contents/MacOS/hasi-kern
+            node tools/test-messkern-paket.mjs "/tmp/dmg/$NAME.app/Contents/MacOS/$BIN"
             test $(ls /tmp/dmg/*.app/Contents/Resources/kern | wc -l) -ge $n
             DMGPLIST=$(plutil -convert xml1 -o - /tmp/dmg/*.app/Contents/Info.plist)
             printf '%s\n' "$DMGPLIST" | grep -q 'CFBundleDocumentTypes'
@@ -420,6 +442,13 @@ jobs:
             grep -q "!define MAINBINARYNAME \"$BIN\"" "$NSI"
             grep -q 'hooks.nsh' "$NSI"
             test -f "src-tauri/target/release/$BIN.exe"
+            node tools/test-messkern-paket.mjs "$D/$BIN.exe"
+            node tools/test-desktop-paket.mjs "$D/$BIN.exe"
+            7z x -y "$EXE" "-o$RUNNER_TEMP/nsis" >/dev/null
+            NBIN=$(find "$RUNNER_TEMP/nsis" -iname "$BIN.exe" -print -quit)
+            test -n "$NBIN"
+            node tools/test-messkern-paket.mjs "$NBIN"
+            node tools/test-desktop-paket.mjs "$NBIN"
             WXS=$(find src-tauri/target/release/wix -name '*.wxs' -print -quit)
             test -n "$WXS"
             grep -q "Extension Id=\"step\"" "$WXS"
@@ -431,6 +460,19 @@ jobs:
             grep -qi "UpgradeCode=\"{\?$UC}\?\"" "$WXS"
           fi
           ls -la ${{ matrix.out }} 2>/dev/null || true
+      - name: Unicode-Pfade im nativen Kern (Import, Export, erneutes Öffnen)
+        shell: bash
+        run: |
+          set -e
+          # Den gepackten Kern mit seinen Bibliotheken testen; das Build-Verzeichnis
+          # enthält unter Windows keine OCCT-DLLs.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export HASI_KERN=src-tauri/target/release/hasi-kern.exe
+          else
+            APP=$(ls -d src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app)
+            export HASI_KERN="$APP/Contents/MacOS/hasi-kern"
+          fi
+          node tools/test-unicode-kern.mjs
       # Vorschau-Installer von #13 (41a8b06, alter Produktname und alte Programmdatei)
       - uses: actions/download-artifact@v4
         id: alt

@@ -10,6 +10,8 @@ await p.evaluate(()=>window.__loadUrl('./messteil.step'));
 await p.waitForFunction(()=>window.__lastLoad&&window.__lastLoad.bodies>0,null,{timeout:60000});await p.waitForTimeout(800); // Einpassen ist animiert: erst danach Raster absuchen
 const sel=(f,a)=>p.evaluate(f,a);
 // Fangen per Maus: Raster absuchen, bis Kantenmitte / Ecke / Kreismittelpunkt gefangen werden
+// Auto bevorzugt die Kurve für R/Ø; Mittelpunkt-Fänge gehören zur Abstandswahl.
+await p.selectOption('#messart','abstand');
 const found=await p.evaluate(()=>{const o={};for(let y=150;y<800;y+=6)for(let x=300;x<1150;x+=6){const s=window.__app.pickAt(x,y);if(s&&!o[s.k])o[s.k]=[x,y]}return o});
 console.log('fangen',JSON.stringify(Object.keys(found)));for(const k of ['vertex','mid','center','edge','face'])if(!found[k])fail('Fangart fehlt: '+k);
 await p.mouse.move(...found.center);await p.waitForTimeout(250);const tip=await p.textContent('#snaptip');console.log('hover',tip);if(!/^Kreismittelpunkt( · |$)/.test(tip||''))fail('Hover-Vorschau fehlt'); // Tipp nennt seit Faz 2 auch das Teil
@@ -18,6 +20,7 @@ await p.mouse.move(100,450); // links im Baum: außerhalb der 3D-Ansicht
 await p.waitForTimeout(150);if(await p.evaluate(()=>window.__app.hoverCount())!==0||await p.isVisible('#snaptip'))fail('Hover-Marker bleibt nach Verlassen stehen');
 await p.mouse.move(...found.center);await p.waitForTimeout(150);await p.mouse.move(600,860);await p.waitForTimeout(150);if(await p.evaluate(()=>window.__app.hoverCount())!==0)fail('Hover-Marker bleibt neben dem Objekt stehen');console.log('hover-verlassen ok');
 // Bemaßungen
+await p.selectOption('#messart','auto');
 const ids=await p.evaluate(()=>{const U=window.__app.data().uniq[0];const c=U.edges.map((e,i)=>[e,i]).filter(([e])=>e.type==='Kreis'&&e.c[2]>19.9&&e.pts.length>40);return c.map(x=>x[1])});
 await sel(async i=>{window.__app.clearSel();await window.__app.select({k:'center',id:i[0],inst:0,p:window.__app.data().uniq[0].edges[i[0]].c});await window.__app.select({k:'center',id:i[1],inst:0,p:window.__app.data().uniq[0].edges[i[1]].c})},ids);
 await sel(async i=>{window.__app.clearSel();await window.__app.select({k:'edge',id:i[0],inst:0});await window.__app.select({k:'edge',id:i[1],inst:0})},ids);

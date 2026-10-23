@@ -2,7 +2,7 @@
 import assert from 'assert';import fs from 'fs';
 const html=fs.readFileSync('index.html','utf8');const css=fs.readFileSync('src/style.css','utf8');
 const boden=html.match(/<footer id="boden">([\s\S]*?)<\/footer>/)[1];
-const SOLL={btnReset:'Zurücksetzen',btnDreh:'Autodrehen',btnMessen:'Messen',btnSchnitt:'Schnitt',btnBlech:'Blech'};// Bemaßung ist seit 22.10. Teil von Messen (kein eigener Knopf);
+const SOLL={btnReset:'Zurücksetzen',btnMessen:'Messen',btnSchnitt:'Schnitt',btnBlech:'Blech'};// Bemaßung ist seit 22.10. Teil von Messen (kein eigener Knopf);
 const knoepfe=[...boden.matchAll(/<button type="button" id="(\w+)"[^>]*title="([^"]+)"[^>]*>(<svg[\s\S]*?<\/svg>)<span>([^<]+)<\/span><\/button>/g)];
 assert.deepStrictEqual(knoepfe.map(k=>k[1]),Object.keys(SOLL),'Reihenfolge/Anzahl der Knöpfe');
 for(const [,id,titel,svg,text] of knoepfe){
@@ -24,5 +24,5 @@ assert(/id="linWahl"[\s\S]*data-w="ausgerichtet"[\s\S]*data-w="horizontal"[\s\S]
 assert(/:root\{--a:#33AFE2;--a-dunkel:#1A7FAE/.test(css),'Hasi-Farben');
 assert(/html\[data-marke="sickinger"\]\{--a:#009EDF;--a-dunkel:#004B85\}/.test(css),'Sickinger-Farben');
 assert(/#boden button\.on\{--ik-strich:var\(--a\);--ik-akzent:var\(--a-dunkel\)/.test(css),'Aktiv-Zustand');
-console.log('  ok  5 Knöpfe, Zweiton über Variablen, Tooltips, Lineal ≠ Maßlinie');
+console.log('  ok  4 Knöpfe, Zweiton über Variablen, Tooltips, Lineal ≠ Maßlinie');
 console.log('OK: Werkzeugleiste');

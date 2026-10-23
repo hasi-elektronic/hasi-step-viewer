@@ -12,20 +12,20 @@ const p=await b.newPage({viewport:{width:1500,height:900}});const errs=[];p.on('
 await p.route('**/'+NAME,r=>r.fulfill({status:200,body:fs.readFileSync(quelle),headers:{'content-type':'application/octet-stream'}}));
 await p.goto(`http://localhost:${port}/`);await p.evaluate(()=>{localStorage.clear()});await p.reload();await p.waitForFunction(()=>window.__app&&window.__loadUrl&&window.__dock);
 const A=(f,a)=>p.evaluate(f,a);const bild=async n=>{if(dir){await p.waitForTimeout(250);await p.locator('#view').screenshot({path:`${dir}/${n}.png`})}};
-await A(n=>{window.__lastLoad=null;return window.__loadUrl('./'+n)},NAME);await p.waitForFunction(()=>window.__lastLoad&&window.__lastLoad.bodies>0,null,{timeout:180000});await p.waitForTimeout(800);
+await A(n=>{return window.__loadUrl('./'+n)},NAME);await p.waitForFunction(()=>window.__lastLoad&&window.__lastLoad.bodies>0,null,{timeout:180000});await p.waitForTimeout(800);
 // 1) Start: kein Feld offen, Modell ganz im Bild und unter der Werkzeugleiste
 {const d=await A(()=>window.__dock());const leiste=await p.locator('#werkzeugleiste').boundingBox(),v=await p.locator('#view').boundingBox();
   if(d.dock||!(await p.locator('#messenPanel').isHidden())||!(await p.locator('#blechPanel').isHidden()))fail('Start: Werkzeugfeld offen');
   const m=d.modell,[w,h]=d.ansicht,unterLeiste=leiste.y+leiste.height-v.y;
   if(m.x0<-1||m.x1>w+1||m.y1>h+1||m.y0<unterLeiste-2)fail('Start: Modell nicht ganz frei '+JSON.stringify({m,unterLeiste}));
   ok(`Start ohne Werkzeugfeld, Modell ${Math.round(m.x1-m.x0)}×${Math.round(m.y1-m.y0)} px ab y ${Math.round(m.y0)} (Werkzeugleiste bis ${Math.round(unterLeiste)})`);await bild('1-start')}
-// 2) Messen: kompakt unten links, ≤ 280 px, höchstens halbe Höhe, Modellmitte frei; Erweitert zu
+// 2) Messen: ≤ 280 px, innerhalb der Ansicht; neue Messartwahl benötigt mehr Höhe. Modellmitte frei, Erweitert zu.
 await p.locator('#btnMessen').click();await p.waitForTimeout(700);
 {const r=await p.locator('#messenPanel').boundingBox(),v=await p.locator('#view').boundingBox(),d=await A(()=>window.__dock());
   if(r.width>282)fail('Messen zu breit: '+r.width);if(r.x-v.x>20||v.y+v.height-(r.y+r.height)>20)fail('Messen nicht unten links '+JSON.stringify(r));
-  if(r.height>v.height*0.55)fail('Messen zu hoch: '+r.height);if(d.ueberlappt)fail('Messen verdeckt das Modell');
+  if(r.y<v.y||r.y+r.height>v.y+v.height+1)fail('Messen außerhalb der Ansicht: '+JSON.stringify(r));if(d.ueberlappt)fail('Messen verdeckt das Modell');
   if(await A(()=>document.getElementById('messenErweitert').open))fail('Erweitert offen');
-  for(const t of ['Einheiten','Bogen-/Kreismessungen','Ergebnisse'])if(!(await p.locator('#messenPanel').textContent()).includes(t))fail('fehlt: '+t);
+  for(const t of ['Messart','mm · Grad','Bogen-/Kreismessungen','Ergebnisse'])if(!(await p.locator('#messenPanel').textContent()).includes(t))fail('fehlt: '+t);
   ok(`Messen ${Math.round(r.width)}×${Math.round(r.height)} px unten links, Modell frei`);await bild('2-messen')}
 // 3) Ein Klick auf eine Kante: Länge am Element und im Ergebnis; Kreis: Durchmesser
 const info=await A(i=>{const a=window.__app,D=a.data(),U=D.uniq[D.inst[i].u];let lang=-1,lm=0,kreis=-1,km=0;

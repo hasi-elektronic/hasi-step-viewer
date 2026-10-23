@@ -15,7 +15,7 @@ if(nativ){const exe=process.env.HASI_KERN||'kern/build/hasi-kern',tmp=fs.mkdtemp
     return {bin:fs.readFileSync(path.join(d,'modell.bin')).toString('base64'),brep:fs.readFileSync(path.join(d,'modell.brep'),'latin1')}});
   await ctx.exposeFunction('__dateiLesen',async pfad=>fs.readFileSync(pfad).toString('base64'));
   await ctx.addInitScript(()=>{const ab=s=>{const t=atob(s);const u=new Uint8Array(t.length);for(let i=0;i<t.length;i++)u[i]=t.charCodeAt(i);return u.buffer};let letzt=null;
-    window.__TAURI_INTERNALS__={invoke:async(cmd,args)=>{if(cmd==='kern_verfuegbar')return true;if(cmd==='start_pfad')return null;
+    window.__TAURI_INTERNALS__={transformCallback:()=>0,invoke:async(cmd,args)=>{if(cmd==='dokumente_zuruecksetzen'||cmd==='dokument_schliessen')return true;if(cmd==='dokument_neu')return 'mock-'+Math.random();if(cmd==='plugin:event|listen')return 0;if(cmd==='kern_verfuegbar')return true;if(cmd==='start_pfad')return null;
       if(cmd==='kern_laden_pfad'){letzt=await window.__kernPfad(args.pfad);return ab(letzt.bin)}if(cmd==='datei_lesen')return ab(await window.__dateiLesen(args.pfad));
       if(cmd==='kern_brep')return letzt.brep;throw new Error('unbekannt '+cmd)},transformCallback:()=>0}})}
 await ctx.addInitScript(()=>{localStorage.removeItem('nurFlaechen')});
@@ -24,7 +24,7 @@ await p.goto(`http://localhost:${port}/`);await p.waitForFunction(()=>window.__a
 await p.evaluate(()=>{document.querySelectorAll('#messenErweitert,#blechDetails').forEach(d=>d.open=true);if(document.getElementById('messenPanel').hidden)document.getElementById('btnMessen').click()}); // Start ohne offenes Feld: für diesen Test Messen öffnen, „Erweitert“/„Details“ aufklappen
 if(marke==='ms3d'){const t=await p.title();if(t!=='MS3D')fail('Titel MS3D erwartet, ist '+t);ok('Marke MS3D')}
 const bild=async n=>{if(shot){await p.waitForTimeout(250);await p.screenshot({path:path.join(shot,n+'.png')});console.log('  bild '+path.join(shot,n+'.png'))}};
-async function laden(t){await p.evaluate(()=>{window.__lastLoad=null});
+async function laden(t){await p.evaluate(()=>{});
   if(nativ)await p.evaluate(f=>window.__oeffnePfad(f),path.resolve(`testdaten/${t}.step`));else await p.evaluate(u=>window.__loadUrl(u),`./${t}.step`);
   await p.waitForFunction(()=>window.__lastLoad&&window.__lastLoad.bodies>0,null,{timeout:90000});if(nativ){await p.evaluate(()=>window.__messBereit);const k=await p.evaluate(()=>window.__lastLoad.kern);if(k!=='nativ')fail('nativer Pfad nicht benutzt: '+k)}
   await p.waitForTimeout(900)}
@@ -87,7 +87,7 @@ await p.keyboard.press('Escape');await p.waitForTimeout(100);if(await p.evaluate
 await p.keyboard.press('q');if(await p.isChecked('#nurFlaechen'))fail('Q schaltet nicht aus');
 
 // 3) Schräger Fuß: Abmessungen an der Grundfläche 100 × 30 × 380, Klick auf die schräge Wand richtet neu aus
-await laden('schraeger-fuss');await p.mouse.move(640,420);for(let i=0;i<4;i++){await p.mouse.wheel(0,250);await p.waitForTimeout(120)}await p.waitForTimeout(500);// 380 mm hohes Teil: etwas herauszoomen fürs Bild
+await laden('schraeger-fuss');await p.mouse.move(640,420);for(let i=0;i<4;i++){await p.mouse.wheel(0,-250);await p.waitForTimeout(120)}await p.waitForTimeout(500);// CAD-Richtung: Rad nach oben zoomt das 380 mm hohe Teil heraus.
 await p.click('#abmKnopf');await p.waitForFunction(()=>window.__abm&&window.__abm.ok,null,{timeout:15000});await p.waitForTimeout(200);
 t=await p.textContent('#abminfo');if(!t.includes('100,000 × 30,000 × 380,000 mm')||!t.includes('Grundfläche'))fail('Abmessungen schräger Fuß: '+t);ok('Abmessungen schräger Fuß 100 × 30 × 380 (Grundfläche)');
 await p.mouse.move(1400,880);await bild(`${marke}-abmessungen-schraeger-fuss`);

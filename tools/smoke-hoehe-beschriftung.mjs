@@ -9,7 +9,7 @@ const p=await b.newPage({viewport:{width:1500,height:900}});const errs=[];p.on('
 await p.route('**/'+NAME,r=>r.fulfill({status:200,body:fs.readFileSync('testdaten/bock.step'),headers:{'content-type':'application/octet-stream'}}));
 await p.goto(`http://localhost:${port}/`);await p.evaluate(()=>{localStorage.clear()});await p.reload();await p.waitForFunction(()=>window.__app&&window.__loadUrl);
 const A=(f,a)=>p.evaluate(f,a);const bild=async n=>{if(dir){await p.waitForTimeout(300);await p.locator('#view').screenshot({path:`${dir}/${n}.png`})}};
-await A(n=>{window.__lastLoad=null;return window.__loadUrl('./'+n)},NAME);await p.waitForFunction(()=>window.__lastLoad&&window.__lastLoad.bodies>0,null,{timeout:180000});await p.waitForTimeout(600);
+await A(n=>{return window.__loadUrl('./'+n)},NAME);await p.waitForFunction(()=>window.__lastLoad&&window.__lastLoad.bodies>0,null,{timeout:180000});await p.waitForTimeout(600);
 if(await p.locator('#btnMass').count())fail('Bemaßung-Knopf in der Fußleiste soll entfallen');
 await p.locator('#btnMessen').click();await p.waitForTimeout(500);
 for(const t of ['Auto','Ausgerichtet','Horizontal','Vertikal','Gesamthöhe (H)'])if(!(await p.locator('#messenPanel').innerText()).includes(t))fail('Messen ohne „'+t+'“');

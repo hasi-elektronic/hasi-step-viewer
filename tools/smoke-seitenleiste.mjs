@@ -14,7 +14,7 @@ async function seite(w, h) {
   await p.goto('http://localhost:' + port + '/');await p.waitForFunction(() => window.__loadUrl && window.__dock);return p;
 }
 async function laden(p, datei) {
-  await p.evaluate(d => { window.__lastLoad = null; return window.__loadUrl('./' + d); }, datei);
+  await p.evaluate(d => {  return window.__loadUrl('./' + d); }, datei);
   await p.waitForFunction(() => window.__lastLoad && window.__lastLoad.bodies > 0, null, { timeout: 90000 });await ruhe(p);
 }
 const ruhe = p => p.waitForTimeout(700); // Einpassen ist animiert
