@@ -1,6 +1,7 @@
 name: release
 permissions:
   contents: read
+  id-token: write  # Anmeldung bei Azure zum Signieren (Windows)
   actions: read  # Vorschau-Installer aus einem älteren Lauf für den Ersetzungs-Test laden
 on:
   workflow_dispatch:
@@ -321,6 +322,37 @@ jobs:
             ZIEL='./'
           fi
           printf '%s\n' "{\"bundle\":{\"externalBin\":[\"../kern-paket/hasi-kern\"],\"resources\":{\"../kern-paket/kern/*\":\"$ZIEL\"}}}" > src-tauri/tauri.kern.json
+      # Signatur mit Microsoft Artifact Signing ("Hasi-Elektronic"). Anmeldung per OIDC – keine Secrets nötig:
+      # Die IDs sind nicht geheim, Azure lässt nur Workflows aus hasi-elektronic/* zu.
+      - name: Azure-Anmeldung (Signatur)
+        if: runner.os == 'Windows' && github.event_name != 'pull_request'
+        uses: azure/login@v2
+        with:
+          client-id: 5a2bd4d9-004a-4280-a1fd-b46f846dc62a
+          tenant-id: c3f2023b-fc42-4fdd-a45d-d70fe78cd294
+          subscription-id: ae83a62f-4d85-46f0-b0ac-f823fef82750
+
+      - name: Signatur vorbereiten
+        if: runner.os == 'Windows' && github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          $jar = Join-Path $env:RUNNER_TEMP 'jsign.jar'
+          Invoke-WebRequest https://github.com/ebourg/jsign/releases/download/7.1/jsign-7.1.jar -OutFile $jar
+          $token = az account get-access-token --resource https://codesigning.azure.net --query accessToken -o tsv
+          if (-not $token) { throw 'Kein Zugriffstoken für Artifact Signing' }
+          Write-Host "::add-mask::$token"
+          $script = Join-Path $env:GITHUB_WORKSPACE 'scripts\sign-win.ps1'
+          @(
+            "JSIGN_JAR=$jar", "SIGN_TOKEN=$token", 'SIGN_HOST=neu.codesigning.azure.net',
+            'SIGN_ACCOUNT=hasi-elektronic-signing', 'SIGN_PROFILE=hasi-pdf', "SIGN_NAME=$(if ('${{ matrix.marke }}' -eq 'sickinger') { 'MS3D' } else { 'Hasi 3D' })",
+            "SIGN_SCRIPT=$script"
+          ) | Add-Content $env:GITHUB_ENV
+          # Tauri signiert damit Programm, Installer und Deinstallationsprogramm (tauri build --config …)
+          $cfg = Join-Path $env:RUNNER_TEMP 'tauri.signing.json'
+          @{ bundle = @{ windows = @{ signCommand = @{ cmd = 'pwsh'; args = @('-NoProfile', '-File', $script, '%1') } } } } |
+            ConvertTo-Json -Depth 6 | Set-Content $cfg
+          "TAURI_SIGN_CONFIG=$cfg" | Add-Content $env:GITHUB_ENV
+
       - name: App bauen
         if: runner.os == 'Windows'
         shell: pwsh
@@ -330,6 +362,7 @@ jobs:
           $tauriArgs = "${{ matrix.args }}".Split(' ')
           $cfg = @('--config','src-tauri/tauri.kern.json')
           if ($env:MARKE -eq 'sickinger') { $cfg += @('--config','src-tauri/tauri.sickinger.conf.json') }
+          if ($env:TAURI_SIGN_CONFIG) { $cfg += @('--config', $env:TAURI_SIGN_CONFIG) }
           npx tauri build @tauriArgs @cfg
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $html = Get-Content -Raw dist/index.html
@@ -431,6 +464,15 @@ jobs:
             grep -qi "UpgradeCode=\"{\?$UC}\?\"" "$WXS"
           fi
           ls -la ${{ matrix.out }} 2>/dev/null || true
+      - name: Signatur prüfen
+        if: runner.os == 'Windows' && github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          foreach ($f in Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe, src-tauri/target/release/bundle/msi/*.msi) {
+            $s = Get-AuthenticodeSignature $f.FullName
+            Write-Host "$($f.Name): $($s.Status) – $($s.SignerCertificate.Subject)"
+            if ($s.Status -ne 'Valid') { Write-Host "::error title=Nicht signiert::$($f.Name)"; exit 1 }
+          }
       # Vorschau-Installer von #13 (41a8b06, alter Produktname und alte Programmdatei)
       - uses: actions/download-artifact@v4
         id: alt
