@@ -861,7 +861,7 @@ function keepDim(typ){if(!lastRes)return false;typ=typ||$('dimtyp').value;const 
   // Gleicher Bezugspunkt wie eine vorhandene Bemaßung: weiter nach außen versetzen, damit sich nichts überlappt
   if(g&&g.off&&!['kette','basislinie'].includes(g.typ)){const tol=box.getSize(new THREE.Vector3()).length()*0.04,ref=dimRef(g);const k=dims.filter(d=>d.typ&&BM.V.len(BM.V.sub(dimRef(d),ref))<tol).length;if(k)g.off=BM.V.mul(g.off,1+k*0.9)}
   dims.push({no:++dimNo,...lastRes,...(g||{})});renderDims();return true}
-$('keepDim').onclick=()=>keepDim();
+$('keepDim').onclick=()=>keepDim(messart==='auto'?undefined:'auto');
 $('copySel').onclick=()=>{if(lastRes)copyText(lastRes.title+'\n'+lastRes.r.rows.map(rowText).join('\n'))};
 $('dimlist').onclick=e=>{const b=e.target.closest('button');if(!b)return;const no=+b.closest('.dim').dataset.no;const d=dims.find(x=>x.no===no);
   if(b.dataset.a==='del'){dims=dims.filter(x=>x!==d);renderDims()}else if(b.dataset.a==='edit')editDim(d);else copyText(dimText(d))};

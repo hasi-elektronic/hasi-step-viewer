@@ -35,6 +35,11 @@ export async function checkMessartenUi(page) {
   await mode('durchmesser');q=await result();near(q.r.label[1],10);assert.equal(q.sels.length,1,'Messartwechsel behält passende Auswahl');
   await mode('bogen');q=await result();near(q.r.label[1],5*Math.PI/2);assert(q.ui.startsWith('Bogenlänge:'),q.ui);
   await page.locator('#messenErweitert').evaluate(el=>el.open=true);
+  // Ein alter erweiterter Typ darf den Hauptknopf der gewählten Messart nicht umdeuten.
+  await page.selectOption('#dimtyp','hoehe');await mode('radius');await page.locator('#keepDim').click();
+  const radiusDim=await page.evaluate(()=>window.__app.dims().at(-1));assert.equal(radiusDim.typ,'radius');near(radiusDim.wert,5);
+  await mode('bogen');await page.selectOption('#dimtyp','radius');await page.locator('#keepDim').click();
+  const arcDim=await page.evaluate(()=>window.__app.dims().at(-1));assert.equal(arcDim.typ,'bogen');near(arcDim.wert,5*Math.PI/2);
   await page.selectOption('#dimtyp','auto');await page.locator('#keepDim').click();
   const d=await page.evaluate(()=>window.__app.dims().at(-1));assert.equal(d.typ,'bogen');near(d.a1-d.a0,Math.PI/2);near(d.wert,5*Math.PI/2);
   await mode('sehne');q=await result();near(q.r.label[1],5*Math.SQRT2);
