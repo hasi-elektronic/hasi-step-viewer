@@ -12,7 +12,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(KernZustand::default())
         .manage(ExportZustand::default())
-        .invoke_handler(tauri::generate_handler![save_text, save_bytes, kern_verfuegbar, kern_laden, kern_laden_pfad, datei_lesen, kern_brep, start_pfad, step_export, step_export_abbrechen, ordner_waehlen, datei_ablegen, einzelteil_fenster])
+        .invoke_handler(tauri::generate_handler![save_text, save_bytes, kern_verfuegbar, kern_laden, kern_laden_pfad, datei_lesen, datei_waehlen, kern_brep, start_pfad, step_export, step_export_abbrechen, ordner_waehlen, datei_ablegen, einzelteil_fenster])
         .setup(|app| {
             ziehereignis(app.handle(), "main");
             #[cfg(target_os = "macos")]
@@ -40,6 +40,12 @@ fn main() {
         tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::Destroyed, .. } => {
             use tauri::Manager;
             fenster_aufraeumen(&app.state::<KernZustand>(), &label);
+            if let Ok(mut pending) = START_PFADE.lock() { pending.remove(&label); }
+        }
+        // Unter Windows liefert ein WebviewWindow den OS-Drop als WindowEvent.
+        // Nur on_webview_event zu abonnieren verliert diese Ereignisse.
+        tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::DragDrop(event), .. } => {
+            drop_ereignis(app, &label, &event);
         }
         tauri::RunEvent::Exit => {
             use tauri::Manager;
@@ -735,7 +741,22 @@ async fn kern_brep(fenster: tauri::WebviewWindow, zustand: tauri::State<'_, Kern
 }
 
 /// Pfad aus einem zweiten Start, solange die Oberfläche ihn noch nicht abgeholt hat.
-static START_PFAD: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static START_PFADE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Der native Dialog liefert einen Pfad an denselben Ladeweg wie Doppelklick und Drop.
+/// So gelten Zwischenspeicher, Unicode-Unterstützung und Fehlerbehandlung überall.
+#[tauri::command]
+async fn datei_waehlen(app: tauri::AppHandle, fenster: tauri::WebviewWindow) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        app.dialog().file().set_parent(&fenster).set_title("STEP-Datei öffnen")
+            .add_filter("STEP-Datei", &["step", "stp"])
+            .blocking_pick_file()
+            .map(|p| p.into_path().map(|p| p.to_string_lossy().into_owned()).map_err(|e| format!("Ungültiger Pfad: {e}")))
+            .transpose()
+    }).await.map_err(|e| format!("Dateiauswahl fehlgeschlagen: {e}"))?
+}
 
 fn ist_step(pfad: &std::path::Path) -> bool {
     pfad.extension()
@@ -744,39 +765,9 @@ fn ist_step(pfad: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
-fn prozent_decodieren(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut aus = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(wert) = u8::from_str_radix(&text[i + 1..i + 3], 16) {
-                aus.push(wert);
-                i += 3;
-                continue;
-            }
-        }
-        aus.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&aus).into_owned()
-}
-
 fn datei_url(arg: &str) -> Option<std::path::PathBuf> {
-    let rest = arg.strip_prefix("file://")?;
-    let rest = prozent_decodieren(rest);
-    #[cfg(windows)]
-    {
-        Some(std::path::PathBuf::from(rest.trim_start_matches('/')))
-    }
-    #[cfg(not(windows))]
-    {
-        if rest.starts_with('/') {
-            Some(std::path::PathBuf::from(rest))
-        } else {
-            Some(std::path::PathBuf::from(format!("/{rest}")))
-        }
-    }
+    // URL übernimmt UTF-8-/Prozent-Dekodierung und Windows-UNC-Pfade korrekt.
+    tauri::Url::parse(arg).ok()?.to_file_path().ok()
 }
 
 fn pfad_aus_argument(arg: &str) -> Option<std::path::PathBuf> {
@@ -818,12 +809,19 @@ fn fenster_vorholen(app: &tauri::AppHandle) {
 }
 
 fn datei_an_fenster(app: &tauri::AppHandle, pfad: &str) {
+    datei_an_ziel(app, "main", pfad);
+}
+
+fn datei_an_ziel(app: &tauri::AppHandle, label: &str, pfad: &str) {
+    use tauri::Emitter;
     use tauri::Manager;
-    if let Ok(mut slot) = START_PFAD.lock() {
-        *slot = Some(pfad.to_string());
+    if let Ok(mut pending) = START_PFADE.lock() {
+        pending.insert(label.to_string(), pfad.to_string());
     }
-    if let Some(fenster) = app.get_webview_window("main") {
-        let _ = fenster.eval(&format!("window.__oeffnePfad&&window.__oeffnePfad({})", js_string(pfad)));
+    if let Some(fenster) = app.get_webview_window(label) {
+        // Die Seite abonniert zuerst und holt dann den wartenden Pfad ab. Auch
+        // Drops während des Seitenstarts gehen damit nicht verloren.
+        let _ = fenster.emit_to(label, "datei-oeffnen", ());
     }
 }
 
@@ -841,8 +839,8 @@ fn status_setzen(app: &tauri::AppHandle, label: &str, text: &str) {
     }
 }
 
-/// Ziel eines Drops: das Fenster, in das gezogen wurde. Im Hauptfenster über START_PFAD (falls die Seite noch lädt),
-/// im Einzelteil-Fenster direkt – es ersetzt dort das Einzelteil wie „Öffnen …“ im selben Fenster.
+/// Ziel eines Drops: das Fenster, in das gezogen wurde. Der Auftrag bleibt bis
+/// zum Abholen in START_PFADE, auch wenn die Seite noch lädt.
 fn drop_oeffnen(app: &tauri::AppHandle, label: &str, pfad: &str) {
     use tauri::Manager;
     if label == "main" {
@@ -852,38 +850,44 @@ fn drop_oeffnen(app: &tauri::AppHandle, label: &str, pfad: &str) {
         let name = std::path::Path::new(pfad).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let produkt = app.config().product_name.clone().unwrap_or_else(|| "Hasi 3D".into());
         let _ = fenster.set_title(&format!("{name} – {produkt}"));
-        let _ = fenster.eval(&format!("window.__oeffnePfad&&window.__oeffnePfad({})", js_string(pfad)));
+        datei_an_ziel(app, label, pfad);
     }
 }
 
-/// Natives Ziehen ins Webview (dragDropEnabled), für Haupt- und Einzelteil-Fenster. HTML5-Drop kommt in der Desktop-App nicht an.
+fn drop_ereignis(app: &tauri::AppHandle, label: &str, event: &tauri::DragDropEvent) {
+    match event {
+        tauri::DragDropEvent::Enter { paths, .. } => {
+            ziehinweis(app, label, paths.is_empty() || paths.iter().any(|p| ist_step(p)));
+        }
+        tauri::DragDropEvent::Drop { paths, .. } => {
+            ziehinweis(app, label, false);
+            if let Some(pfad) = paths.iter().find(|p| ist_step(p) && p.is_file()) {
+                drop_oeffnen(app, label, &pfad.to_string_lossy());
+            } else if !paths.is_empty() {
+                status_setzen(app, label, "Nur STEP-Dateien (.step, .stp)");
+            }
+        }
+        tauri::DragDropEvent::Leave => ziehinweis(app, label, false),
+        _ => {}
+    }
+}
+
+/// Zusätzlich Webview-Ereignisse abonnieren: andere Plattformen und separate Webviews.
 fn ziehereignis(app: &tauri::AppHandle, label: &str) {
     use tauri::Manager;
     let Some(fenster) = app.get_webview_window(label) else { return };
     let app = app.clone();
     let label = label.to_string();
     fenster.on_webview_event(move |event| match event {
-        tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Enter { paths, .. }) => {
-            let zeigen = paths.is_empty() || paths.iter().any(|p| ist_step(p));
-            ziehinweis(&app, &label, zeigen);
-        }
-        tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
-            ziehinweis(&app, &label, false);
-            if let Some(pfad) = paths.iter().find(|p| ist_step(p)) {
-                drop_oeffnen(&app, &label, &pfad.to_string_lossy());
-            } else if !paths.is_empty() {
-                status_setzen(&app, &label, "Nur STEP-Dateien (.step, .stp)");
-            }
-        }
-        tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Leave) => ziehinweis(&app, &label, false),
+        tauri::WebviewEvent::DragDrop(event) => drop_ereignis(&app, &label, event),
         _ => {}
     });
 }
 
 /// Pfad, den der Start (Kommandozeile oder Apple-Event) gemerkt hat. Einmalig.
 #[tauri::command]
-fn start_pfad() -> Option<String> {
-    START_PFAD.lock().ok().and_then(|mut slot| slot.take())
+fn start_pfad(fenster: tauri::WebviewWindow) -> Option<String> {
+    START_PFADE.lock().ok().and_then(|mut pending| pending.remove(fenster.label()))
 }
 
 /// Hängt die Endung an, wenn der Dateiname keine hat (Windows-Dialog liefert sie nicht immer mit).
@@ -1047,9 +1051,10 @@ fn mac_menu(app: &mut tauri::App) -> tauri::Result<()> {
     let menu = Menu::with_items(h, &[&app_menu, &ablage, &bearbeiten, &fenster])?;
     app.set_menu(menu)?;
     app.on_menu_event(|app, event| {
+        use tauri::Emitter;
         if event.id().as_ref() == "oeffnen" {
             if let Some(w) = app.get_webview_window("main") {
-                let _ = w.eval("document.getElementById('file').click()");
+                let _ = w.emit_to("main", "datei-dialog", ());
             }
         }
     });
@@ -1257,7 +1262,7 @@ mod pruefen {
     fn argumente() {
         let dir = std::env::temp_dir().join(format!("hasi-oeffnen-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let datei = dir.join("teil datei.stp");
+        let datei = dir.join("große Datei Şasi 測定.stp");
         std::fs::write(&datei, b"ISO-10303-21;").unwrap();
         let text = datei.to_string_lossy().replace('\\', "/");
         let url = if text.starts_with('/') {
@@ -1273,5 +1278,15 @@ mod pruefen {
         std::fs::write(&txt, b"x").unwrap();
         assert!(step_aus_args(&["app".into(), txt.to_string_lossy().into_owned()]).is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn datei_urls() {
+        assert!(datei_url("https://example.com/teil.step").is_none());
+        #[cfg(windows)]
+        {
+            assert_eq!(datei_url("file://server/Technik/gro%C3%9Fe%20Datei.stp"), Some(std::path::PathBuf::from(r"\\server\Technik\große Datei.stp")));
+            assert!(datei_url("file:///C:/ung%C3%BC-ltig-%FF.stp").is_none());
+        }
     }
 }

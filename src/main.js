@@ -6,6 +6,8 @@ import { biegeNotizen } from './biegenotiz.js';
 import { falteNetz } from './falten.js';
 import { deltaLinien ,richtungsVektor,RICHTUNGEN,kopierWert} from './messen-hilfen.js';
 import { stepText, teilName as ohneNummer, sichererName, eindeutigeNamen, stepNachbearbeiten } from './step-export.js';
+import { listen } from '@tauri-apps/api/event';
+import { createOpenQueue, installFileDrop } from './datei-oeffnen.js';
 const $=id=>document.getElementById(id), view=$('view');
 if(MARKE.id==='sickinger'){document.documentElement.dataset.marke='sickinger';document.title=MARKE.produkt}
 let logoZusage=null;
@@ -269,15 +271,31 @@ async function loadPath(pfad){
   const tL=performance.now();window.__ladeStart=tL;
   const roh=inv('datei_lesen',{pfad}).then(r=>{window.__dateiLesenMs=Math.round(performance.now()-tL);return puffer(r)});roh.catch(()=>{});
   return load(null,name,{pfad,roh})}
-let laufPfad=null;
-async function oeffnePfad(pfad){if(!pfad||laufPfad===pfad)return;laufPfad=pfad;try{await loadPath(pfad)}catch(e){$('status').textContent=e.message||String(e)}finally{setTimeout(()=>{if(laufPfad===pfad)laufPfad=null},1500)}}
+const dateiFehler=e=>{$('status').textContent=e?.message||String(e)};
+const dateiAuftrag=createOpenQueue(dateiFehler);
+async function mitMessdaten(oeffnen){const info=await oeffnen();await window.__messBereit;return info}
+function oeffnePfad(pfad){if(!pfad)return Promise.resolve(null);return dateiAuftrag(pfad,()=>mitMessdaten(()=>loadPath(pfad)))}
+function oeffneDatei(file){return dateiAuftrag(file,()=>mitMessdaten(async()=>load(await file.arrayBuffer(),file.name)))}
+let dateiDialog=null;
+function oeffnenDialog(){const inv=window.__TAURI_INTERNALS__?.invoke;
+  if(!inv){$('file').click();return}
+  if(dateiDialog)return dateiDialog;
+  dateiDialog=(async()=>{try{const pfad=await inv('datei_waehlen');if(pfad)return await oeffnePfad(pfad)}catch(e){dateiFehler(e)}finally{dateiDialog=null}})();
+  return dateiDialog}
 window.__oeffnePfad=oeffnePfad;
 window.__dateiZiehen=an=>{const h=$('dropHint');if(h)h.hidden=!an};
 // Einzelteil-Fenster: ?datei=<Pfad> (Desktop-App) bzw. ?oeffnen=<Blob-URL>&name=<Name> (Browser); sonst die Datei aus dem Programmstart
-const startParam=new URLSearchParams(location.search);
-if(startParam.get('datei'))oeffnePfad(startParam.get('datei'));
-else if(startParam.get('oeffnen')){const u=startParam.get('oeffnen'),nm=startParam.get('name')||'Einzelteil.step';fetch(u).then(r=>r.arrayBuffer()).then(b=>load(b,nm)).then(()=>URL.revokeObjectURL(u)).catch(e=>$('status').textContent='Einzelteil konnte nicht geöffnet werden: '+(e.message||e))}
-else{const inv=window.__TAURI_INTERNALS__?.invoke;if(inv)inv('start_pfad').then(p=>{if(p)oeffnePfad(p)}).catch(()=>{})}
+// Erst am Modulende registrieren: vor dem ersten OS-Auftrag muss die gesamte Oberfläche bereit sein.
+async function dateienStarten(){
+  const inv=window.__TAURI_INTERNALS__?.invoke;
+  const abholen=async()=>{const pfad=await inv('start_pfad');if(pfad)return oeffnePfad(pfad)};
+  if(inv){await listen('datei-oeffnen',()=>{abholen().catch(dateiFehler)});await listen('datei-dialog',()=>{oeffnenDialog()})}
+  const startParam=new URLSearchParams(location.search);
+  if(startParam.get('datei'))await oeffnePfad(startParam.get('datei'));
+  else if(startParam.get('oeffnen')){const u=startParam.get('oeffnen'),nm=startParam.get('name')||'Einzelteil.step';
+    try{const r=await fetch(u);if(!r.ok)throw new Error('Einzelteil nicht gefunden');await dateiAuftrag(u,()=>mitMessdaten(async()=>load(await r.arrayBuffer(),nm)))}finally{URL.revokeObjectURL(u)}}
+  if(inv)await abholen();
+}
 const key=p=>p.map(x=>x.toFixed(5)).join(',');let vIdx=new Map();
 const vIndexOf=u=>{if(!vIdx.has(u)){const m=new Map();data.uniq[u].verts.forEach((p,i)=>m.set(key(p),i));vIdx.set(u,m)}return vIdx.get(u)};
 const toModel=(i,p)=>V3(p).applyMatrix4(bodies[i].matrix).toArray();
@@ -445,12 +463,9 @@ async function protokollDatenSammeln(){if(!data)return null;if(!huelle||!huelle.
 $('protPdf').onclick=async()=>{const D=await protokollDatenSammeln();if(!D)return;const PM=await import('./messprotokoll.js');const meta={produkt:MARKE.produkt||'Hasi 3D',stellen:PREC};
   if(MARKE.logo)Object.assign(meta,{kopfFarbe:MARKE.akzentRgb,logo:await logoDaten()});await saveBytes(baseName()+'_Messprotokoll.pdf',PM.protokollPdf(D,meta),'PDF-Dokument','pdf','application/pdf')};
 $('protXlsx').onclick=async()=>{const D=await protokollDatenSammeln();if(!D)return;const PM=await import('./messprotokoll.js');await saveBytes(baseName()+'_Messprotokoll.xlsx',await PM.protokollXlsx(D),'Excel-Arbeitsmappe','xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')};$('dens').oninput=()=>{$('mat').value='custom';showMass()};
-$('file').onchange=async e=>{const f=e.target.files[0];if(f)load(await f.arrayBuffer(),f.name).catch(err=>$('status').textContent=err.message)};
-// In der Desktop-App fängt Tauri das Ziehen ab (on_webview_event). Im Browser bleibt HTML5.
-if(!window.__TAURI_INTERNALS__){
-  view.ondragover=e=>e.preventDefault();
-  view.ondrop=async e=>{e.preventDefault();const f=e.dataTransfer?.files?.[0];if(f)load(await f.arrayBuffer(),f.name).catch(err=>$('status').textContent=err.message)};
-}
+$('file').onclick=e=>{if(window.__TAURI_INTERNALS__){e.preventDefault();void oeffnenDialog()}};
+$('file').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)void oeffneDatei(f)};
+installFileDrop(document,{open:oeffneDatei,hint:window.__dateiZiehen,invalid:()=>{$('status').textContent='Nur STEP-Dateien (.step, .stp)'}});
 
 // ---------- Schnitt ----------
 function setCut(){const ax=$('axis').value;$('cut').disabled=!ax;renderer.localClippingEnabled=!!ax;
@@ -1294,3 +1309,4 @@ window.__app={messLabelKaesten:()=>messLabelKaesten,messLabels:()=>messLabels.ma
   oeffneBewegen:()=>selNode&&act('move',selNode),modell:()=>data?.model,neuMessen,messOpts,bemassungenText,bemassungenEinlesen,festSetzen,fest:()=>fest,letzteMessung:()=>lastRes,blech:()=>sheetCache,
   deltaLinien:()=>marks.children.filter(o=>o.userData.delta).map(o=>o.userData.delta),namen:()=>nodes.map(n=>n.name),ausgeblendet:()=>nodes.filter(n=>!visible(n)).map(n=>n.name)};
 window.__toggleMeasure=()=>{};
+window.__dateienBereit=dateienStarten().catch(dateiFehler);

@@ -1,4 +1,4 @@
-# Hasi 3D (Prototyp 0.1.0)
+# Hasi 3D / MS3D 0.1.1
 
 Produktnamen ab 20.10.2026: **Hasi 3D** (Marke Hasi, vorher „Hasi STEP-Betrachter“) und **MS3D** (Marke Sickinger, vorher „Sickinger STEP-Viewer“). Kennungen, Programmkennungen der Dateizuordnung und MSI-Upgrade-Codes bleiben gleich, damit ein Update die Vorschau-Installation ersetzt.
 
@@ -181,6 +181,10 @@ Tests: `tools/test-export.mjs` (CI, prüft PDF-Text, XLSX-Inhalt und die Lage de
 ![Export](docs/biegetabelle-export.png) ![PDF](docs/biegetabelle-pdf.png)
 
 ## Nativer Kern (Desktop-App, ab feat/nativer-kern)
+
+Öffnen über Menü/Symbol, Doppelklick und Drag & Drop verwendet denselben pfadbasierten Ladeweg mit Zwischenspeicher. Dateien lassen sich im gesamten Fenster ablegen, auch über Baum und Bedienfeldern. Windows-Pfade mit Umlauten, ß, türkischen oder anderen Unicode-Zeichen bleiben bis zum OCCT-Kern erhalten. Dateiwechsel werden serialisiert; ein neuer Auftrag wartet auf die Messdaten des vorherigen Modells, und mehrere gleichzeitig wartende Aufträge werden auf den neuesten reduziert.
+
+Regressionstests: `node tools/test-datei-oeffnen.mjs`, `node tools/smoke-drop.mjs`, `node tools/smoke-datei-oeffnen.mjs` und `HASI_KERN=<programm> node tools/test-unicode-kern.mjs` (synthetische Testdateien, einschließlich Unicode-Import und -Export).
 
 Die Desktop-App lädt STEP-Dateien mit einem nativen OCCT-Kern (`kern/hasi_kern.cpp`, Programm `hasi-kern`), der als Sidecar neben der App liegt. Der WASM-Kern bleibt als Rückfall (Browser, fehlender Sidecar, Fehler im nativen Lauf) und für das Messen. Doppelklick und Ziehen ins Fenster übergeben den Dateipfad an `hasi-kern`; die Originaldatei wird dabei nicht gelöscht. Ein zweiter Doppelklick öffnet die Datei im bereits laufenden Fenster.
 

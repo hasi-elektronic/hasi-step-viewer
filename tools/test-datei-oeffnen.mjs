@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import {createOpenQueue, isStepFile} from '../src/datei-oeffnen.js';
+
+const gate = () => { let release; const promise = new Promise(resolve => { release = resolve; }); return {promise, release}; };
+const errors = [], calls = [], first = gate(), measurement = gate();
+const open = createOpenQueue(error => errors.push(error.message));
+const a = open('A', async () => { calls.push('A'); await first.promise; await measurement.promise; return 'A'; });
+assert.equal(open('A', async () => { throw new Error('Doppeltes OS-Ereignis'); }), a);
+const b = open('B', async () => { calls.push('B'); return 'B'; });
+const c = open('C', async () => { calls.push('C'); return 'C'; });
+assert.equal(await b, null, 'Der neueste wartende Dateiwechsel ersetzt ältere Aufträge');
+first.release(); await Promise.resolve();
+assert.deepEqual(calls, ['A'], 'Neue Datei darf nicht die ausstehenden Messdaten der alten übernehmen');
+measurement.release();
+assert.equal(await a, 'A'); assert.equal(await c, 'C');
+assert.deepEqual(calls, ['A','C']);
+assert.equal(await open('Fehler', async () => { throw new Error('Datei ungültig'); }), null);
+assert.deepEqual(errors, ['Datei ungültig']);
+assert.equal(await open('A', async () => 'erneut geöffnet'), 'erneut geöffnet', 'Erneutes Öffnen nach Abschluss bleibt möglich');
+const wait = gate();
+const current = open('aktuell', async () => { await wait.promise; return 'aktuell'; });
+const replaced = open('ersetzt', async () => { throw new Error('Überholter Dateiwechsel'); });
+assert.equal(open('aktuell', async () => 'doppelt'), current);
+assert.equal(await replaced, null);wait.release();assert.equal(await current,'aktuell');
+for (const name of ['große Şasi 測定.step','TEIL.STP']) assert(isStepFile(name));
+for (const name of ['teil.step.exe','notiz.txt','']) assert(!isStepFile(name));
+console.log('OK: Dateiwechsel serialisiert, Messdaten abgewartet, doppelte Drops zusammengefasst, Fehler und erneutes Öffnen');

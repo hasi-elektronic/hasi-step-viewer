@@ -11,7 +11,7 @@ await ctx.exposeFunction('__kernPfad',async pfad=>{const d=path.join(tmp,'k'+(nr
   return {bin:fs.readFileSync(path.join(d,'modell.bin')).toString('base64'),step:fs.readFileSync(pfad).toString('base64'),brep:fs.readFileSync(path.join(d,'modell.brep'),'latin1')}});
 await ctx.exposeFunction('__dateiLesen',async pfad=>fs.readFileSync(pfad).toString('base64'));
 await ctx.addInitScript(()=>{localStorage.removeItem('stepFarben');const ab=s=>{const t=atob(s);const u=new Uint8Array(t.length);for(let i=0;i<t.length;i++)u[i]=t.charCodeAt(i);return u.buffer};let letzt=null;
-  window.__TAURI_INTERNALS__={invoke:async(cmd,args)=>{
+  window.__TAURI_INTERNALS__={transformCallback:()=>0,invoke:async(cmd,args)=>{if(cmd==='plugin:event|listen')return 0;
     if(cmd==='kern_verfuegbar')return true;if(cmd==='start_pfad')return null;
     if(cmd==='kern_laden_pfad'){letzt=await window.__kernPfad(args.pfad);return ab(letzt.bin)}
     if(cmd==='datei_lesen')return ab(await window.__dateiLesen(args.pfad));

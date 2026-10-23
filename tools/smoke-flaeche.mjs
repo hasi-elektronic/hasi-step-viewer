@@ -15,7 +15,7 @@ if(nativ){const exe=process.env.HASI_KERN||'kern/build/hasi-kern',tmp=fs.mkdtemp
     return {bin:fs.readFileSync(path.join(d,'modell.bin')).toString('base64'),brep:fs.readFileSync(path.join(d,'modell.brep'),'latin1')}});
   await ctx.exposeFunction('__dateiLesen',async pfad=>fs.readFileSync(pfad).toString('base64'));
   await ctx.addInitScript(()=>{const ab=s=>{const t=atob(s);const u=new Uint8Array(t.length);for(let i=0;i<t.length;i++)u[i]=t.charCodeAt(i);return u.buffer};let letzt=null;
-    window.__TAURI_INTERNALS__={invoke:async(cmd,args)=>{if(cmd==='kern_verfuegbar')return true;if(cmd==='start_pfad')return null;
+    window.__TAURI_INTERNALS__={transformCallback:()=>0,invoke:async(cmd,args)=>{if(cmd==='plugin:event|listen')return 0;if(cmd==='kern_verfuegbar')return true;if(cmd==='start_pfad')return null;
       if(cmd==='kern_laden_pfad'){letzt=await window.__kernPfad(args.pfad);return ab(letzt.bin)}if(cmd==='datei_lesen')return ab(await window.__dateiLesen(args.pfad));
       if(cmd==='kern_brep')return letzt.brep;throw new Error('unbekannt '+cmd)},transformCallback:()=>0}})}
 await ctx.addInitScript(()=>{localStorage.removeItem('nurFlaechen')});
