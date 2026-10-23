@@ -27,6 +27,9 @@ console.log('U-Profil mit geteiltem Schenkel (zwei Laschen auf einer Biegelinie,
   assert.deepEqual(r.flat.bendInfo.map(b=>b.gruppe),r.bends.map(b=>b.gruppe));
   const n=biegeNotizen(r.flat);assert.equal(n.length,3,'Biegelinien bleiben je Zone');assert.equal(new Set(n.map(x=>x.text.split(' ')[0])).size,2,'zwei verschiedene Nummern in der Zeichnung');
   const dxf=B.dxf(r.flat,{beschriftung:true});const labels=[...dxf.matchAll(/\n1\n(B\d+) /g)].map(m=>m[1]);assert.equal(labels.length,3);assert.equal(new Set(labels).size,2);
+  const geo=B.geo(r.flat,{name:'ZWEI-LASCHEN',werkstoff:'1.0038',dicke:r.t,bends:r.bends.map(b=>({ang:b.ang,ri:b.ri,bd:b.bd,dir:b.dir}))});
+  assert(geo.includes('\r\n')&&!/[^\r]\n/.test(geo),'GEO: CRLF');assert(geo.includes('#~11\r\n'),'GEO: #~11-Kopf');assert(/^[\x00-\xff]*$/.test(geo),'GEO: Codepage 1252');
+  assert(geo.includes('BEND_COUNT@3'),'GEO: eine Biegelinie je Biegezone wie TruTops');
   const T=tabelle(r);assert.equal(T.kopf.find(k=>k[0]==='Biegungen')[1],'2');assert(T.kopf.some(k=>k[0]==='Biegezonen'&&k[1].startsWith('3')));
   ok(`3 Biegezonen → ${r.biegungen.length} Biegungen (Laschen ${z.map(b=>'B'+b.gruppe).join(' + ')}, Biegelänge ${zwei.len.toFixed(1)} mm); DXF/Notizen mit gleicher Nummer, Tabelle „Biegungen 2“`)}
 
