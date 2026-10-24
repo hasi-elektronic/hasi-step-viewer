@@ -8,6 +8,10 @@ Pilot sınırları: işletim sistemine kaydetme/PNG/PDF/STEP dışa aktarma, yaz
 
 Bilinen açık P2: Android 16 / 16 KB emülatöründe yaklaşık 3 GB guest bellek/2 core koşusunda, dosya seçicisi açıkken Android WebView renderer'ını `LOW_MEMORY` nedeniyle sonlandırdı; işlenmeyen renderer kaybı ana uygulamayı da bitirdi. 4 GB/4 core tek emülatör tekrarında da aynı düşük bellek çıkışı kaydedildi. Açık oturum kaybolabilir; güvenli renderer kurtarma henüz yoktur. Bu bir linker hatası değildir. Başka bir bellek veya işletim sistemi koşusunun başarılı olması bu bulguyu kapatmaz ve fiziksel cihazlar için RAM alt sınırı kanıtlamaz. Genel Android üretim onayından önce renderer kaybı/kurtarma ve gerçek cihaz bellek testleri ayrıca gereklidir.
 
+Android 15 / 16 KB / 4 GB / x86_64 / WebView 124.0.6367.219 koşusunda Hasi ana işlev testi (gerçek dosya seçicisi, çevrimdışı ölçüm, üç sekme, 512 gövde) geçti. Ardından native inset matrisinin ilk koşusu tamamlanmadan WebView `MemoryInfra` thread'i `SIGSEGV` ve ana süreç `SIGTRAP` ile Google Trichrome `libmonochrome_64.so` içinde çöktü. Bu koşu `LOW_MEMORY` olarak sınıflandırılmaz ve başarılı 16 KB yerleşim testi sayılmaz. Crash stack bileşeni gösterir; hatayı tetikleyen tam kök neden henüz ayrıştırılmadı. Bu bulgu da fiziksel cihaz doğrulaması ve WebView sürümüyle ayrıca incelenmelidir.
+
+Aynı Android 15 ortamında MS3D ana işlev koşusu da 512 gövdeli dosyayı açarken aynı `MemoryInfra` renderer `SIGSEGV` / ana süreç `SIGTRAP` dizisiyle başarısız oldu. MS3D için 16 KB ana işlev veya inset kabulü verilmedi. Her iki markanın Android 16 / 4 KB emülatöründeki ana işlev ve 4/4 native inset sonuçları ayrı, başarılı kanıtlardır; bu sonuçlar 16 KB hatalarını kapatmaz. Kontrollü DEBUG cihaz denemesi dışındaki genel Android ve üretim kabulü engellidir.
+
 ## Mimari
 
 - `src-tauri/src/lib.rs` ortak giriş; `desktop.rs` mevcut masaüstü davranışını korur; `mobile.rs` yalnız host yeteneklerini bildirir.
