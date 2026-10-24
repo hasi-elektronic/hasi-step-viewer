@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Hasi 3D",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "identifier": "de.hasi-elektronic.stepviewer",
   "build": {
     "frontendDist": "../dist",
@@ -40,7 +40,10 @@
     "copyright": "© 2026 Hasi Elektronic",
     "fileAssociations": [
       {
-        "ext": ["step", "stp"],
+        "ext": [
+          "step",
+          "stp"
+        ],
         "name": "HasiStep",
         "description": "STEP-Datei (.step, .stp)",
         "role": "Viewer",
@@ -48,7 +51,9 @@
         "rank": "Default",
         "exportedType": {
           "identifier": "de.hasi-elektronic.step",
-          "conformsTo": ["public.data"]
+          "conformsTo": [
+            "public.data"
+          ]
         }
       }
     ],
@@ -65,6 +70,9 @@
         "template": "windows/main.wxs",
         "upgradeCode": "8058eeb3-a5b1-5569-a5d1-b51db6fb06e8"
       }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0"
     }
   },
   "mainBinaryName": "hasi-3d"

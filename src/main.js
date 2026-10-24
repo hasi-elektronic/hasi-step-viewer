@@ -14,6 +14,13 @@ import {ladeEinstellungen,bildPixelRatio} from './einstellungen.js';
 import {installOberflaeche} from './oberflaeche.js';
 import {informationsZeilen,pruefeInfoOptionen} from './messinformationen.js';
 import {createDocumentTabs,captureDocumentUi,restoreDocumentUi,disposeDocumentScene,clearVisualChildren} from './dokumentreiter.js';
+import {readHostCapabilities} from './platform.js';
+import {createTapGuard} from './pointer-gesture.js';
+import {installTouchUi,mobileActionUnavailable} from './mobile-ui.js';
+const MOBILE_BUILD=import.meta.env.VITE_MOBILE===true;
+const HOST=await readHostCapabilities(window.__TAURI_INTERNALS__?.invoke,MOBILE_BUILD);
+const desktopInvoke=()=>HOST.desktopBackend?window.__TAURI_INTERNALS__?.invoke:undefined;
+window.__hostCapabilities=HOST;
 const $=id=>document.getElementById(id), view=$('view');
 const SICHT_OBEN=62,SICHT_UNTEN=14; // Werkzeugleiste oben, Rand unten (px)
 const dokumente=[],dokumentAuftraege=new Set();let aktivesDokument=null,dokumentWechsel=false,dokumentNummer=0;
@@ -32,6 +39,8 @@ renderer.setPixelRatio(bildPixelRatio(einstellungen.bildqualitaet,devicePixelRat
 const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(35,1,0.1,1e6);
 scene.add(new THREE.HemisphereLight(0xffffff,0xb0b4bc,1.5));const dl=new THREE.DirectionalLight(0xffffff,1.3);camera.add(dl);dl.position.set(1,2,3);scene.add(camera);
 const controls=createCadControls(camera,renderer.domElement);
+const tapGuard=createTapGuard(renderer.domElement);
+const mobileUnsupported=()=>{$('status').textContent='Speichern und Export sind im mobilen Pilot nicht verfügbar.';return false};
 renderer.domElement.addEventListener('mousedown',e=>{if(e.button===1)e.preventDefault()});
 const overlay=document.createElement('canvas');overlay.id='dimoverlay';overlay.style.cssText='position:absolute;left:0;top:0;pointer-events:none';view.appendChild(overlay);
 // Overlay auf der CPU: GPU-Canvas ließ nach clearRect alte Messwerte stehen (Chromium)
@@ -44,7 +53,7 @@ let ersteZeichnung=0,anim=null,drehen=false,mausUnten=false,werkzeug='wahl',tria
 let navigationKanten=null,navigationEnde=0;
 function navigationVoll(){clearTimeout(navigationEnde);navigationEnde=0;if(!navigationKanten)return;for(const [kante,sichtbar] of navigationKanten)kante.visible=sichtbar;navigationKanten=null;needs=true}
 controls.addEventListener('start',event=>{if(event.cursorZoom||controls.state===THREE.MOUSE.DOLLY){navigationVoll();return}if(controls.state<0)return;clearTimeout(navigationEnde);if(navigationKanten||bodies.length<500||drahtModus||!edgeObjs.some(k=>k.visible))return;navigationKanten=edgeObjs.map(k=>[k,k.visible]);for(const [kante] of navigationKanten)kante.visible=false;needs=true});
-controls.addEventListener('end',()=>{if(controls.state>=0)return;clearTimeout(navigationEnde);navigationEnde=setTimeout(navigationVoll,120)});
+controls.addEventListener('end',()=>{clearTimeout(navigationEnde);navigationEnde=setTimeout(()=>{if(controls.state<0)navigationVoll()},120)});
 const ACHSEN=[new THREE.Vector3(1,0,0),new THREE.Vector3(-1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,-1,0),new THREE.Vector3(0,0,1),new THREE.Vector3(0,0,-1)];
 const ANSICHT={iso:{d:[.8,.6,1],up:[0,1,0]},vorne:{d:[0,0,1],up:[0,1,0]},hinten:{d:[0,0,-1],up:[0,1,0]},links:{d:[-1,0,0],up:[0,1,0]},rechts:{d:[1,0,0],up:[0,1,0]},oben:{d:[0,1,0],up:[0,0,-1]},unten:{d:[0,-1,0],up:[0,0,-1]}};
 let vr=null,vc=null,vHit=null;
@@ -86,7 +95,7 @@ function dockAnwenden(){const z=dockZustand;if(z.seite!=='links')z.seite='rechts
   dock.style.top=kompakt&&!z.zu&&!Number.isFinite(z.oben)?'auto':oben+'px';dock.style.left=z.seite==='links'?'12px':'';dock.style.right=z.seite==='links'?'':'12px';
   const haupt=s.find(e=>e.id==='messenPanel'||e.id==='blechPanel')||s[0];const name=haupt?.querySelector('.ptitel,.dhead')?.firstChild?.textContent?.trim()||'Seitenleiste';
   if(dockLasche.textContent!==name)dockLasche.textContent=name;freiraum()}
-function dockRechteck(){if(dock.hidden)return null;const r=dock.getBoundingClientRect(),v=view.getBoundingClientRect();return {x0:r.left-v.left,y0:r.top-v.top,x1:r.right-v.left,y1:r.bottom-v.top}}
+function dockRechteck(){if(dock.hidden||dock.parentElement!==view)return null;const r=dock.getBoundingClientRect(),v=view.getBoundingClientRect();return {x0:r.left-v.left,y0:r.top-v.top,x1:r.right-v.left,y1:r.bottom-v.top}}
 function modellRechteck(){if(!model||box.isEmpty())return null;camera.updateMatrixWorld();const v=new THREE.Vector3(),w=view.clientWidth,h=view.clientHeight;let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
   for(let i=0;i<8;i++){v.set(i&1?box.max.x:box.min.x,i&2?box.max.y:box.min.y,i&4?box.max.z:box.min.z).project(camera);const x=(v.x+1)/2*w,y=(1-v.y)/2*h;x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y)}
   return {x0,y0,x1,y1}}
@@ -100,10 +109,10 @@ function freiraum(){if(!dockBereit)return;const w=view.clientWidth,h=view.client
   if(model&&!dokumentWechsel&&!anim&&!dockZug&&Math.abs(D-alt)>1&&(modellUnterDock()||modellAusserhalb()))fit()}
 function modellAusserhalb(){const m=modellRechteck(),w=view.clientWidth,h=view.clientHeight;return !!(m&&(m.x0<-1||m.y0<-1||m.x1>w+1||m.y1>h+1))}
 let dockZug=null;
-dock.addEventListener('pointerdown',e=>{const kopf=e.target.closest('.ptitel,.dhead');if(!kopf||e.button!==0||e.target.closest('button,select,input,label,a'))return;
-  const r=dock.getBoundingClientRect(),v=view.getBoundingClientRect();dockZug={dx:e.clientX-r.left,dy:e.clientY-r.top,v};dock.classList.add('zieht');try{kopf.setPointerCapture(e.pointerId)}catch{}e.preventDefault()});
-addEventListener('pointermove',e=>{if(!dockZug)return;const v=dockZug.v;dock.style.right='';dock.style.left=Math.round(e.clientX-v.left-dockZug.dx)+'px';dock.style.top=Math.round(e.clientY-v.top-dockZug.dy)+'px'});
-const dockLoslassen=()=>{if(!dockZug)return;const v=dockZug.v,r=dock.getBoundingClientRect();dockZug=null;dock.classList.remove('zieht');
+dock.addEventListener('pointerdown',e=>{const kopf=e.target.closest('.ptitel,.dhead');if(dock.parentElement!==view||dockZug||!kopf||e.button!==0||e.target.closest('button,select,input,label,a'))return;
+  const r=dock.getBoundingClientRect(),v=view.getBoundingClientRect();dockZug={pointerId:e.pointerId,dx:e.clientX-r.left,dy:e.clientY-r.top,v};dock.classList.add('zieht');try{kopf.setPointerCapture(e.pointerId)}catch{}e.preventDefault()});
+addEventListener('pointermove',e=>{if(!dockZug||e.pointerId!==dockZug.pointerId)return;const v=dockZug.v;dock.style.right='';dock.style.left=Math.round(e.clientX-v.left-dockZug.dx)+'px';dock.style.top=Math.round(e.clientY-v.top-dockZug.dy)+'px'});
+const dockLoslassen=e=>{if(!dockZug||e.pointerId!==dockZug.pointerId)return;const v=dockZug.v,r=dock.getBoundingClientRect();dockZug=null;dock.classList.remove('zieht');
   dockZustand.seite=(r.left+r.width/2)<(v.left+v.width/2)?'links':'rechts';dockZustand.oben=Math.round(r.top-v.top);dockSpeichern();dockAnwenden()};
 addEventListener('pointerup',dockLoslassen);addEventListener('pointercancel',dockLoslassen);
 dockLasche.onclick=()=>dockEinklappen(false);
@@ -234,7 +243,7 @@ async function load(buf,name,opt){
   const t0=performance.now();const stufen={};let tS=t0;const stufe=k=>{const n=performance.now();stufen[k]=Math.round(n-tS);tS=n};window.__ladeStufen=stufen;$('status').textContent='Lade '+name+' …';$('drop').style.display='none';const hinweis=$('dropHint');if(hinweis)hinweis.hidden=true;$('busy').style.display='block';$('busy').textContent='Datei wird geladen …';
   let size=buf?buf.byteLength:0;
   // Desktop-App: zuerst der native Kern (schnell, mehrere Threads); bei Fehlern oder im Browser der WASM-Kern
-  const inv=window.__TAURI_INTERNALS__?.invoke;let nativ=false;
+  const inv=desktopInvoke();let nativ=false;
   try{
     if(inv&&localStorage.getItem('kern')!=='wasm'&&await inv('kern_verfuegbar').catch(()=>false)){
       try{$('busy').textContent='Datei wird geladen …';
@@ -286,7 +295,7 @@ function puffer(roh){if(roh instanceof ArrayBuffer)return roh;if(ArrayBuffer.isV
 async function loadPath(pfad){
   const name=String(pfad).split(/[/\\]/).pop()||String(pfad);
   if(!/\.(step|stp)$/i.test(name)){$('status').textContent='Nur STEP-Dateien (.step, .stp)';return}
-  const inv=window.__TAURI_INTERNALS__?.invoke;
+  const inv=desktopInvoke();
   if(!inv)throw new Error('Öffnen per Pfad nur in der Desktop-App');
   const tL=performance.now();window.__ladeStart=tL;
   const roh=inv('datei_lesen',{pfad}).then(r=>{window.__dateiLesenMs=Math.round(performance.now()-tL);return puffer(r)});roh.catch(()=>{});
@@ -297,7 +306,7 @@ async function mitMessdaten(oeffnen){const info=await oeffnen();await window.__m
 function oeffnePfad(pfad){if(!pfad)return Promise.resolve(null);if(!/\.(step|stp)$/i.test(pfad)){$('status').textContent='Nur STEP-Dateien (.step, .stp)';return Promise.resolve(null)}let key=String(pfad).replaceAll('\\','/');if(/^[a-z]:\/|^\/\//i.test(key))key=key.toLowerCase();return dokumentOeffnen(key,String(pfad).split(/[/\\]/).pop(),()=>loadPath(pfad),pfad)}
 function oeffneDatei(file){return dokumentOeffnen(file,file.name,async()=>load(await file.arrayBuffer(),file.name))}
 let dateiDialog=null;
-function oeffnenDialog(){const inv=window.__TAURI_INTERNALS__?.invoke;
+function oeffnenDialog(){const inv=desktopInvoke();
   if(!inv){$('file').click();return}
   if(dateiDialog)return dateiDialog;
   dateiDialog=(async()=>{try{const pfade=await inv('datei_waehlen');return await Promise.all((Array.isArray(pfade)?pfade:pfade?[pfade]:[]).map(oeffnePfad))}catch(e){dateiFehler(e)}finally{dateiDialog=null}})();
@@ -307,7 +316,7 @@ window.__dateiZiehen=an=>{const h=$('dropHint');if(h)h.hidden=!an};
 // Einzelteil-Fenster: ?datei=<Pfad> (Desktop-App) bzw. ?oeffnen=<Blob-URL>&name=<Name> (Browser); sonst die Datei aus dem Programmstart
 // Erst am Modulende registrieren: vor dem ersten OS-Auftrag muss die gesamte Oberfläche bereit sein.
 async function dateienStarten(){
-  const inv=window.__TAURI_INTERNALS__?.invoke;
+  const inv=desktopInvoke();
   if(inv)await inv('dokumente_zuruecksetzen');
   const abholen=async()=>{const pfade=await inv('start_pfad');return Promise.all((Array.isArray(pfade)?pfade:pfade?[pfade]:[]).map(oeffnePfad))};
   if(inv){await listen('datei-oeffnen',()=>{abholen().catch(dateiFehler)});await listen('datei-dialog',()=>{oeffnenDialog()})}
@@ -349,6 +358,7 @@ function renderTree(){const q=$('treeSearch').value.trim().toLowerCase();const t
     row.innerHTML=`${toggle}<input type="checkbox" title="Sichtbarkeit" ${n.checked?'checked':''}><span class="ic">${isAsm(n)?ICON.asm:ICON.part}</span><span class="nm" title="${esc(n.name)}">${esc(n.name)}</span><span class="acts"><button data-a="toggle" title="${n.checked?'Ausblenden':'Einblenden'}">${n.checked?ICON.eye:ICON.eyeOff}</button><button data-a="isolate" title="Nur dieses anzeigen">${ICON.iso}</button><button data-a="zoom" title="Heranzoomen">${ICON.zoom}</button><button data-a="props" title="Eigenschaften">${ICON.info}</button></span>`;
     const tw=row.querySelector('button.tw');if(tw)tw.onclick=e=>{e.stopPropagation();const fokus=document.activeElement===tw;n.open=!n.open;renderTree();if(fokus)$('tree').querySelector(`.trow[data-id="${n.id}"] .tw`)?.focus({preventScroll:true})};
     row.querySelector('input').onclick=e=>e.stopPropagation();row.querySelector('input').onchange=e=>{n.checked=e.target.checked;if(n.checked)for(let p=n.parent;p;p=p.parent)p.checked=true;applyVis();renderTree();triadeAktualisieren()};
+    const more=document.createElement('button');more.type='button';more.className='tree-more';more.textContent='⋯';more.title='Bauteilaktionen';more.setAttribute('aria-label',n.name+' – Bauteilaktionen');more.onclick=e=>{e.stopPropagation();const r=more.getBoundingClientRect();ctxMenu(r.left,r.bottom,n)};row.append(more);
     row.querySelectorAll('.acts button').forEach(b=>b.onclick=e=>{e.stopPropagation();act(b.dataset.a,n)});
     row.onclick=e=>{if(e.target.closest('button,input,.tw'))return;if(e.shiftKey||e.ctrlKey||e.metaKey)mehrfach(n,e);else selectNode(n,true)};
     row.oncontextmenu=e=>{e.preventDefault();if(!selMenge.has(n))selectNode(n,true);else{selNode=n;renderTree()}ctxMenu(e.clientX,e.clientY,n)};
@@ -404,6 +414,7 @@ function zoomTo(n){const b=boxOf(n.all);if(b.isEmpty())return;const s=b.getSize(
 function ctxMenu(x,y,n,items,run){closeCtx();const m=document.createElement('div');m.id='ctx';
   const one=n?n.all.length===1:false;
   items=items||[['toggle',n.checked?'Ausblenden':'Einblenden'],['isolate','Nur dieses anzeigen'],['isoEnde','Isolieren beenden',!isoSnap],['showall','Alle einblenden'],['invert','Ausgeblendete umkehren'],['-'],['transp',n.transp?'Undurchsichtig':'Transparent'],['move','Komponente verschieben'],['zoom','Heranzoomen'],['-'],['measure','Messen',!one],['props','Eigenschaften'],['sheet','Blech-Abwicklung',!one],['-'],...EINZEL_MENUE];
+  if(MOBILE_BUILD)items=items.map(([a,t,dis,tip])=>mobileActionUnavailable(a)?[a,t,true,'Im mobilen Pilot nicht verfügbar.']:[a,t,dis,tip]);
   run=run||(a=>act(a,n));
   m.innerHTML=items.map(([a,t,dis,tip])=>a==='-'?'<hr>':`<button data-a="${a}" ${dis?`disabled title="${tip||(a==='isoEnde'?'Zuerst „Nur dieses anzeigen“':'Nur bei genau einem Körper')}"`:''}>${t}</button>`).join('');
   m.style.left=x+'px';m.style.top=y+'px';document.body.append(m);
@@ -492,8 +503,8 @@ async function protokollDatenSammelnImpl(){if(!data)return null;if(!huelle||!hue
 $('protPdf').onclick=async()=>{const D=await protokollDatenSammeln();if(!D)return;const PM=await import('./messprotokoll.js');const meta={produkt:MARKE.produkt||'Hasi 3D',stellen:PREC};
   if(MARKE.logo)Object.assign(meta,{kopfFarbe:MARKE.akzentRgb,logo:await logoDaten()});await saveBytes(baseName()+'_Messprotokoll.pdf',PM.protokollPdf(D,meta),'PDF-Dokument','pdf','application/pdf')};
 $('protXlsx').onclick=async()=>{const D=await protokollDatenSammeln();if(!D)return;const PM=await import('./messprotokoll.js');await saveBytes(baseName()+'_Messprotokoll.xlsx',await PM.protokollXlsx(D),'Excel-Arbeitsmappe','xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')};$('dens').oninput=()=>{$('mat').value='custom';showMass()};
-$('file').onclick=e=>{if(window.__TAURI_INTERNALS__){e.preventDefault();void oeffnenDialog()}};
-$('file').onchange=e=>{const files=Array.from(e.target.files);e.target.value='';files.forEach(f=>{if(/\.(step|stp)$/i.test(f.name))void oeffneDatei(f)})};
+$('file').onclick=e=>{if(HOST.desktopBackend){e.preventDefault();void oeffnenDialog()}};
+$('file').onchange=e=>{const files=Array.from(e.target.files);e.target.value='';files.forEach(f=>{if(/\.(step|stp)$/i.test(f.name))void oeffneDatei(f);else $('status').textContent='Nur STEP-Dateien (.step, .stp)'})};
 installFileDrop(document,{open:oeffneDatei,hint:window.__dateiZiehen,invalid:()=>{$('status').textContent='Nur STEP-Dateien (.step, .stp)'}});
 
 // ---------- Schnitt ----------
@@ -562,10 +573,10 @@ const symTex={};function symTexture(k){if(symTex[k])return symTex[k];const c=doc
 function snapSym(k,p,color){const gg=new THREE.BufferGeometry();gg.setAttribute('position',new THREE.Float32BufferAttribute(p,3));const pt=new THREE.Points(gg,new THREE.PointsMaterial({color,size:20,map:symTexture(k),transparent:true,alphaTest:.3,sizeAttenuation:false,depthTest:false}));pt.renderOrder=12;return pt}
 let down=null,hoverRAF=0;
 renderer.domElement.addEventListener('pointerdown',e=>down=[e.clientX,e.clientY]);
-renderer.domElement.addEventListener('pointermove',e=>{letzteMaus=[e.clientX,e.clientY];if(e.buttons||hoverRAF||zug)return;hoverRAF=requestAnimationFrame(()=>{hoverRAF=0;hov=pickAt(e.clientX,e.clientY);clearVisualChildren(hoverObj);if(hov)hoverObj.add(hiObj(hov,0xff6a00));
+renderer.domElement.addEventListener('pointermove',e=>{if(e.pointerType==='touch')return;letzteMaus=[e.clientX,e.clientY];if(e.buttons||hoverRAF||zug)return;hoverRAF=requestAnimationFrame(()=>{hoverRAF=0;hov=pickAt(e.clientX,e.clientY);clearVisualChildren(hoverObj);if(hov)hoverObj.add(hiObj(hov,0xff6a00));
   const tip=$('snaptip'),r=$('view').getBoundingClientRect();tip.hidden=!hov;if(hov){tip.textContent=label(hov);tip.style.left=(e.clientX-r.left)+'px';tip.style.top=(e.clientY-r.top)+'px';tipEinpassen()}window.__vorschau=null;if(hov&&!abm)vorschau(hov,e.clientX,e.clientY);needs=true})});
 renderer.domElement.addEventListener('pointerleave',()=>{if(hoverRAF){cancelAnimationFrame(hoverRAF);hoverRAF=0}$('snaptip').hidden=true;hov=null;clearVisualChildren(hoverObj);$('hover').textContent='';needs=true});
-renderer.domElement.addEventListener('pointerup',e=>{if(zugSperre){zugSperre=false;return}if(e.button!==0||werkzeug!=='wahl')return;if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;
+renderer.domElement.addEventListener('pointerup',e=>{if(zugSperre){zugSperre=false;return}if(e.button!==0||werkzeug!=='wahl')return;if(!tapGuard.wasTap(e))return;
   if(festWahl){const f=pickAt(e.clientX,e.clientY,{nurFlaeche:true});if(f)festSetzen(f);return}
   if(abm){const f=pickAt(e.clientX,e.clientY,{nurFlaeche:true});if(f)abmRechnen(f);return}
   if(messart==='auto'&&e.shiftKey&&!e.ctrlKey&&!e.metaKey){const f=pickAt(e.clientX,e.clientY);if(f&&f.k==='face'&&(reiheBezug||sels[0]?.k==='face')){reiheMessen(f);return}}
@@ -947,15 +958,15 @@ $('dimSet').onclick=()=>keepDim($('dimtyp').value);
 const modelPointAt=(cx,cy,ref)=>{const r=renderer.domElement.getBoundingClientRect();const wr=model.localToWorld(V3(ref)).project(camera);
   const v=new THREE.Vector3(((cx-r.left)/r.width)*2-1,-((cy-r.top)/r.height)*2+1,wr.z).unproject(camera);return model.worldToLocal(v).toArray()};
 function dimRef(d){return d.p1?BM.V.mul(BM.V.add(d.p1,d.p2),0.5):(d.v||d.c||d.p)}
-renderer.domElement.addEventListener('pointerdown',e=>{if(e.button!==0||!dims.length)return;const r=renderer.domElement.getBoundingClientRect();const x=e.clientX-r.left,y=e.clientY-r.top;
-  const h=dimHits.filter(h=>Math.abs(h.x-x)<(h.w?h.w/2+6:h.r)&&Math.abs(h.y-y)<(h.h?h.h:h.r)).sort((a,b)=>Math.hypot(a.x-x,a.y-y)-Math.hypot(b.x-x,b.y-y))[0];if(!h)return;const d=dims.find(q=>q.no===h.no);dimDrag={d,moved:false};dimSel=d.no;try{renderer.domElement.setPointerCapture(e.pointerId)}catch{}e.stopImmediatePropagation();needs=true},true);
-renderer.domElement.addEventListener('pointermove',e=>{if(!dimDrag)return;e.stopImmediatePropagation();dimDrag.moved=true;BM.ziehe(dimDrag.d,modelPointAt(e.clientX,e.clientY,dimRef(dimDrag.d)),sicht());needs=true},true);
+renderer.domElement.addEventListener('pointerdown',e=>{if(dimDrag){e.stopImmediatePropagation();return}if(e.button!==0||!dims.length||tapGuard.isMultiple())return;const r=renderer.domElement.getBoundingClientRect();const x=e.clientX-r.left,y=e.clientY-r.top;
+  const h=dimHits.filter(h=>Math.abs(h.x-x)<(h.w?h.w/2+6:h.r)&&Math.abs(h.y-y)<(h.h?h.h:h.r)).sort((a,b)=>Math.hypot(a.x-x,a.y-y)-Math.hypot(b.x-x,b.y-y))[0];if(!h)return;const d=dims.find(q=>q.no===h.no);dimDrag={d,moved:false,pointerId:e.pointerId};dimSel=d.no;try{renderer.domElement.setPointerCapture(e.pointerId)}catch{}e.stopImmediatePropagation();needs=true},true);
+renderer.domElement.addEventListener('pointermove',e=>{if(!dimDrag)return;e.stopImmediatePropagation();if(e.pointerId!==dimDrag.pointerId||tapGuard.isMultiple())return;dimDrag.moved=true;BM.ziehe(dimDrag.d,modelPointAt(e.clientX,e.clientY,dimRef(dimDrag.d)),sicht());needs=true},true);
 // Lineare Bemaßung sperren (beim Ziehen oder für die gewählte Bemaßung): H = horizontal, V = vertikal (Höhe), A = ausgerichtet, L = wieder automatisch
 function linearSperren(art,ziel){const d=ziel||dimDrag?.d||dims.find(x=>x.no===dimSel);if(!d||d.typ!=='linear')return false;d.sperre=art||undefined;
   if(art){const dir=art==='ausgerichtet'?BM.V.norm(BM.V.sub(d.p2,d.p1)):richtungsVektor(art,d.p1,d.p2,sicht(),!BM.hochachseSichtbar(sicht()));if(dir){d.dir=dir;d.linArt=art;d.wert=Math.abs(BM.V.dot(BM.V.sub(d.p2,d.p1),dir));if(d.off)BM.ziehe(d,BM.V.add(d.p1,d.off))}}
   $('status').textContent=art?`Bemaßung ${d.no}: ${({horizontal:'horizontal',vertikal:'vertikal (Höhe)',ausgerichtet:'ausgerichtet'})[art]} gesperrt`:`Bemaßung ${d.no}: Richtung folgt wieder dem Ziehen`;renderDims();needs=true;return true}
 addEventListener('keydown',e=>{if(cadTastenGesperrt(e)||e.ctrlKey||e.metaKey||e.altKey||textFeld())return;const art={KeyH:'horizontal',KeyV:'vertikal',KeyA:'ausgerichtet',KeyL:null}[e.code];if(art===undefined)return;if(linearSperren(art)){e.preventDefault();return}if(e.code==='KeyH'&&!e.shiftKey&&!e.repeat&&data){e.preventDefault();gesamtUmschalten()}});
-renderer.domElement.addEventListener('pointerup',e=>{if(!dimDrag)return;e.stopImmediatePropagation();const d=dimDrag.d,mv=dimDrag.moved;dimDrag=null;down=null;if(!mv)editDim(d);needs=true},true);
+renderer.domElement.addEventListener('pointerup',e=>{if(!dimDrag)return;e.stopImmediatePropagation();if(e.pointerId!==dimDrag.pointerId)return;const d=dimDrag.d,mv=dimDrag.moved;dimDrag=null;down=null;if(!mv&&tapGuard.wasTap(e))editDim(d);needs=true},true);
 // ---- Ansicht mit Bemaßungen exportieren (PNG/PDF) ----
 function ansichtBild(){renderer.render(scene,camera);drawDims();const c=document.createElement('canvas');const pr=renderer.domElement.width/(view.clientWidth||1),fd=Math.round(freiD*pr),sx=dockZustand.seite==='links'?fd:0;c.width=Math.max(1,renderer.domElement.width-fd);c.height=renderer.domElement.height;const x=c.getContext('2d');
   const g=x.createLinearGradient(0,0,0,c.height);const bg=einstellungen.hintergrund==='dunkel'?['#303d4b','#415262','#526578']:einstellungen.hintergrund==='hell'?['#f8fafc','#eef3f8','#e5edf4']:['#e7eef5','#c5d0dc','#b7c5d3'];g.addColorStop(0,bg[0]);g.addColorStop(.55,bg[1]);g.addColorStop(1,bg[2]);x.fillStyle=g;x.fillRect(0,0,c.width,c.height);
@@ -1107,8 +1118,9 @@ function flachMasse(f,X,Y,fs,sw,pad){const C='#3b4650',n2=v=>nf(v,2),x0=X(f.min)
 // und meldet die Bytes zurück; leerer Inhalt wird nie als Datei angelegt.
 function textSpeichern(...args){return dokumentAuftrag(()=>textSpeichernImpl(...args))}
 async function textSpeichernImpl(art,name,text,filter,ext,mime){
+  if(MOBILE_BUILD)return mobileUnsupported();
   if(typeof text!=='string'||!text.length){$('status').textContent=art+' ist leer – nichts gespeichert. Abwicklung neu berechnen.';return false}
-  window.__lastExport={name,ext,text};const inv=window.__TAURI_INTERNALS__?.invoke;
+  window.__lastExport={name,ext,text};const inv=desktopInvoke();
   if(inv){try{const n=await inv('save_text',{name,content:text,filter,ext});
       if(n==null||n===false){$('status').textContent=art+' nicht gespeichert (abgebrochen).';return false}
       if(typeof n==='number'&&n<=0)throw new Error('Datei ist leer');
@@ -1129,7 +1141,7 @@ $('geoSpeichern').onclick=async()=>{const r=sheetCache;if(!r?.flat||r.flat.incom
 
 // ---------- Biegetabelle exportieren (PDF / XLSX) ----------
 function saveBytes(...args){return dokumentAuftrag(()=>saveBytesImpl(...args))}
-async function saveBytesImpl(name,bytes,filter,ext,mime){window.__lastExport={name,bytes,ext};const inv=window.__TAURI_INTERNALS__?.invoke;
+async function saveBytesImpl(name,bytes,filter,ext,mime){if(MOBILE_BUILD)return mobileUnsupported();window.__lastExport={name,bytes,ext};const inv=desktopInvoke();
   if(inv){try{const ok=await inv('save_bytes',{name,data:Array.from(bytes),filter,ext});if(ok)$('status').textContent='Gespeichert: '+name;return !!ok}catch(e){$('status').textContent='Fehler beim Speichern: '+e;return false}}
   else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([bytes],{type:mime}));a.download=name;a.click();$('status').textContent='Gespeichert: '+name;return true}}
 const exportMeta=()=>{const rows=[...$('sheetinfo').children].map(d=>d.textContent);const get=k=>{const i=rows.indexOf(k);return i>=0?rows[i+1]:undefined};
@@ -1203,9 +1215,9 @@ function zoomFenster(a){const r=renderer.domElement.getBoundingClientRect();cons
   camera.position.copy(hit).add(off);controls.target.copy(hit);controls.update();needs=true}
 function zfZeichnen(){const box=$('zoomrahmen'),r=renderer.domElement.getBoundingClientRect();const x=Math.min(zf.x0,zf.x1),y=Math.min(zf.y0,zf.y1);
   box.hidden=false;box.style.left=(x-r.left)+'px';box.style.top=(y-r.top)+'px';box.style.width=Math.abs(zf.x1-zf.x0)+'px';box.style.height=Math.abs(zf.y1-zf.y0)+'px'}
-renderer.domElement.addEventListener('pointerdown',e=>{if(werkzeug!=='fenster'||e.button!==0)return;zf={x0:e.clientX,y0:e.clientY,x1:e.clientX,y1:e.clientY};zfZeichnen();mausUnten=true;anim=null;try{renderer.domElement.setPointerCapture(e.pointerId)}catch{}e.stopPropagation();e.preventDefault()},true);
-renderer.domElement.addEventListener('pointermove',e=>{if(!zf)return;zf.x1=e.clientX;zf.y1=e.clientY;zfZeichnen();e.stopPropagation()},true);
-renderer.domElement.addEventListener('pointerup',e=>{if(!zf||e.button!==0)return;const a=zf;zf=null;$('zoomrahmen').hidden=true;mausUnten=false;if(Math.abs(a.x1-a.x0)>8&&Math.abs(a.y1-a.y0)>8&&model)zoomFenster(a);e.stopPropagation()},true);
+renderer.domElement.addEventListener('pointerdown',e=>{if(werkzeug!=='fenster'||e.button!==0)return;if(tapGuard.isMultiple()){zf=null;mausUnten=false;$('zoomrahmen').hidden=true;return}zf={pointerId:e.pointerId,x0:e.clientX,y0:e.clientY,x1:e.clientX,y1:e.clientY};zfZeichnen();mausUnten=true;anim=null;try{renderer.domElement.setPointerCapture(e.pointerId)}catch{}e.stopPropagation();e.preventDefault()},true);
+renderer.domElement.addEventListener('pointermove',e=>{if(!zf||e.pointerId!==zf.pointerId)return;zf.x1=e.clientX;zf.y1=e.clientY;zfZeichnen();e.stopPropagation()},true);
+renderer.domElement.addEventListener('pointerup',e=>{if(!zf||e.pointerId!==zf.pointerId||e.button!==0)return;const a=zf;zf=null;$('zoomrahmen').hidden=true;mausUnten=false;if(!tapGuard.isMultiple()&&Math.abs(a.x1-a.x0)>8&&Math.abs(a.y1-a.y0)>8&&model)zoomFenster(a);e.stopPropagation()},true);
 const wRay=new THREE.Raycaster();
 if(vr)vr.domElement.addEventListener('pointerdown',e=>{if(e.button!==0)return;const r=vr.domElement.getBoundingClientRect();
   wuerfelSync();wRay.setFromCamera(new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1),vc);
@@ -1214,10 +1226,11 @@ if(vr)vr.domElement.addEventListener('pointerdown',e=>{if(e.button!==0)return;co
   if(dir.lengthSq()<1e-8)dir.copy(h.face.normal);animiere(dir,upSenkrecht(dir,new THREE.Vector3(0,1,0)));e.preventDefault();e.stopPropagation()});
 function ringWinkel(e){const r=$('kompass').getBoundingClientRect();return Math.atan2(e.clientX-(r.left+r.width/2),-(e.clientY-(r.top+r.height/2)))}
 let ringDrag=null;
-$('kring').addEventListener('pointerdown',e=>{if(e.button!==0)return;anim=null;ringDrag={a:ringWinkel(e),off:camera.position.clone().sub(controls.target),up:camera.up.clone()};try{$('kring').setPointerCapture(e.pointerId)}catch{}e.preventDefault()});
-$('kring').addEventListener('pointermove',e=>{if(!ringDrag)return;const delta=ringWinkel(e)-ringDrag.a;const achse=new THREE.Vector3(0,1,0);
+$('kring').addEventListener('pointerdown',e=>{if(e.button!==0||ringDrag)return;anim=null;ringDrag={pointerId:e.pointerId,a:ringWinkel(e),off:camera.position.clone().sub(controls.target),up:camera.up.clone()};try{$('kring').setPointerCapture(e.pointerId)}catch{}e.preventDefault()});
+$('kring').addEventListener('pointermove',e=>{if(!ringDrag||e.pointerId!==ringDrag.pointerId)return;const delta=ringWinkel(e)-ringDrag.a;const achse=new THREE.Vector3(0,1,0);
   camera.position.copy(controls.target).add(ringDrag.off.clone().applyAxisAngle(achse,delta));camera.up.copy(ringDrag.up).applyAxisAngle(achse,delta);camera.lookAt(controls.target);controls.update();needs=true});
-$('kring').addEventListener('pointerup',()=>{ringDrag=null});
+const ringEnde=e=>{if(e.pointerId===ringDrag?.pointerId)ringDrag=null};
+$('kring').addEventListener('pointerup',ringEnde);$('kring').addEventListener('pointercancel',ringEnde);
 $('wuerfelHome').onclick=()=>animiereAnsicht('iso');
 document.querySelectorAll('.tab').forEach(t=>{const alt=t.onclick;t.onclick=ev=>{alt?.call(t,ev);$('messenPanel').classList.remove('zu');dockEinklappen(false);triadeAktualisieren()}});
 
@@ -1327,7 +1340,7 @@ function zugStart(e,griff){const ids=zielIds();if(!ids.length||!triade)return fa
 function kameraRichtung(){const n=new THREE.Vector3();camera.getWorldDirection(n);return n.transformDirection(new THREE.Matrix4().copy(model.matrixWorld).invert()).normalize()}
 function zugEnde(){if(!zug)return;const vorher=zug.before;const ids=zug.ids;zug=null;zugSperre=true;controls.enabled=true;
   const jetzt=snapshot(ids);if(JSON.stringify(vorher)!==JSON.stringify(jetzt)){merke(vorher);$('status').textContent='Komponente verschoben';nachBewegung()}else needs=true}
-renderer.domElement.addEventListener('pointerdown',e=>{if(e.button!==0||!triade?.visible||!model)return;const rct=renderer.domElement.getBoundingClientRect();
+renderer.domElement.addEventListener('pointerdown',e=>{if(e.pointerType==='touch'||e.button!==0||!triade?.visible||!model)return;const rct=renderer.domElement.getBoundingClientRect();
   const rc=new THREE.Raycaster();rc.setFromCamera(new THREE.Vector2(((e.clientX-rct.left)/rct.width)*2-1,-((e.clientY-rct.top)/rct.height)*2+1),camera);
   const h=rc.intersectObject(triade,true).find(x=>x.object.userData.griff);if(!h)return;if(zugStart(e,h.object.userData.griff)){e.stopImmediatePropagation();e.preventDefault()}},true);
 renderer.domElement.addEventListener('pointermove',e=>{if(!zug)return;e.stopImmediatePropagation();zugAuf(e)},true);
@@ -1343,7 +1356,7 @@ function knotenNachName(name){return nodes.find(n=>n.name===name)||null}
 // ---------- Test-Schnittstelle ----------
 // ---------- Einzelteile: als Einzelteil öffnen, als STEP speichern ----------
 // Nativer Kern (OCCT STEPControl_Writer in hasi-kern) mit Rückfall auf den WASM-Kern. Immer mm, Produktname = Teilname.
-const EINZEL_MENUE=[['einzelOeffnen','Als Einzelteil öffnen'],['einzelStep','Als STEP speichern …'],['alleStep','Alle Einzelteile als STEP speichern …']];
+const EINZEL_MENUE=[['einzelOeffnen','Als Einzelteil öffnen',MOBILE_BUILD],['einzelStep','Als STEP speichern …',MOBILE_BUILD],['alleStep','Alle Einzelteile als STEP speichern …',MOBILE_BUILD]];
 const einzelWahl=(()=>{try{return {lage:'eigen',schema:'AP214',...JSON.parse(localStorage.getItem('einzelteil')||'{}')}}catch{return {lage:'eigen',schema:'AP214'}}})();
 // Aktuelle Lage (mit „Komponente verschieben“) als 3×4-Matrix zeilenweise
 function lageAktuell(i){const e=bodies[i].matrix.elements;return [e[0],e[4],e[8],e[12],e[1],e[5],e[9],e[13],e[2],e[6],e[10],e[14]]}
@@ -1360,12 +1373,12 @@ function alleEinzelteile(){const ges=new Map();data.inst.forEach((I,i)=>{if(!ges
 let exportStop=false;
 function exportAnzeige(text){const el=$('exportLauf');if(text==null){el.hidden=true;return}el.hidden=false;$('exportText').textContent=text}
 window.__exportStufe=(k,n)=>{if(!$('exportLauf').hidden)exportAnzeige(n>1?`STEP wird geschrieben … ${k} von ${n}`:'STEP wird geschrieben …')};
-$('exportStop').onclick=()=>{exportStop=true;$('exportText').textContent='Wird abgebrochen …';window.__TAURI_INTERNALS__?.invoke('step_export_abbrechen').catch(()=>{})};
+$('exportStop').onclick=()=>{exportStop=true;$('exportText').textContent='Wird abgebrochen …';desktopInvoke()?.('step_export_abbrechen').catch(()=>{})};
 const ABGEBROCHEN='abgebrochen';
 // Schreibt die Dateien. ziel: 'datei' | 'ordner' | 'temp'. Ergebnis: Liste (Pfade bzw. im Browser Namen/Bytes), null = Dialog abgebrochen.
 function stepSchreiben(...args){return dokumentAuftrag(()=>stepSchreibenImpl(...args))}
 async function stepSchreibenImpl(dateien,schema,ziel){
-  const inv=window.__TAURI_INTERNALS__?.invoke;exportStop=false;
+  const inv=desktopInvoke();exportStop=false;
   if(inv&&data.kernArt==='nativ'&&localStorage.getItem('export')!=='wasm'){
     try{const result=await inv('step_export',{dokument:aktivesDokument.nativeId,dateien:dateien.map(d=>({name:sichererName(d.name),produkt:stepText(d.name),teile:d.teile})),schema,ziel});window.__stepKernel='nativ';return result}
     catch(e){if(String(e)===ABGEBROCHEN||exportStop)throw new Error(ABGEBROCHEN);console.warn('Nativer STEP-Export fehlgeschlagen, WASM-Kern übernimmt:',e)}}
@@ -1389,7 +1402,8 @@ async function stepSchreibenImpl(dateien,schema,ziel){
   return aus}
 function einzelAusfuehren(...args){return dokumentAuftrag(()=>einzelAusfuehrenImpl(...args))}
 async function einzelAusfuehrenImpl(art,n,lage,schema){
-  const inv=window.__TAURI_INTERNALS__?.invoke;
+  if(MOBILE_BUILD)return mobileUnsupported();
+  const inv=desktopInvoke();
   if(art==='einzelOeffnen'){const name=ohneNummer(n.name);
     const fenster=inv?null:window.open('','_blank');
     exportAnzeige('Einzelteil wird vorbereitet …');
@@ -1416,7 +1430,7 @@ function einzelDialog(art,n){
   $('einzelLageF').hidden=art==='alleStep'||!einer;$('einzelSchemaF').hidden=art==='einzelOeffnen';
   dlg.querySelector(`input[name=einzelLage][value=${einzelWahl.lage==='baugruppe'?'baugruppe':'eigen'}]`).checked=true;
   dlg.querySelector(`input[name=einzelSchema][value=${einzelWahl.schema==='AP242'?'AP242':'AP214'}]`).checked=true;
-  const nativ=!!window.__TAURI_INTERNALS__&&data.kernArt==='nativ'&&localStorage.getItem('export')!=='wasm';const hw=dlg.querySelector('.einzelHinweis');
+  const nativ=HOST.desktopBackend&&data.kernArt==='nativ'&&localStorage.getItem('export')!=='wasm';const hw=dlg.querySelector('.einzelHinweis');
   hw.textContent='Einheit: mm · Produktname = Teilname · '+(nativ?'Farben werden übernommen':'ohne Farben');
   hw.title=nativ?'Teil- und Flächenfarben aus der STEP-Datei werden mitgespeichert':'Der WASM-Kern (Browser) kann keine STEP-Farben lesen oder schreiben – die Datei wird ohne Farben gespeichert. Mit der Desktop-App (nativer Kern) bleiben die Farben erhalten.';
   $('einzelOk').textContent=art==='einzelOeffnen'?'Öffnen':art==='alleStep'?'Ordner wählen …':'Speichern …';
@@ -1431,7 +1445,7 @@ function einzelDialog(art,n){
 window.__viewMenu=(x,y)=>viewMenu(x,y);window.__loadUrl=u=>dokumentOeffnen(u,u.split('/').pop(),async()=>load(await (await fetch(u)).arrayBuffer(),u.split('/').pop()));
 window.__loadBytes=(buf,name)=>dokumentOeffnen(Symbol(name),name,()=>load(buf,name));window.__call=call;
 window.__einzelteil={exportieren:stepSchreiben,dialog:(a,id)=>einzelDialog(a,id==null?null:nodes.find(x=>x.id===id)),ausfuehren:(a,id,lage,schema)=>einzelAusfuehren(a,id==null?null:nodes.find(x=>x.id===id),lage,schema),alle:()=>alleEinzelteile(),teile:(id,lage)=>einzelTeile(nodes.find(x=>x.id===id),lage)};
-window.__steuerung=()=>({zoomTempo:controls.wheelSpeed,drehTempo:controls.rotateSpeed,pixelRatio:renderer.getPixelRatio(),daempfung:!controls.staticMoving,autoRotate:false,autodrehen:drehen,schnell:!!navigationKanten,drawCalls:renderer.info.render.calls,ziel:controls.target.toArray(),pos:camera.position.toArray(),up:camera.up.toArray(),mitte:model?box.getCenter(new THREE.Vector3()).toArray():null});
+window.__steuerung=()=>({zoomTempo:controls.wheelSpeed,drehTempo:controls.rotateSpeed,pixelRatio:renderer.getPixelRatio(),daempfung:!controls.staticMoving,autoRotate:false,autodrehen:drehen,schnell:!!navigationKanten,kantenSichtbar:edgeObjs.filter(e=>e.visible&&e.parent.visible).length,drawCalls:renderer.info.render.calls,ziel:controls.target.toArray(),pos:camera.position.toArray(),up:camera.up.toArray(),mitte:model?box.getCenter(new THREE.Vector3()).toArray():null});
 window.__app={infoTexte:()=>dims.filter(d=>d.typ==='info').map(d=>informationsZeilen(d.r.rows,d.infoOptionen,d.title).map(rowText)),messLabelKaesten:()=>messLabelKaesten,messLabels:()=>messLabels.map(l=>({zeilen:l.zeilen.slice(),farbe:l.farbe||null,linie:!!l.linie,pos:projL(l.p)})),ergebnis:()=>$("ergebnis")?.innerText||"",huelle:a=>huelleRechnen(a),abmessungen:b=>abmRechnen(b),abm:()=>abm,abmDims:()=>abmDims.length,abmTexte:()=>abmDims.map(d=>BM.massText(d,{...STIL,stellen:PREC})[0]),dimTexte:()=>dims.filter(d=>d.typ).map(d=>({no:d.no,typ:d.typ,linArt:d.linArt,wert:d.wert,text:BM.massText(d,{...STIL,stellen:PREC})[0]})),linWahl:w=>{if(w)linWahlSetzen(w);return linWahl},gesamt:()=>gesamtHoehe(),hoverChip:()=>$('hover').textContent,nurFlaechen:an=>{if(an!=null)nurFlaechenSetzen(an);return nurFl()},reihe:s=>reiheMessen(s),sels:()=>sels.map(x=>({k:x.k,id:x.id,inst:x.inst})),schwerpunkt:()=>{$('schwerpunktZeigen').checked=true;return schwerpunktZeigen()},protokollDaten:()=>protokollDatenSammeln(),faltSetzen,faltEnde,faltNetz:()=>faltNetzHolen(),rissSetzen,riss:()=>riss,huellObj:()=>huellObj&&!!huellObj.parent,hoverCount:()=>hoverObj.children.length,camPos:()=>camera.position.toArray(),fitIso:()=>fit(views.iso),dimLabels:()=>dimHits.map(h=>[[h.x,h.y,0],h.no]),exportPng,exportPdf,editDim:no=>editDim(dims.find(d=>d.no===no)),stil:()=>STIL,dims:()=>dims,keepDim,renderDims,copyText,vis:()=>bodies.map(b=>b.visible),selName:()=>selNode?.name,trans:()=>bodies.map(b=>b.material.opacity),act,selectNode,nodes:()=>nodes,ctxMenu,select,clearSel,calcSheet,pickAt,data:()=>data,tab:n=>document.querySelector(`.tab[data-tab="${n}"]`).click(),
   screenOf:p=>{const r=renderer.domElement.getBoundingClientRect();const w=model.localToWorld(V3(p)).project(camera);return [(w.x+1)/2*r.width+r.left,(1-w.y)/2*r.height+r.top]},
   ausrichtung:()=>{const d=camera.position.clone().sub(controls.target).normalize();return {blick:Math.max(...ACHSEN.map(a=>Math.abs(d.dot(a)))),oben:Math.max(...ACHSEN.map(a=>Math.abs(camera.up.dot(a)))),dir:d.toArray(),up:camera.up.toArray()}},
@@ -1502,7 +1516,7 @@ async function dokumentUebergang(run){
 async function dokumentFreigeben(doc){
   const s=doc.snapshot?.state;if(s){s.worker?.terminate();disposeDocumentScene(s.model,[s.baseMat,s.transpMat,s.vcMatObj,...s.farbMats.values()])}
   doc.snapshot=null;
-  if(doc.nativeId)await window.__TAURI_INTERNALS__.invoke('dokument_schliessen',{dokument:doc.nativeId});
+  if(doc.nativeId)await desktopInvoke()('dokument_schliessen',{dokument:doc.nativeId});
 }
 function reiterAktualisieren(){dokumentReiter.render(dokumente,aktivesDokument?.id)}
 function dokumentAktivieren(id){return dateiAuftrag('activate:'+id,()=>dokumentUebergang(()=>{
@@ -1514,7 +1528,7 @@ function dokumentOeffnen(key,name,run,path=null){return dateiAuftrag(key,()=>dok
   const vorher=aktivesDokument;dokumentSpeichern();
   const doc={id:'d'+(++dokumentNummer),key,name,path,snapshot:leeresDokument(true),nativeId:null};
   try{
-    const inv=window.__TAURI_INTERNALS__?.invoke;if(inv)doc.nativeId=await inv('dokument_neu');
+    const inv=desktopInvoke();if(inv)doc.nativeId=await inv('dokument_neu');
     dokumente.push(doc);dokumentWiederherstellen(doc);$('status').textContent='Lade '+name+' …';
     const info=await mitMessdaten(run);await dokumentRuhe();dokumentSpeichern();reiterAktualisieren();return info;
   }catch(e){
@@ -1540,6 +1554,8 @@ addEventListener('keydown',e=>{
   else if(e.code==='KeyW'){e.preventDefault();e.hasiDokumentTaste=true;if(aktivesDokument)void dokumentSchliessen(aktivesDokument.id)}
   else if(e.code==='Tab'&&dokumente.length){e.preventDefault();e.hasiDokumentTaste=true;const i=dokumente.indexOf(aktivesDokument);void dokumentAktivieren(dokumente[(i+(e.shiftKey?-1:1)+dokumente.length)%dokumente.length].id)}
 },true);
+renderer.domElement.addEventListener('pointercancel',()=>{down=null;dimDrag=null;zf=null;ringDrag=null;mausUnten=false;$('zoomrahmen').hidden=true;navigationVoll()});
+installTouchUi({mobileBuild:MOBILE_BUILD,view,dock,resize,onLayoutChange:()=>{if(model&&!dokumentWechsel)fit()}});
 const leerSnapshot=dokumentSnapshot();
 window.__dokumente=()=>dokumente.map(d=>({id:d.id,name:d.name,path:d.path,aktiv:d===aktivesDokument}));
 window.__dokumentAktivieren=dokumentAktivieren;window.__dokumentSchliessen=dokumentSchliessen;

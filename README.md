@@ -1,4 +1,6 @@
-# Hasi 3D / MS3D 0.1.6
+# Hasi 3D / MS3D
+
+Android tablet pilotu **0.1.7 geliştirme dalında** hazırlanıyor. Dokunmatik gezinme, uygulama içinden yerel STEP açma ve WASM ile çevrimdışı ölçüm aynı kod tabanını kullanır. Pilotun sınırları, üretimden ayrı test paketleri ve derleme komutları: [Android pilotu](docs/android-pilot.md). Windows/macOS için yayımlanmış 0.1.6 paketleri bu çalışmadan ayrıdır.
 
 Produktnamen ab 20.10.2026: **Hasi 3D** (Marke Hasi, vorher „Hasi STEP-Betrachter“) und **MS3D** (Marke Sickinger, vorher „Sickinger STEP-Viewer“). Kennungen, Programmkennungen der Dateizuordnung und MSI-Upgrade-Codes bleiben gleich, damit ein Update die Vorschau-Installation ersetzt.
 

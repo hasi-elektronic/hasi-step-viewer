@@ -1,0 +1,6 @@
+{
+  "productName": "Hasi 3D Pilot",
+  "identifier": "de.hasi.elektronic.stepviewer.pilot",
+  "app": {"windows": [{"label":"main","title":"Hasi 3D","width":1200,"height":800,"dragDropEnabled":false}]},
+  "bundle": {"android":{"minSdkVersion":28,"versionCode":1007},"fileAssociations":[],"externalBin":[],"resources":{}}
+}

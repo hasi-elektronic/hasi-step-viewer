@@ -1,5 +1,6 @@
 import {readFileSync} from 'node:fs';
 const version=JSON.parse(readFileSync(new URL('./package.json',import.meta.url),'utf8')).version;
+const mobile = process.env.MOBIL === '1' || ['android','ios'].includes(process.env.TAURI_ENV_PLATFORM);
 const marke = process.env.MARKE || 'hasi';
 if (marke !== 'hasi' && marke !== 'sickinger') throw new Error('MARKE muss hasi oder sickinger sein: ' + marke);
 
@@ -30,6 +31,6 @@ export default {
   server: { port: 5173, strictPort: true },
   worker: { format: 'es' },
   build: { outDir: 'dist', target: 'es2022' },
-  define: { 'import.meta.env.VITE_MARKE': JSON.stringify(marke), __APP_VERSION__: JSON.stringify(version) },
+  define: { 'import.meta.env.VITE_MARKE': JSON.stringify(marke), 'import.meta.env.VITE_MOBILE': JSON.stringify(mobile), __APP_VERSION__: JSON.stringify(version) },
   plugins: [markeHtml()],
 };

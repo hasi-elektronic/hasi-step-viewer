@@ -1,0 +1,93 @@
+name: Android pilot validation
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'tools/**'
+      - 'package*.json'
+      - 'index.html'
+      - 'vite.config.js'
+      - '.github/workflows/android-pilot.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-pilot-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  touch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      MOBIL: '1'
+      CHROME: /usr/bin/google-chrome
+      TOUCH_OUT: output/touch
+      LARGE_STEP: /tmp/hasi-navigation.step
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 20, cache: npm}
+      - run: npm ci
+      - run: node tools/test-platform.mjs && node tools/test-pointer-gesture.mjs
+      - run: node tools/make-navigation-fixture.mjs "$LARGE_STEP" 512
+      - name: Real touch events and negative controls
+        run: |
+          set -euo pipefail
+          npm run dev -- --port 5181 --strictPort > /tmp/hasi-vite.log 2>&1 &
+          vite_pid=$!
+          trap 'kill "$vite_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5181/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node tools/smoke-touch.mjs
+          node tools/test-touch-negative.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: android-touch-evidence, path: output/touch, if-no-files-found: warn}
+  apk:
+    needs: touch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        brand: [hasi, sickinger]
+    env:
+      MOBIL: '1'
+      MARKE: ${{ matrix.brand }}
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 20, cache: npm}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: 21}
+      - uses: android-actions/setup-android@v3
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with: {targets: 'aarch64-linux-android,x86_64-linux-android'}
+      - run: npm ci
+      - name: Fixed Android SDK and NDK
+        run: |
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018'
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - name: Fresh brand project
+        run: node tools/android-projekt.mjs "$MARKE"
+      - name: Official Tauri CLI debug APKs (ARM64 and emulator)
+        run: |
+          set -euo pipefail
+          configs=(--config "src-tauri/tauri.mobile-$MARKE.conf.json")
+          if [ "$MARKE" = sickinger ]; then
+            configs=(--config src-tauri/tauri.sickinger.conf.json "${configs[@]}")
+          fi
+          npx tauri android build --debug --apk --split-per-abi --target aarch64 x86_64 "${configs[@]}" --ci -- --locked
+      - name: Inspect actual APKs
+        run: node tools/check-android-apk.mjs "$MARKE" output/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.brand }}-pilot-debug
+          path: |
+            output/android/**
+            src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error

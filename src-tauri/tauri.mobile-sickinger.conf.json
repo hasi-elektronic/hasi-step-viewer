@@ -1,0 +1,6 @@
+{
+  "productName": "MS3D Pilot",
+  "identifier": "de.sickinger.stepviewer.pilot",
+  "app": {"windows": [{"label":"main","title":"MS3D","width":1200,"height":800,"dragDropEnabled":false}]},
+  "bundle": {"android":{"minSdkVersion":28,"versionCode":1007},"fileAssociations":[],"externalBin":[],"resources":{}}
+}
