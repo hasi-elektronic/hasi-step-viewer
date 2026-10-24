@@ -1,4 +1,4 @@
-# Hasi 3D (Prototyp 0.1.0)
+# Hasi 3D / MS3D 0.1.6
 
 Produktnamen ab 20.10.2026: **Hasi 3D** (Marke Hasi, vorher „Hasi STEP-Betrachter“) und **MS3D** (Marke Sickinger, vorher „Sickinger STEP-Viewer“). Kennungen, Programmkennungen der Dateizuordnung und MSI-Upgrade-Codes bleiben gleich, damit ein Update die Vorschau-Installation ersetzt.
 
@@ -14,7 +14,11 @@ Reiner STEP/STP-Viewer (keine Bearbeitung). Tauri 2 + three.js + occt-import-js 
 
 Funktionen: STEP öffnen (Menü, Doppelklick auf `.step`/`.stp`, Drag & Drop ins Fenster), dunkle Kopfleiste mit Datei/Ansicht/Werkzeuge/Hilfe, Dateireiter, schwebende Werkzeugleiste (Auswählen, Schwenken, Drehen, Zoom, Zoom-Fenster, Einpassen, Anzeigestil, Standardansichten), Ansichtswürfel mit Kompass N/O/S/W, Modellbaum, Messen in mm, Bemaßung, Schnitt, Blech.
 
-Tastenkürzel (auch im Menü Ansicht und unter Hilfe): **F** Einpassen, **F9** nächste Standardansicht ohne Rollwinkel, **F10** senkrecht auf die gewählte Fläche (ohne Fläche Isometrie), **1…6** bzw. **Strg+1…6** Vorne, Hinten, Links, Rechts, Oben, Unten, **7** und **0** bzw. **Strg+7** Isometrie. Ansichtswechsel sind animiert. In „Auswählen“ gilt weiter: Mitte ziehen = drehen, Rechts oder Umschalt+Mitte = schwenken, Rad = Zoom.
+Tastenkürzel (auch im Menü Ansicht und unter Hilfe): **F** Einpassen, **F9** nächste Standardansicht ohne Rollwinkel, **F10** senkrecht auf die gewählte Fläche (ohne Fläche Isometrie), **1…6** bzw. **Strg+1…6** Vorne, Hinten, Links, Rechts, Oben, Unten, **7** und **0** bzw. **Strg+7** Isometrie. Ansichtswechsel sind animiert. Mitte ziehen dreht jederzeit frei, Rechts oder Strg/Umschalt+Mitte schwenkt, das Rad zoomt zum Cursor. Nach dem Loslassen steht die Ansicht sofort still. Automatische Einachsdrehung ist separat unter **Werkzeuge → Autodrehen** verfügbar.
+
+Mehrere STEP-Dateien lassen sich gleichzeitig in Dokumentreitern öffnen. Dateiauswahl und Drag & Drop übernehmen alle gewählten STEP-Dateien; derselbe Desktop-Pfad aktiviert seinen bereits offenen Reiter. Kamera, Schnitt, Sichtbarkeit, Messungen und Rückgängig-Verlauf bleiben pro Dokument erhalten. **Strg+O** öffnet weitere Dateien, **Strg+Tab** wechselt zum nächsten Reiter, **Strg+W** schließt den aktiven Reiter. Beim Schließen werden die zugehörigen Ressourcen freigegeben.
+
+**Messen → Auto** erkennt die exakte CAD-Geometrie: Gerade → Kantenlänge, Kreisbogen → Radius und Bogenlänge, voller Kreis → Durchmesser und Radius, sich schneidende Richtungen → Winkel. „Bemaßung“ übernimmt die passende grafische Art; die erweiterten manuellen Messarten bleiben verfügbar.
 
 ## Starten
     npm ci
@@ -29,6 +33,8 @@ Linux-Voraussetzungen: libwebkit2gtk-4.1-dev, libgtk-3-dev, librsvg2-dev, Rust >
 ## Installer über CI
 `.github/workflows/release.yml`: Jobs auf `windows-latest` (NSIS-.exe + .msi) und `macos-latest` (Universal-.dmg), je Marke `hasi` und `sickinger`. Start über Tag `v*` oder manuell (workflow_dispatch); Ergebnisse als Actions-Artefakte.
 
+Vor der Auslieferung prüft `node tools/test-messkern-paket.mjs <Programmdatei>` den tatsächlich eingebetteten WASM-Messkern gegen die SHA256-Prüfsumme der Quelldatei. Jedes Format wird separat geprüft: MSI, NSIS und die Anwendung im eingebundenen DMG. Windows-Pakete durchlaufen außerdem `node tools/test-desktop-paket.mjs <entpackte Programmdatei>` mit eigenem WebView2 und bekannten Messwerten. Ein erfolgreicher nativer STEP-Import allein reicht nicht zur Freigabe des Messens. Die Paketjobs hängen von den allgemeinen und nativen Tests ab.
+
 ## Marke Sickinger (MS3D)
 Dieselbe App, zweite Marke für Manfred Sickinger Apparatebau. Ohne Variable bleibt der Hasi-Build unverändert.
 
@@ -36,7 +42,7 @@ Dieselbe App, zweite Marke für Manfred Sickinger Apparatebau. Ohne Variable ble
     MARKE=sickinger npm run tauri build -- --config src-tauri/tauri.sickinger.conf.json
 
 Produktname „MS3D“ (vorher „Sickinger STEP-Viewer“), Kennung `de.sickinger.stepviewer`, Herausgeber „Manfred Sickinger Apparatebau“. Farben aus dem Logo: Dunkelblau `#004B85`, Hellblau `#009EDF`. Im Über-Dialog steht zusätzlich „Entwickelt von Hasi Elektronic“.
-Voraussetzung: Repository auf GitHub (noch nicht angelegt). Ohne Apple-Developer-ID ist die .dmg unsigniert/nicht notarisiert -> Gatekeeper-Warnung (Rechtsklick > Öffnen). Ohne Windows-Codesigning-Zertifikat -> SmartScreen-Hinweis.
+Die [macOS-Universal-Vorschau 0.1.6 für beide Marken](https://github.com/hasi-elektronic/hasi-step-viewer/releases/tag/macos-v0.1.6-vorschau) enthält DMGs, Prüfsummen und Herkunftsnachweise. Paket/Kern wurden unter macOS26 ARM64 geprüft; Mac-GUI und Intel-Laufzeit wurden nicht getestet. Keine Apple-Developer-ID-Signatur oder Notarisierung; macOS kann das Öffnen blockieren. Die bekannte Abweichung zwischen plist-Minimum10.13 und nativem Minimum11.0 sowie alle Testgrenzen sind in den Release-Notizen dokumentiert.
 
 ## Testdatei
 Testdatei nicht im Repo (Lizenz ungeklärt). Für `npm run smoke` eine eigene STEP-Datei als `public/sample.stp` ablegen.
@@ -71,6 +77,25 @@ Test: `testdaten/testblech-cm.step` (selbst erzeugt mit `tools/make-testblech-cm
 
 Alle Werte werden exakt aus der B-Rep (OCCT) berechnet, nicht aus dem Dreiecksnetz, und immer in mm angezeigt.
 
+**Messart wählen:** Schnellknöpfe und Auswahlliste stellen den gewünschten Wert an die erste Stelle. Der Hinweis nennt passende Elemente und die erforderliche Reihenfolge. Auswahlchips entfernen einzelne Elemente; Esc löscht die aktuelle Messung. Nachkommastellen ändern nur die Anzeige.
+
+| Messart | Auswahl / Ergebnis |
+| --- | --- |
+| Radius / Durchmesser | Kreis, Bogen, Zylinder- oder Kugelfläche; kein erfundener Radius auf Freiform oder Kegel |
+| Bogenlänge | Kreiskante oder Zylinderfläche, tatsächlicher Bogenwinkel auch über 180° |
+| Sehnenlänge / Bogenhöhe | Offene Kreiskante; Endpunktverbindung bzw. Abstand Sehnenmitte–Bogenmitte. Keine willkürliche Sehne bei vollen Kreisen |
+| Kantenlänge | Gerade oder gekrümmte Kante; wahre Kurvenlänge |
+| Abstand / Winkel | Zwei geeignete Elemente; Abstandsmethode und Richtung unter Erweitert |
+| Fläche / Umfang | Fläche mit Randlängen, Innenkonturen im Gesamtumfang enthalten; Kreisumfang bei geschlossener Kreiskante |
+| Volumen und Oberfläche | Einen Körper anklicken; Warnung bei offenen Körpern beachten |
+| Summe | Kanten oder Flächen ohne Strg nacheinander anklicken, schon ab zwei Elementen; erneuter Klick entfernt das Element |
+| Winkel aus 3 Punkten | Schenkel 1 → Scheitel → Schenkel 2; 0° bis 180° |
+| Kreis aus 3 Punkten | Drei unterschiedliche Punkte, nicht auf einer Geraden; definierter Kreis mit Radius, Ø und Mittelpunkt |
+
+Explizite Flächen-/Körpermessungen sind immer sichtbar, unabhängig vom Flächen-Schalter unter Erweitert. Die Fangfilter gelten vorübergehend passend zur Messart. Grafische Bemaßung ist nur bei geeigneter Geometrie verfügbar; andere Werte lassen sich kopieren oder als Messprotokoll ausgeben. Beim nativen Laden darf bereits während der BREP-Vorbereitung gewählt werden; die Messung erscheint anschließend, sofern die Auswahl noch aktuell ist.
+
+Entwicklungstests: `node tools/test-messarten.mjs`, `node tools/test-messauftraege.mjs`, `node tools/smoke-messarten.mjs` (Preview); native Prüfung über `KERN=native` und `HASI_KERN`. `smoke-native-messarten` prüft die verzögerte BREP-Bereitstellung, ist aber kein echtes OS-/WebView2-Pakettest.
+
 - **Fangen** mit Hover-Vorschau und Fangsymbol: Ecke (Quadrat), Kantenmitte (Dreieck), Kreismittelpunkt (Kreis mit Kreuz), Kante, Fläche, Achse (gestrichelt; Zylinderflächen).
 - **Ein Element:** Kantenlänge, Kantenmitte, Ø und R, Bogenwinkel, Bogenlänge, Umfang (gesamt und außen). Rundungen und Bögen zeigen Radius und Bogenlänge hervorgehoben.
 - **Fläche anklicken (nur mm):** ebene Fläche → **Länge × Breite** in der Flächenebene (an der längsten Kante ausgerichtet), **Blechdicke** (Abstand zur gegenüberliegenden parallelen Fläche desselben Körpers, wenn erkennbar) und **Gesamthöhe** des Körpers senkrecht zur Fläche; Zylinder → **Durchmesser Ø**, **Radius R** und **Länge** entlang der Achse. Flächeninhalt (mm²), Volumen und Oberfläche erscheinen nur mit Messen › Erweitert › „Flächeninhalt, Volumen und Oberfläche anzeigen“ (Standard aus); die Masse im Blech-/Masse-Bereich bleibt.
@@ -89,7 +114,7 @@ Testsuite: `tools/test-messen.mjs` (läuft in CI). Sie prüft 58 Sollmaße am Me
 ## Messen wie eDrawings
 
 - **Start:** kein Werkzeugfeld offen, das Modell wird in die freie Fläche unter der Werkzeugleiste eingepasst (projizierter Hüllquader, mittig). Ein offenes Messen-Feld wird nicht wiederhergestellt.
-- **Messen-Feld kompakt unten links** (höchstens 280 px breit): Einheiten, Bogen-/Kreismessungen (Abstand Mitte zu Mitte, Mindestabstand, Maximalabstand), Ergebnisse. Abstandsmethode, Maßrichtung, Projiziert auf, Fangen, Bemaßungen und alles Weitere liegen unter „Erweitert“ (zugeklappt). „Messen“ in der unteren Leiste öffnet und schließt das Feld.
+- **Messen-Feld unten links** (höchstens 280 px breit): Messartwahl, Schnellzugriff, Auswahlführung, Nachkommastellen und Ergebnisse. In Automatik/Abstand zusätzlich Bogen-/Kreismessungen (Mitte zu Mitte, Mindestabstand, Maximalabstand). Abstandsmethode, Maßrichtung, Projektion, Fangen und Bemaßungsverwaltung liegen unter „Erweitert“ (zugeklappt). „Messen“ in der unteren Leiste öffnet und schließt das Feld. Die größere Werkzeugauswahl nutzt mehr Höhe; das Modell bleibt neben dem Feld frei.
 - **Ein Klick auf eine Kante** zeigt den Wert direkt an der Kante, z. B. „Länge: 356,793 mm“; Bogen: Radius und Bogenlänge; Kreis: Durchmesser. Derselbe Wert steht unter „Ergebnisse“.
 - **Zwei Flächen:** parallel → „Die zwei gewählten Elemente sind parallel.“, Normaler Abstand (lila, mit Lotlinie im 3D), Abstand (kürzester Abstand) und Delta X/Y/Z der kürzesten Strecke; nicht parallel → Mindestabstand und Winkel. Es bleibt keine Bemaßung stehen (wie eDrawings); andere Paare und „Nur Flächen“ (Q, wie ZW3D) bemaßen wie bisher.
 - Im Messen wird die Verschieben-Triade nur gezeigt, wenn „Verschieben“ aktiv ist – sie verdeckt sonst Maßtexte.
@@ -181,6 +206,10 @@ Tests: `tools/test-export.mjs` (CI, prüft PDF-Text, XLSX-Inhalt und die Lage de
 ![Export](docs/biegetabelle-export.png) ![PDF](docs/biegetabelle-pdf.png)
 
 ## Nativer Kern (Desktop-App, ab feat/nativer-kern)
+
+Öffnen über Menü/Symbol, Doppelklick und Drag & Drop verwendet denselben pfadbasierten Ladeweg mit Zwischenspeicher. Dateien lassen sich im gesamten Fenster ablegen, auch über Baum und Bedienfeldern. Windows-Pfade mit Umlauten, ß, türkischen oder anderen Unicode-Zeichen bleiben bis zum OCCT-Kern erhalten. Dateiwechsel werden serialisiert; ein neuer Auftrag wartet auf die Messdaten des vorherigen Modells, und mehrere gleichzeitig wartende Aufträge werden auf den neuesten reduziert.
+
+Regressionstests: `node tools/test-datei-oeffnen.mjs`, `node tools/smoke-drop.mjs`, `node tools/smoke-datei-oeffnen.mjs` und `HASI_KERN=<programm> node tools/test-unicode-kern.mjs` (synthetische Testdateien, einschließlich Unicode-Import und -Export).
 
 Die Desktop-App lädt STEP-Dateien mit einem nativen OCCT-Kern (`kern/hasi_kern.cpp`, Programm `hasi-kern`), der als Sidecar neben der App liegt. Der WASM-Kern bleibt als Rückfall (Browser, fehlender Sidecar, Fehler im nativen Lauf) und für das Messen. Doppelklick und Ziehen ins Fenster übergeben den Dateipfad an `hasi-kern`; die Originaldatei wird dabei nicht gelöscht. Ein zweiter Doppelklick öffnet die Datei im bereits laufenden Fenster.
 

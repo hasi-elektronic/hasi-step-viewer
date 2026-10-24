@@ -3,6 +3,7 @@
 | Komponente | Version | Lizenz | Quelle |
 |---|---|---|---|
 | Tauri 2 (tauri, tauri-build, @tauri-apps/cli) | 2.x / CLI 2.12.3 | MIT OR Apache-2.0 | https://github.com/tauri-apps/tauri/blob/dev/LICENSE-MIT , https://github.com/tauri-apps/tauri/blob/dev/LICENSE-APACHE-2.0 |
+| @tauri-apps/api (Desktop-Ereignisse für Dateiöffnen) | 2.11.1 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri/blob/dev/LICENSE-MIT , https://github.com/tauri-apps/tauri/blob/dev/LICENSE-APACHE-2.0 |
 | three.js | 0.186.1 | MIT | https://github.com/mrdoob/three.js/blob/dev/LICENSE |
 | opencascade.js | 1.1.1 | LGPL-2.1-only (package.json, LICENSE) | https://github.com/donalffons/opencascade.js/blob/master/LICENSE |
 | Open CASCADE Technology (in opencascade.wasm.wasm) | 7.4/7.5 | LGPL-2.1 mit "Open CASCADE Exception" | https://github.com/Open-Cascade-SAS/OCCT/blob/master/LICENSE_LGPL_21.txt , https://github.com/Open-Cascade-SAS/OCCT/blob/master/OCCT_LGPL_EXCEPTION.txt |

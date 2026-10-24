@@ -63,7 +63,7 @@ await p.waitForTimeout(50);
 assert.equal((await p.evaluate(() => window.__app.vis()))[4], true, 'Umschalt+Tab blendet nicht ein');
 await p.keyboard.press('Tab');
 assert.equal((await p.evaluate(() => window.__app.vis()))[4], false, 'Tab blendet nicht aus');
-await p.keyboard.press('Control+Shift+Tab');
+await p.keyboard.press('Control+Shift+H');
 assert.deepEqual(await p.evaluate(() => window.__app.vis()), [true, true, true, true, true]);
 const mess = await p.evaluate(async () => {
   const app = window.__app, d = app.data();

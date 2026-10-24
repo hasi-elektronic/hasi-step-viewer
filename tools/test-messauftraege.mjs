@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {createMessauftraege} from '../src/messauftraege.js';
+const gate=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject}};
+const session=createMessauftraege(),events=[];
+const run=(ready,value)=>session.run({bereit:ready,ausfuehren:async()=>value,ergebnis:r=>events.push(r),fehler:e=>events.push(e.message)});
+const a=gate(),old=run(a.promise,'alte Auswahl');await run(null,'neue Auswahl');a.resolve();await old;assert.deepEqual(events,['neue Auswahl']);
+const b=gate(),cancel=run(b.promise,'nach Esc');session.invalidate();b.resolve();await cancel;assert.deepEqual(events,['neue Auswahl']);
+const c=gate(),bad=run(c.promise,'alt');await run(null,'neue Messart');c.reject(new Error('alter Fehler'));await bad;assert.deepEqual(events,['neue Auswahl','neue Messart']);
+const d=gate(),pending=session.run({ausfuehren:()=>d.promise,ergebnis:r=>events.push(r),fehler:e=>events.push(e.message)});
+await Promise.resolve();await run(null,'neues Modell');d.resolve('alter Worker');await pending;assert.equal(events.at(-1),'neues Modell');assert(!events.includes('alter Worker'));
+const e=gate(),retry=run(e.promise,'bereit');e.reject(new Error('Messkern nicht verfügbar'));await retry;assert.equal(events.at(-1),'Messkern nicht verfügbar');await run(null,'erneut bereit');assert.equal(events.at(-1),'erneut bereit');
+console.log('OK: Messaufträge; verspätete Antworten/Fehler, Esc, Modell-/Messartwechsel, Fehler und Wiederholung');
