@@ -16,12 +16,30 @@ class CadControls extends TrackballControls {
     setNavigationTool(this, 'wahl');
     this.listeners = new AbortController();
     const {signal} = this.listeners;
+    const touches=new Set();
     element.addEventListener('pointerdown', event => {
+      if(event.pointerType==='touch')touches.add(event.pointerId);
       this.handleResize(); // Auch nach verschobenen/eingeklappten Seitenleisten.
       this.mouseButtons.MIDDLE = event.ctrlKey || event.metaKey || event.shiftKey ? MOUSE.PAN : MOUSE.ROTATE;
     }, {capture:true, signal});
     // Letztes Zeigerereignis vor dem Loslassen anwenden, ohne Nachlauf.
     element.addEventListener('pointerup', () => { if (this.enabled) this.update(); }, {capture:true, signal});
+    const touchEnd=event=>{
+      if(!touches.delete(event.pointerId)||touches.size)return;
+      // TrackballControls veröffentlicht touch-end vor dem Entfernen des letzten
+      // Zeigers. Erst danach ist die Navigation wirklich beendet.
+      // Ein Microtask kann zwischen Capture- und Bubble-Listenern laufen;
+      // deshalb erst im nächsten Task nach der vollständigen Dispatch-Kette.
+      setTimeout(()=>{
+        if(touches.size)return;
+        this.state=-1;
+        if(event.type==='pointercancel'){this.disconnect();this.connect(element)}
+        if(this.enabled)this.update();
+        this.dispatchEvent({type:'end'});
+      },0);
+    };
+    element.ownerDocument.addEventListener('pointerup',touchEnd,{capture:true,signal});
+    element.ownerDocument.addEventListener('pointercancel',touchEnd,{capture:true,signal});
     const ray = new Raycaster(), plane = new Plane(), pointer = new Vector2(), normal = new Vector3(), anchor = new Vector3();
     element.addEventListener('wheel', event => {
       if (!this.enabled || this.noZoom) return;

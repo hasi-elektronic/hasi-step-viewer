@@ -1,19 +1,25 @@
 [package]
 name = "hasi-step-viewer"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 rust-version = "1.85"
 license = "UNLICENSED"
+[lib]
+name = "hasi_step_viewer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 brotli = "8"
 sha2 = "0.10"
 [dependencies]
 tauri = { version = "2", features = [] }
-tauri-plugin-dialog = "2"
-tauri-plugin-single-instance = "=2.4.5"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "=2.4.5"
+
 [profile.release]
 lto = true
 opt-level = "s"

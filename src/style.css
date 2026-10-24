@@ -310,3 +310,38 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
 #messenPanel .info-merken{width:100%;min-height:33px;background:#37516a;border-color:#5b7c99;color:#edf7ff;font-size:12px;font-weight:600}
 #messenPanel .info-merken:disabled{opacity:.45;cursor:default}
 #deDetails{max-height:180px;overflow:auto;margin-bottom:8px;font-size:11px}
+.tree-more{display:none}
+html[data-touch=true] body{height:100dvh;overflow:hidden}
+html[data-touch=true] header{padding:env(safe-area-inset-top,0) 8px 4px;flex-wrap:wrap;gap:5px}
+html[data-touch=true] header .menue{order:3;flex:1 0 100%;overflow-x:auto}
+html[data-touch=true] header .menuknopf{min-height:36px;padding:7px 12px}
+html[data-touch=true] header #status{display:block;order:4;flex:1 0 100%;max-width:100%;min-height:16px;font-size:11px}
+html[data-touch=true] .iknopf,html[data-touch=true] .zuKnopf,html[data-touch=true] .datei-schliessen{min-width:40px;min-height:40px}
+html[data-touch=true] main{position:relative}
+html[data-touch=true] #baum{position:absolute;inset:0 auto 0 0;width:min(90vw,390px);z-index:40;box-shadow:8px 0 28px #142c4255}
+html[data-touch=true] #baum.zu{width:0;box-shadow:none}
+html[data-touch=true] #baumLasche{display:none}
+html[data-touch=true] #tree .trow{min-height:46px}
+html[data-touch=true] #tree button.tw,html[data-touch=true] #tree .tw-platz{width:38px;height:40px;flex-basis:38px}
+html[data-touch=true] #tree input[type=checkbox]{width:24px;height:24px}
+html[data-touch=true] #tree .acts{display:none!important}
+html[data-touch=true] .tree-more{display:block;flex-shrink:0;border:1px solid #d3dfe9;border-radius:8px;background:#f3f7fb;color:#365671;min-width:40px;height:40px;font-size:22px;margin-left:auto}
+html[data-touch=true] #ctx{max-height:75dvh;overflow:auto;max-width:calc(100vw - 16px)}
+html[data-touch=true] #ctx button{min-height:42px}
+html[data-touch=true] #view{min-height:0}
+html[data-touch=true] #werkzeugleiste{left:8px;transform:none;max-width:calc(100% - 16px);overflow-x:auto;right:8px}
+html[data-touch=true] #werkzeugleiste .wk{min-width:40px;height:40px}
+html[data-touch=true] #werkzeugleiste select{font-size:13px;min-height:40px}
+html[data-touch=true] #viewcube{top:68px;transform:scale(.65);transform-origin:top right;right:4px}
+html[data-touch=true] #boden{flex-wrap:wrap;gap:3px;padding:5px 6px max(5px,env(safe-area-inset-bottom))}
+html[data-touch=true] #boden button{min-width:70px;min-height:48px}
+html[data-touch=true] #touchHinweis{flex:1 0 100%;font-size:11px;color:#526b7f;text-align:center}
+html[data-touch=true] #messenPanel .btn,html[data-touch=true] #messenPanel select{min-height:38px}
+html[data-touch-bottom=true] main{flex-direction:column}
+html[data-touch-bottom=true] #dock{position:relative!important;inset:auto!important;bottom:auto!important;left:auto!important;right:auto!important;top:auto!important;width:100%!important;max-height:43dvh!important;flex:0 1 auto;padding:0 8px 5px;box-sizing:border-box}
+html[data-touch-bottom=true] #dock .pbody{max-height:32dvh!important}
+html[data-touch-bottom=true] #dock.zu{max-height:42px!important}
+html[data-touch-bottom=true] #dock.zu>#dockLasche{writing-mode:horizontal-tb;width:100%;padding:10px}
+html[data-touch-bottom=true] #dock .ptitel{cursor:default}
+html[data-touch-bottom=true] .app-dialog{max-height:calc(100dvh - 16px)}
+#touchBaum[hidden],#touchHinweis[hidden],#boden button[hidden]{display:none!important}

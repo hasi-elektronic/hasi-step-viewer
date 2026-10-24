@@ -10,3 +10,5 @@ public/occt/
 kern/build/
 kern-paket/
 src-tauri/tauri.kern.json
+src-tauri/gen/
+output/

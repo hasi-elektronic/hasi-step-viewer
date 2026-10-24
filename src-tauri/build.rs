@@ -2,6 +2,12 @@ use sha2::{Digest, Sha256};
 use std::{fs, io, path::PathBuf};
 
 fn main() {
+    // Align only the final Android shared library, without applying linker
+    // settings to desktop targets or every static dependency's RUSTFLAGS.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("android") {
+        println!("cargo:rustc-link-arg-cdylib=-Wl,-z,max-page-size=16384");
+        println!("cargo:rustc-link-arg-cdylib=-Wl,-z,common-page-size=16384");
+    }
     // tauri-codegen verwendet vorhandene komprimierte Dateien allein anhand des
     // Namens wieder. Ein abgebrochener Build kann eine halbe Brotli-Datei lassen.
     // Nur ungültige Dateien im eigenen OUT_DIR entfernen, bevor codegen läuft.
