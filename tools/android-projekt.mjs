@@ -9,7 +9,7 @@ const brand=process.argv[2];assert(['hasi','sickinger'].includes(brand),'Marke h
 const root=path.resolve(fileURLToPath(new URL('..',import.meta.url)));
 const gen=path.join(root,'src-tauri','gen'),active=path.join(gen,'android');
 const marker=dir=>path.join(dir,'.hasi-brand.json');
-const samePath=(a,b)=>path.resolve(a).toLowerCase()===path.resolve(b).toLowerCase();
+const samePath=(a,b)=>{const normal=p=>process.platform==='win32'?path.resolve(p).toLowerCase():path.resolve(p);return normal(a)===normal(b)};
 const safe=dir=>{
   assert(path.dirname(path.resolve(dir))===gen&&['android','android-hasi','android-sickinger'].includes(path.basename(dir)));
   assert(samePath(fs.realpathSync(gen),gen),'Projektwurzel darf kein Junction/Symlink sein');
