@@ -65,6 +65,10 @@ jobs:
       - uses: actions/setup-java@v4
         with: {distribution: temurin, java-version: 21}
       - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '12266719'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - uses: dtolnay/rust-toolchain@1.99.0
         with: {targets: 'aarch64-linux-android,x86_64-linux-android'}
       - run: npm ci

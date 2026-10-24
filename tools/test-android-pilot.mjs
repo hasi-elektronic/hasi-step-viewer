@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import net from 'node:net';
 import {execFileSync} from 'node:child_process';
 import {chromium} from 'playwright-core';
-const [serial,brand,apk]=process.argv.slice(2);assert(serial?.startsWith('emulator-')&&['hasi','sickinger'].includes(brand));assert(apk&&fs.statSync(apk).isFile(),'Zu prüfende installierte APK angeben');assert(/^[a-f0-9]{40}$/.test(process.env.EXPECTED_SOURCE||''),'Exakten CI-Quellcommit als EXPECTED_SOURCE angeben');
+const [serial,brand,apk,evidenceFile]=process.argv.slice(2);assert(serial?.startsWith('emulator-')&&['hasi','sickinger'].includes(brand));assert(apk&&fs.statSync(apk).isFile(),'Zu prüfende installierte APK angeben');assert(/^[a-f0-9]{40}$/.test(process.env.EXPECTED_SOURCE||''),'Exakten CI-Quellcommit als EXPECTED_SOURCE angeben');
 const config=JSON.parse(fs.readFileSync('src-tauri/tauri.mobile-'+brand+'.conf.json','utf8')),id=config.identifier;
 const sdk=process.env.ANDROID_HOME;assert(sdk);const adb=path.join(sdk,'platform-tools',process.platform==='win32'?'adb.exe':'adb');
 const call=(...args)=>execFileSync(adb,['-s',serial,...args],{encoding:'utf8',windowsHide:true,timeout:30000}).trim();
@@ -15,6 +15,8 @@ const out=path.resolve(process.env.ANDROID_TEST_OUT||'output/android-runtime-'+b
 const installed=call('shell','pm','path',id).split(/\r?\n/);assert.equal(installed.length,1,'Nur eigenständige APK erwartet');assert(installed[0].startsWith('package:/data/app/')&&installed[0].endsWith('/base.apk'));
 const installedCopy=path.join(out,'installed.apk');call('pull',installed[0].slice(8),installedCopy);
 const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex'),apkSha256=sha(fs.readFileSync(apk));assert.equal(sha(fs.readFileSync(installedCopy)),apkSha256,'Installierte APK weicht vom CI-Artefakt ab');
+const evidence=JSON.parse(fs.readFileSync(evidenceFile,'utf8'));assert.equal(evidence.source,process.env.EXPECTED_SOURCE,'CI-Kontrollmanifest hat eine andere Quelle');assert.equal(evidence.brand,brand);assert(!evidence.workingTree,'CI-Quellbaum muss unverändert sein');
+const packaged=evidence.results.find(r=>r.sha256===apkSha256);assert(packaged,'APK-Hash fehlt im offiziellen CI-Kontrollmanifest');assert.equal(packaged.identifier,id);assert.equal(packaged.version,JSON.parse(fs.readFileSync('package.json','utf8')).version);assert.deepEqual(packaged.libraries.map(l=>l.name.split('/')[1]),['x86_64']);
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 call('shell','mkdir','-p','/sdcard/Download/Hasi3D-Pilot');
 for(const file of ['messteil.step','messbaugruppe.step'])call('push','testdaten/'+file,'/sdcard/Download/Hasi3D-Pilot/'+file);
