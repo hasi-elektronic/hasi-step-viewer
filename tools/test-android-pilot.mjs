@@ -5,12 +5,12 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import net from 'node:net';
 import {execFileSync} from 'node:child_process';
-import {chromium} from 'playwright-core';
+import {connectAndroidWebView,PILOT_AVDS} from './android-webview.mjs';
 const [serial,brand,apk,evidenceFile]=process.argv.slice(2);assert(serial?.startsWith('emulator-')&&['hasi','sickinger'].includes(brand));assert(apk&&fs.statSync(apk).isFile(),'Zu prüfende installierte APK angeben');assert(/^[a-f0-9]{40}$/.test(process.env.EXPECTED_SOURCE||''),'Exakten CI-Quellcommit als EXPECTED_SOURCE angeben');
 const config=JSON.parse(fs.readFileSync('src-tauri/tauri.mobile-'+brand+'.conf.json','utf8')),id=config.identifier;
 const sdk=process.env.ANDROID_HOME;assert(sdk);const adb=path.join(sdk,'platform-tools',process.platform==='win32'?'adb.exe':'adb');
 const call=(...args)=>execFileSync(adb,['-s',serial,...args],{encoding:'utf8',windowsHide:true,timeout:30000}).trim();
-const avdName=call('emu','avd','name').split(/\r?\n/)[0].trim();assert(['Hasi3D_Pilot_Tablet','Hasi3D_Pilot_16K'].includes(avdName),'Nur eigenen Pilot-Emulator verwenden');
+const avdName=call('emu','avd','name').split(/\r?\n/)[0].trim();assert(PILOT_AVDS.includes(avdName),'Nur eigenen Pilot-Emulator verwenden');
 const pageSize=Number(call('shell','getconf','PAGE_SIZE'));assert([4096,16384].includes(pageSize));if(process.env.EXPECTED_PAGE_SIZE)assert.equal(pageSize,Number(process.env.EXPECTED_PAGE_SIZE));
 const out=path.resolve(process.env.ANDROID_TEST_OUT||'output/android-runtime-'+brand);fs.mkdirSync(out,{recursive:true});
 const installed=call('shell','pm','path',id).split(/\r?\n/);assert.equal(installed.length,1,'Nur eigenständige APK erwartet');assert(installed[0].startsWith('package:/data/app/')&&installed[0].endsWith('/base.apk'));
@@ -36,8 +36,7 @@ let socket;for(let i=0;i<60;i++){try{const pid=call('shell','pidof',id).trim();s
 const server=net.createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;await new Promise(r=>server.close(r));call('forward','tcp:'+port,'localabstract:'+socket);
 let browser;
 try{
-  browser=await chromium.connectOverCDP('http://127.0.0.1:'+port,{noDefaults:true});const context=browser.contexts()[0];assert(context,'Android-WebView-Kontext fehlt');
-  const page=context.pages()[0]||await context.waitForEvent('page',{timeout:60000}),errors=[];page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));
+  const connected=await connectAndroidWebView('http://127.0.0.1:'+port,id);browser=connected.browser;const {context,page}=connected,errors=[];page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));
   await page.waitForFunction(()=>window.__app);assert.equal(new URL(page.url()).hostname,'tauri.localhost');
   assert.equal(await page.evaluate(()=>window.__hostCapabilities.platform),'android');assert.equal(await page.evaluate(()=>window.__hostCapabilities.desktopBackend),false);
   const ui=async()=>{

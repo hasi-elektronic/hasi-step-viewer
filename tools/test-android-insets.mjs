@@ -5,7 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import net from 'node:net';
 import {execFileSync} from 'node:child_process';
-import {chromium} from 'playwright-core';
+import {connectAndroidWebView,PILOT_AVDS} from './android-webview.mjs';
 const [serial,brand,runtimeFile]=process.argv.slice(2);
 assert(serial?.startsWith('emulator-')&&['hasi','sickinger'].includes(brand));
 const evidence=JSON.parse(fs.readFileSync(runtimeFile,'utf8')),out=path.dirname(path.resolve(runtimeFile));
@@ -13,7 +13,7 @@ const id=JSON.parse(fs.readFileSync('src-tauri/tauri.mobile-'+brand+'.conf.json'
 assert.equal(evidence.identifier,id);assert.equal(evidence.serial,serial);
 const adb=path.join(process.env.ANDROID_HOME,'platform-tools',process.platform==='win32'?'adb.exe':'adb');
 const call=(...args)=>execFileSync(adb,['-s',serial,...args],{encoding:'utf8',windowsHide:true,timeout:30000}).trim();
-const avdName=call('emu','avd','name').split(/\r?\n/)[0].trim();assert(['Hasi3D_Pilot_Tablet','Hasi3D_Pilot_16K'].includes(avdName));assert.equal(evidence.device,avdName);
+const avdName=call('emu','avd','name').split(/\r?\n/)[0].trim();assert(PILOT_AVDS.includes(avdName));assert.equal(evidence.device,avdName);
 const pageSize=Number(call('shell','getconf','PAGE_SIZE'));assert.equal(evidence.pageSize,pageSize);
 const apk=call('shell','pm','path',id);assert(/^package:\/data\/app\/.+\/base\.apk$/.test(apk));
 const installed=path.join(out,'insets-installed.apk');call('pull',apk.slice(8),installed);
@@ -79,7 +79,7 @@ try{
     call('shell','wm','size','1280x800');call('shell','am','start','-n',id+'/.MainActivity');
     let socket;for(let i=0;i<60;i++){try{const pid=call('shell','pidof',id);socket=call('shell','cat','/proc/net/unix').split('\n').find(l=>l.includes('@webview_devtools_remote_'+pid))?.split('@')[1]?.trim()}catch{}if(socket)break;await wait(500)}assert(socket);
     call('forward','tcp:'+port,'localabstract:'+socket);forwarded=true;
-    browser=await chromium.connectOverCDP('http://127.0.0.1:'+port,{noDefaults:true});const context=browser.contexts()[0];assert(context,'Android-WebView-Kontext fehlt');page=context.pages()[0]||await context.waitForEvent('page',{timeout:60000});page.setDefaultTimeout(15000);
+    const connected=await connectAndroidWebView('http://127.0.0.1:'+port,id);browser=connected.browser;page=connected.page;page.setDefaultTimeout(15000);
     await page.waitForFunction(()=>window.__app);assert.equal(new URL(page.url()).hostname,'tauri.localhost');
     // Layout fixture setup only. Actual Android picker/content-URI import is
     // independently covered by test-android-pilot on this exact APK hash.
