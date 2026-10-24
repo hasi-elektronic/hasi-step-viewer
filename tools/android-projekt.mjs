@@ -64,7 +64,7 @@ assert(samePath(fs.realpathSync(task),task));
 let taskSource=fs.readFileSync(task,'utf8');
 assert(/val executable = [^;]+;/.test(taskSource)&&/val args = listOf\([^;]+;/.test(taskSource),'Unbekanntes Gradle-Rust-Template');
 const kotlinString=value=>JSON.stringify(value).replaceAll('$','\\$');
-taskSource=taskSource.replace(/val executable = [^;]+;/,'val executable = '+kotlinString(process.execPath)+';')
-  .replace(/val args = listOf\([^;]+;/,'val args = listOf('+kotlinString(path.join(root,'node_modules','@tauri-apps','cli','tauri.js'))+', "android", "android-studio-script");');
+taskSource=taskSource.replace(/val executable = [^;]+;/,()=>'val executable = '+kotlinString(process.execPath)+';')
+  .replace(/val args = listOf\([^;]+;/,()=>'val args = listOf('+kotlinString(path.join(root,'node_modules','@tauri-apps','cli','tauri.js'))+', "android", "android-studio-script");');
 fs.writeFileSync(task,taskSource);
 console.log('Android-Projekt bereit: '+brand);
