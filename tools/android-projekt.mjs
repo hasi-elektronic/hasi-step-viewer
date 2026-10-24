@@ -43,6 +43,12 @@ if(!fs.existsSync(active)){
   fs.writeFileSync(marker(active),JSON.stringify({brand,identifier:identifierFor(brand)},null,2)+'\n');
 }
 assert.equal(validate(active),brand);
+// Native system-bar/keyboard layout is shared by both generated brand hosts.
+const activity=path.join(active,'app','src','main','java',...identifierFor(brand).split('.'),'MainActivity.kt');
+assert(samePath(fs.realpathSync(activity),activity));
+const activityTemplate=fs.readFileSync(path.join(root,'src-tauri','android','MainActivity.kt.in'),'utf8');
+assert.equal(activityTemplate.match(/\{\{PACKAGE\}\}/g)?.length,1,'Unbekanntes Activity-Template');
+fs.writeFileSync(activity,activityTemplate.replace('{{PACKAGE}}',identifierFor(brand)));
 // Die vom CLI-Template vorgeschlagene SDK kann eine noch nicht veröffentlichte
 // Plattform sein. Der Pilot verwendet ausdrücklich die verfügbare API36.
 const gradle=path.join(active,'app','build.gradle.kts');

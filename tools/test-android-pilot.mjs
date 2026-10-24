@@ -15,13 +15,21 @@ const out=path.resolve(process.env.ANDROID_TEST_OUT||'output/android-runtime-'+b
 const installed=call('shell','pm','path',id).split(/\r?\n/);assert.equal(installed.length,1,'Nur eigenständige APK erwartet');assert(installed[0].startsWith('package:/data/app/')&&installed[0].endsWith('/base.apk'));
 const installedCopy=path.join(out,'installed.apk');call('pull',installed[0].slice(8),installedCopy);
 const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex'),apkSha256=sha(fs.readFileSync(apk));assert.equal(sha(fs.readFileSync(installedCopy)),apkSha256,'Installierte APK weicht vom CI-Artefakt ab');
-const evidence=JSON.parse(fs.readFileSync(evidenceFile,'utf8'));assert.equal(evidence.source,process.env.EXPECTED_SOURCE,'CI-Kontrollmanifest hat eine andere Quelle');assert.equal(evidence.brand,brand);assert(!evidence.workingTree,'CI-Quellbaum muss unverändert sein');
+const evidence=JSON.parse(fs.readFileSync(evidenceFile,'utf8'));assert.equal(evidence.source,process.env.EXPECTED_SOURCE,'CI-Kontrollmanifest hat eine andere Quelle');assert.equal(evidence.brand,brand);
+// Tauri erzeugt dieses bereits im Altbestand versionierte Plugin-Schema aus
+// Cargo/Plugin-Metadaten neu (tauri-build acl.rs save_acl_manifests). Es ist ein
+// Build-Output; keine andere Änderung an versionierten Dateien ist zulässig.
+const generatedChanges=(evidence.workingTree||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+assert(generatedChanges.every(s=>s==='M src-tauri/gen/schemas/acl-manifests.json'),'CI enthält Änderungen außerhalb des bekannten generierten Plugin-Schemas');
 const packaged=evidence.results.find(r=>r.sha256===apkSha256);assert(packaged,'APK-Hash fehlt im offiziellen CI-Kontrollmanifest');assert.equal(packaged.identifier,id);assert.equal(packaged.version,JSON.parse(fs.readFileSync('package.json','utf8')).version);assert.deepEqual(packaged.libraries.map(l=>l.name.split('/')[1]),['x86_64']);
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 call('shell','mkdir','-p','/sdcard/Download/Hasi3D-Pilot');
 for(const file of ['messteil.step','messbaugruppe.step'])call('push','testdaten/'+file,'/sdcard/Download/Hasi3D-Pilot/'+file);
+if(process.env.LARGE_STEP)call('push',process.env.LARGE_STEP,'/sdcard/Download/Hasi3D-Pilot/navigation-512.step');
 fs.writeFileSync(path.join(out,'kaputt.step'),'invalid STEP');call('push',path.join(out,'kaputt.step'),'/sdcard/Download/Hasi3D-Pilot/kaputt.step');
 call('shell','svc','wifi','disable');call('shell','svc','data','disable');
+const network={wifi:call('shell','settings','get','global','wifi_on'),mobileData:call('shell','settings','get','global','mobile_data'),defaultNone:/Active default network:\s*none/.test(call('shell','dumpsys','connectivity'))};
+assert.equal(network.wifi,'0');assert.equal(network.mobileData,'0');assert(network.defaultNone,'Emulator hat noch eine aktive Netzwerkverbindung');
 call('shell','am','force-stop',id);call('shell','am','start','-n',id+'/.MainActivity');
 let socket;for(let i=0;i<60;i++){try{const pid=call('shell','pidof',id).trim();socket=call('shell','cat','/proc/net/unix').split('\n').find(l=>l.includes('@webview_devtools_remote_'+pid))?.split('@')[1]?.trim()}catch{}if(socket)break;await pause(500)}assert(socket,'App-WebView nicht erreichbar');
 const server=net.createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;await new Promise(r=>server.close(r));call('forward','tcp:'+port,'localabstract:'+socket);
@@ -85,7 +93,20 @@ try{
   await row.locator('.tree-more').click();assert(await page.locator('#ctx [data-a="move"]').isDisabled());assert(await page.locator('#ctx [data-a="sheet"]').isDisabled());await page.locator('#ctx [data-a="isolate"]').click();assert.equal((await page.evaluate(()=>window.__app.vis())).filter(Boolean).length,1);
   await row.locator('.tree-more').click();await page.locator('#ctx [data-a="isoEnde"]').click();assert.deepEqual(await page.evaluate(()=>window.__app.vis()),vis);await page.locator('#touchBaum').click();
   const docs=await page.evaluate(()=>window.__dokumente());await page.evaluate(id=>window.__dokumentAktivieren(id),docs[0].id);assert.equal(await page.evaluate(()=>window.__app.dims().length),1);
+  let largeBodies=0;
+  if(process.env.LARGE_STEP){
+    await open('navigation-512.step',3);largeBodies=await page.evaluate(()=>window.__app.data().inst.length);assert(largeBodies>=500);
+    const r=await page.locator('#buehne').boundingBox(),cx=r.x+r.width*.8,cy=r.y+r.height*.7,edges=await page.evaluate(()=>window.__steuerung().kantenSichtbar);assert(edges>=500);
+    await send('touchStart',[[1,cx,cy]]);await send('touchMove',[[1,cx+30,cy+20]]);assert.equal(await page.evaluate(()=>window.__steuerung().kantenSichtbar),0);
+    await send('touchEnd',[]);await page.waitForFunction(edges=>!window.__steuerung().schnell&&window.__steuerung().kantenSichtbar===edges,edges);
+    await send('touchStart',[[1,cx-30,cy],[2,cx+30,cy]]);await send('touchCancel',[]);await page.waitForFunction(edges=>!window.__steuerung().schnell&&window.__steuerung().kantenSichtbar===edges,edges);
+    await page.evaluate(id=>window.__dokumentAktivieren(id),docs[0].id);
+  }
   assert(await page.locator('#dimSpeichern').isDisabled());assert.deepEqual(errors,[]);
   const urls=await page.evaluate(()=>performance.getEntriesByType('resource').map(r=>r.name));assert(urls.every(u=>u.startsWith('http://tauri.localhost/')||u.startsWith('http://ipc.localhost/')||u.startsWith('data:')),'Externe App-Ressource');
-  await page.screenshot({path:path.join(out,'apk.png')});fs.writeFileSync(path.join(out,'runtime.json'),JSON.stringify({brand,identifier:id,serial,source:process.env.EXPECTED_SOURCE,apkSha256,device:'Hasi3D_Pilot_Tablet',offline:true,scope:'x86_64 emulator, not physical ARM64',systemPicker:true,pickerCancel:true,badFileIsolation:true,visibility:true,isolate:true,gestureCancel:true,labelCancel:true,measurements:[5,10,95],tabs:2,wasm,urls,errors},null,2)+'\n');console.log('OK: echte Android-APK offline, Systempicker/content URI, Auto R5/Ø10/L95, Touch/Cancel, Sichtbarkeit/Isolieren, Dateifehler, Sekmen, WASM-SHA256');
+  await page.waitForFunction(()=>window.__app.animFertig());await pause(250);
+  assert(call('shell','dumpsys','activity','activities').includes(id+'/.MainActivity'));
+  // CDP screenshots can omit Android's separately composited WebGL layer.
+  fs.writeFileSync(path.join(out,'apk-native.png'),execFileSync(adb,['-s',serial,'exec-out','screencap','-p'],{windowsHide:true,maxBuffer:16*1024*1024,timeout:30000}));
+  fs.writeFileSync(path.join(out,'runtime.json'),JSON.stringify({brand,identifier:id,serial,source:process.env.EXPECTED_SOURCE,apkSha256,generatedChanges,device:'Hasi3D_Pilot_Tablet',offline:true,network,scope:'x86_64 emulator, not physical ARM64',nativeScreenshot:'apk-native.png',systemPicker:true,pickerCancel:true,badFileIsolation:true,visibility:true,isolate:true,gestureCancel:true,labelCancel:true,largeBodies,measurements:[5,10,95],tabs:await page.evaluate(()=>window.__dokumente().length),wasm,urls,errors},null,2)+'\n');console.log('OK: echte Android-APK offline, Systempicker/content URI, Auto R5/Ø10/L95, Touch/Cancel, Sichtbarkeit/Isolieren, Dateifehler, Sekmen, WASM-SHA256, große Körperzahl='+largeBodies);
 }finally{if(browser)await browser.close();call('forward','--remove','tcp:'+port)}

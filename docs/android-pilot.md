@@ -12,6 +12,7 @@ Pilot sınırları: işletim sistemine kaydetme/PNG/PDF/STEP dışa aktarma, yaz
 - `src/platform.js` açık host sözleşmesini doğrular. Android hiçbir zaman masaüstü komutlarına geri düşmez.
 - Android sistem dosya seçicisi WebView `File` nesnesi döndürür; `content://` URI bir Windows/Linux dosya yolu gibi kullanılmaz. MIME tanımayan sağlayıcılar için seçim filtresi açık, uzantı kontrolü uygulamadadır.
 - `src/pointer-gesture.js` çok parmak hareketini son parmak kalkana kadar seçimden ayırır. TrackballControls sonlandırması olay dağıtımı tamamlandıktan sonra ele alınır.
+- `src-tauri/android/MainActivity.kt.in` Android sistem çubukları, ekran çentiği ve klavyenin kapladığı alanı gerçek native inset değerlerinden ayırır. İşlenen değerler WebView'e sıfırlanarak iletilir; CSS ile çift boşluk uygulanmaz.
 - Üretilen Android projesi Git’e girmez. `tools/android-projekt.mjs` iki markanın generated projesini ayrı tutar; gerçek yol, marker, Gradle namespace/applicationId ve config eşleşmesini doğrular. API36 ve Gradle9.6.1 dağıtım SHA256 değeri sabittir.
 
 ## Tekrarlanabilir derleme

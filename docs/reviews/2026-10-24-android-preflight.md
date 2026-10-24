@@ -17,3 +17,11 @@ Derleme öncesi ana ajan sonuçları: Windows Rust16 test geçti; masaüstü `sm
 Geçici Windows doğrulaması: Android Rust `.so` derlendi; resmî CLI symlink izni nedeniyle paketleme aşamasında durdu. Aynı `.so` kopyasıyla Gradle debug paketi, yalnız doğrulama için oluşturuldu. Bu eski çalışma ağacı paketinde Android sistem seçicisi, çevrimdışı WASM R5/Ø10/L95, orbit/pinch ve iki sekme çalıştı; WASM65.864.037 bayt ve SHA256 `6cc2f3fa1611d32ad7563f7092aa1bf58741124302630cef7d21561ecd7b7284`. Bu sonuç yeni CI paketine taşınmayacak.
 
 Paket sonrası plan: iki marka/iki ABI actual APK metadata, sürüm/identifier/SDK/imza, tek ELF ve kaynak `.so` hash eşitliği; CI’dan indirilen x86_64 APK hashına bağlanmış gerçek Android WebView testleri, sistem picker/content URI, iptal/bozuk dosya, görünürlük/izolasyon, ölçüm ve dokunma. ARM64 fiziksel çalışma, iOS, macOS GUI ve önceki Windows CI/CDP problemi ayrı açık kapsamdır. Hiçbir müşteri CAD dosyası yüklenmez.
+
+## Android sistem çubukları düzeltmesi için yenilenen kapı
+
+İncelenen taban `073cefd696419ac5d89a35eab6ff8ecc038e33aa` + yeni `src-tauri/android/MainActivity.kt.in` ve `tools/android-projekt.mjs` deltası. Şablon SHA256: `2806d8f2dbb30085bc2513d3b905f22ee0a093153a1140d27cb0eb211ead1155` (Windows çalışma kopyası; Git satır sonlarını normalleştirebilir). App renderer/Rust değişmedi. Önceki run `40085471286` işlevsel testleri geçti ancak native ekran görüntüsünde sistem çubuğu çakışması bulundu; o paketler teslim adayı olmaktan çıkarıldı.
+
+Üç bağımsız denetçi bu dar düzeltmeyi resmî iki marka/iki ABI DEBUG doğrulama derlemesi için uygun buldu. Release denetçisinin eski API IME uyumluluğu için istediği `SOFT_INPUT_ADJUST_RESIZE` eklendi ve yeniden onaylandı. Root container gerçek systemBars/cutout/IME inset'lerini bir kez uygular; işlenen değerler WebView'e sıfırlanarak iletilir. `CONSUMED` kullanılmaz.
+
+Yeni paket kabulü: native ADB compositor görüntüsü (CDP PNG, WebGL katmanını atlayabiliyor); ADB üst Open ve alt Messen dokunmaları; yatay/dikey ekran, gesture/üç düğmeli navigation, klavye aç/kapat ve başlangıç bounds değerine dönüş. Resmî APK hashına bağlı çevrimdışı R5/Ø10/L95, sekmeler, sistem picker ve 512 gövde testi yeni pakette tekrarlanacak. Bu kayıt paket sonrası kabul yerine geçmez.
