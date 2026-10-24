@@ -56,4 +56,15 @@ let properties=fs.readFileSync(wrapper,'utf8');
 assert(properties.includes('gradle-9.6.1-bin.zip'),'Ungeprüfte Gradle-Version im CLI-Template');
 properties=properties.replace(/^distributionSha256Sum=.*\r?\n/gm,'');
 fs.writeFileSync(wrapper,properties.trimEnd()+'\ndistributionSha256Sum=9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14\n');
+// Bei einem aus Node gestarteten init schreibt das CLI-Template sonst
+// `node tauri ...`; Gradle läuft aber unter src-tauri und findet dieses Modul
+// nicht. Die verwaltete Aufgabe verwendet das echte lokale CLI-Skript.
+const task=path.join(active,'buildSrc','src','main','java',...identifierFor(brand).split('.'),'kotlin','BuildTask.kt');
+assert(samePath(fs.realpathSync(task),task));
+let taskSource=fs.readFileSync(task,'utf8');
+assert(/val executable = [^;]+;/.test(taskSource)&&/val args = listOf\([^;]+;/.test(taskSource),'Unbekanntes Gradle-Rust-Template');
+const kotlinString=value=>JSON.stringify(value).replaceAll('$','\\$');
+taskSource=taskSource.replace(/val executable = [^;]+;/,'val executable = '+kotlinString(process.execPath)+';')
+  .replace(/val args = listOf\([^;]+;/,'val args = listOf('+kotlinString(path.join(root,'node_modules','@tauri-apps','cli','tauri.js'))+', "android", "android-studio-script");');
+fs.writeFileSync(task,taskSource);
 console.log('Android-Projekt bereit: '+brand);

@@ -68,12 +68,15 @@ try{
   const sessionState=()=>page.evaluate(()=>({sels:window.__app.sels(),dims:JSON.stringify(window.__app.dims()),r:window.__lastMeasure}));
   const saved=await sessionState();await send('touchStart',[[1,x-30,y],[2,x+30,y]]);await send('touchCancel',[]);assert.deepEqual(await sessionState(),saved);
   // Ein gegriffenes Label bleibt bei zusätzlichem Finger und Cancel unverändert.
+  await page.evaluate(()=>window.__app.ansicht('iso'));await page.waitForFunction(()=>window.__app.animFertig());
   const label=await page.evaluate(()=>window.__app.dimLabels()[0][0]),p=[label[0]+r.x,label[1]+r.y];assert.equal(await page.evaluate(p=>document.elementFromPoint(...p)?.id,p),'buehne');
   await send('touchStart',[[1,...p]]);await send('touchStart',[[1,...p],[2,x,y]]);await send('touchMove',[[1,p[0]+15,p[1]+15],[2,x+20,y]]);await send('touchCancel',[]);assert.deepEqual(await sessionState(),saved);
   const wasm=await page.evaluate(async()=>{const bytes=await(await fetch('./ocjs/opencascade.wasm.wasm')).arrayBuffer(),hash=await crypto.subtle.digest('SHA-256',bytes);return {bytes:bytes.byteLength,magic:[...new Uint8Array(bytes,0,8)],sha256:[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('')}});
   const source=fs.readFileSync('public/ocjs/opencascade.wasm.wasm');assert.equal(wasm.sha256,crypto.createHash('sha256').update(source).digest('hex'));assert.deepEqual(wasm.magic,[0,97,115,109,1,0,0,0]);
   // Echter Android-Pickerabbruch und defekte Datei erhalten das offene Dokument.
-  await page.locator('label:has(#file)').click();await ui();call('shell','input','keyevent','KEYCODE_BACK');await pause(300);assert.deepEqual(await sessionState(),saved);
+  await page.locator('label:has(#file)').click();await ui();let resumed='';
+  for(let i=0;i<8;i++){call('shell','input','keyevent','KEYCODE_BACK');await pause(250);resumed=call('shell','dumpsys','activity','activities').split('\n').find(l=>l.includes('topResumedActivity='))||'';if(resumed.includes(id+'/'))break}
+  assert(resumed.includes(id+'/'),'Systempicker muss wirklich geschlossen sein');assert.deepEqual(await sessionState(),saved);
   await choose('kaputt.step');await page.waitForFunction(()=>!document.getElementById('dokumentAnsicht').inert&&!document.getElementById('status').textContent.startsWith('Lade '));assert.equal(await page.evaluate(()=>window.__dokumente().length),1);assert(await page.locator('#status').isVisible());assert.deepEqual(await sessionState(),saved);
   await open('messbaugruppe.step',2);
   // Sichtbarkeit und Isolieren über die tatsächlichen Touch-Baumschaltflächen.
