@@ -2,6 +2,7 @@
 
 ## 0.1.6
 
+- macOS-Universal-Vorschau für Hasi 3D und MS3D auf [GitHub Releases](https://github.com/hasi-elektronic/hasi-step-viewer/releases/tag/macos-v0.1.6-vorschau). Paket-/Kernkontrollen bestanden; keine vollständige Mac-GUI-/Intel-Laufzeitfreigabe und keine Apple-Notarisierung. Einzelheiten stehen in den veröffentlichten Prüfberichten.
 - Mehrere STEP-Dateien gleichzeitig in Dokumentreitern öffnen; Dateiauswahl, Drag & Drop und Programmstart verarbeiten alle ausgewählten Dateien der Reihe nach. Bereits geöffnete Pfade aktivieren ihren Reiter.
 - Kamera, Schnitt, Sichtbarkeit, Messungen, Informationsfelder, Bauteillagen und Rückgängig-Verlauf bleiben je Dokument erhalten. Reiterwechsel importiert die Datei nicht erneut. Strg+O öffnet weitere Dateien, Strg+Tab wechselt, Strg+W schließt den aktiven Reiter.
 - Automatische Messart aus der exakten CAD-Geometrie: Gerade → Länge, Kreisbogen → Radius/Bogenlänge, geschlossener Kreis → Durchmesser/Radius; passende grafische Bemaßung und sichtbare Erkennungsanzeige. Manuelle Messarten bleiben verfügbar.

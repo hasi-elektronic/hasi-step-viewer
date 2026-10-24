@@ -42,7 +42,7 @@ Dieselbe App, zweite Marke für Manfred Sickinger Apparatebau. Ohne Variable ble
     MARKE=sickinger npm run tauri build -- --config src-tauri/tauri.sickinger.conf.json
 
 Produktname „MS3D“ (vorher „Sickinger STEP-Viewer“), Kennung `de.sickinger.stepviewer`, Herausgeber „Manfred Sickinger Apparatebau“. Farben aus dem Logo: Dunkelblau `#004B85`, Hellblau `#009EDF`. Im Über-Dialog steht zusätzlich „Entwickelt von Hasi Elektronic“.
-Voraussetzung: Repository auf GitHub (noch nicht angelegt). Ohne Apple-Developer-ID ist die .dmg unsigniert/nicht notarisiert -> Gatekeeper-Warnung (Rechtsklick > Öffnen). Ohne Windows-Codesigning-Zertifikat -> SmartScreen-Hinweis.
+Die [macOS-Universal-Vorschau 0.1.6 für beide Marken](https://github.com/hasi-elektronic/hasi-step-viewer/releases/tag/macos-v0.1.6-vorschau) enthält DMGs, Prüfsummen und Herkunftsnachweise. Paket/Kern wurden unter macOS26 ARM64 geprüft; Mac-GUI und Intel-Laufzeit wurden nicht getestet. Keine Apple-Developer-ID-Signatur oder Notarisierung; macOS kann das Öffnen blockieren. Die bekannte Abweichung zwischen plist-Minimum10.13 und nativem Minimum11.0 sowie alle Testgrenzen sind in den Release-Notizen dokumentiert.
 
 ## Testdatei
 Testdatei nicht im Repo (Lizenz ungeklärt). Für `npm run smoke` eine eigene STEP-Datei als `public/sample.stp` ablegen.
