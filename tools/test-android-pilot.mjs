@@ -36,7 +36,8 @@ let socket;for(let i=0;i<60;i++){try{const pid=call('shell','pidof',id).trim();s
 const server=net.createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;await new Promise(r=>server.close(r));call('forward','tcp:'+port,'localabstract:'+socket);
 let browser;
 try{
-  browser=await chromium.connectOverCDP('http://127.0.0.1:'+port,{noDefaults:true});const context=browser.contexts()[0],page=context.pages()[0],errors=[];page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));
+  browser=await chromium.connectOverCDP('http://127.0.0.1:'+port,{noDefaults:true});const context=browser.contexts()[0];assert(context,'Android-WebView-Kontext fehlt');
+  const page=context.pages()[0]||await context.waitForEvent('page',{timeout:60000}),errors=[];page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));
   await page.waitForFunction(()=>window.__app);assert.equal(new URL(page.url()).hostname,'tauri.localhost');
   assert.equal(await page.evaluate(()=>window.__hostCapabilities.platform),'android');assert.equal(await page.evaluate(()=>window.__hostCapabilities.desktopBackend),false);
   const ui=async()=>{

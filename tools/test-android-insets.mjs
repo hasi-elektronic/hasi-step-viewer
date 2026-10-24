@@ -79,7 +79,7 @@ try{
     call('shell','wm','size','1280x800');call('shell','am','start','-n',id+'/.MainActivity');
     let socket;for(let i=0;i<60;i++){try{const pid=call('shell','pidof',id);socket=call('shell','cat','/proc/net/unix').split('\n').find(l=>l.includes('@webview_devtools_remote_'+pid))?.split('@')[1]?.trim()}catch{}if(socket)break;await wait(500)}assert(socket);
     call('forward','tcp:'+port,'localabstract:'+socket);forwarded=true;
-    browser=await chromium.connectOverCDP('http://127.0.0.1:'+port,{noDefaults:true});page=browser.contexts()[0].pages()[0];page.setDefaultTimeout(15000);
+    browser=await chromium.connectOverCDP('http://127.0.0.1:'+port,{noDefaults:true});const context=browser.contexts()[0];assert(context,'Android-WebView-Kontext fehlt');page=context.pages()[0]||await context.waitForEvent('page',{timeout:60000});page.setDefaultTimeout(15000);
     await page.waitForFunction(()=>window.__app);assert.equal(new URL(page.url()).hostname,'tauri.localhost');
     // Layout fixture setup only. Actual Android picker/content-URI import is
     // independently covered by test-android-pilot on this exact APK hash.

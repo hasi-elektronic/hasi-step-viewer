@@ -6,6 +6,8 @@ Desteklenen akış: uygulamanın dosya düğmesinden STEP/STP seçme, birden ço
 
 Pilot sınırları: işletim sistemine kaydetme/PNG/PDF/STEP dışa aktarma, yazdırma, Blech, parça taşıma ve ayrı işletim sistemi pencereleri kapalıdır. Dış uygulamadan dosya açma/paylaşma intentleri ilan edilmez. STEP renklerinin native OCCT okuması mobilde bulunmaz. Büyük montaj süresi ve bellek tüketimi gerçek cihazlarda ayrıca ölçülmelidir.
 
+Bilinen açık P2: 16 KB Android emülatörünün yaklaşık 3 GB guest bellek/2 core koşusunda, dosya seçicisi açıkken Android WebView renderer'ını `LOW_MEMORY` nedeniyle sonlandırdı; işlenmeyen renderer kaybı ana uygulamayı da bitirdi. Açık oturum kaybolabilir; güvenli renderer kurtarma henüz yoktur. Bu bir linker hatası değildir. Daha yüksek bellekli başarılı bir koşu bu bulguyu kapatmaz ve fiziksel cihazlar için RAM alt sınırı kanıtlamaz. Genel Android üretim onayından önce renderer kaybı/kurtarma ve gerçek cihaz bellek testleri ayrıca gereklidir.
+
 ## Mimari
 
 - `src-tauri/src/lib.rs` ortak giriş; `desktop.rs` mevcut masaüstü davranışını korur; `mobile.rs` yalnız host yeteneklerini bildirir.
