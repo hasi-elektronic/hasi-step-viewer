@@ -29,7 +29,9 @@ for(const file of ['messteil.step','messbaugruppe.step'])call('push','testdaten/
 if(process.env.LARGE_STEP)call('push',process.env.LARGE_STEP,'/sdcard/Download/Hasi3D-Pilot/navigation-512.step');
 fs.writeFileSync(path.join(out,'kaputt.step'),'invalid STEP');call('push',path.join(out,'kaputt.step'),'/sdcard/Download/Hasi3D-Pilot/kaputt.step');
 call('shell','svc','wifi','disable');call('shell','svc','data','disable');
-const network={wifi:call('shell','settings','get','global','wifi_on'),mobileData:call('shell','settings','get','global','mobile_data'),defaultNone:/Active default network:\s*none/.test(call('shell','dumpsys','connectivity'))};
+const networkState=()=>({wifi:call('shell','settings','get','global','wifi_on'),mobileData:call('shell','settings','get','global','mobile_data'),defaultNone:/Active default network:\s*none/.test(call('shell','dumpsys','connectivity'))});
+let network;
+for(let i=0;i<40;i++){network=networkState();if(network.wifi==='0'&&network.mobileData==='0'&&network.defaultNone)break;await pause(250)}
 assert.equal(network.wifi,'0');assert.equal(network.mobileData,'0');assert(network.defaultNone,'Emulator hat noch eine aktive Netzwerkverbindung');
 call('shell','am','force-stop',id);call('shell','am','start','-n',id+'/.MainActivity');
 let socket;for(let i=0;i<60;i++){try{const pid=call('shell','pidof',id).trim();socket=call('shell','cat','/proc/net/unix').split('\n').find(l=>l.includes('@webview_devtools_remote_'+pid))?.split('@')[1]?.trim()}catch{}if(socket)break;await pause(500)}assert(socket,'App-WebView nicht erreichbar');
