@@ -10,7 +10,8 @@ const [serial,brand,apk,evidenceFile]=process.argv.slice(2);assert(serial?.start
 const config=JSON.parse(fs.readFileSync('src-tauri/tauri.mobile-'+brand+'.conf.json','utf8')),id=config.identifier;
 const sdk=process.env.ANDROID_HOME;assert(sdk);const adb=path.join(sdk,'platform-tools',process.platform==='win32'?'adb.exe':'adb');
 const call=(...args)=>execFileSync(adb,['-s',serial,...args],{encoding:'utf8',windowsHide:true,timeout:30000}).trim();
-assert.equal(call('emu','avd','name').split(/\r?\n/)[0].trim(),'Hasi3D_Pilot_Tablet','Nur eigenen Pilot-Emulator verwenden');
+const avdName=call('emu','avd','name').split(/\r?\n/)[0].trim();assert(['Hasi3D_Pilot_Tablet','Hasi3D_Pilot_16K'].includes(avdName),'Nur eigenen Pilot-Emulator verwenden');
+const pageSize=Number(call('shell','getconf','PAGE_SIZE'));assert([4096,16384].includes(pageSize));if(process.env.EXPECTED_PAGE_SIZE)assert.equal(pageSize,Number(process.env.EXPECTED_PAGE_SIZE));
 const out=path.resolve(process.env.ANDROID_TEST_OUT||'output/android-runtime-'+brand);fs.mkdirSync(out,{recursive:true});
 const installed=call('shell','pm','path',id).split(/\r?\n/);assert.equal(installed.length,1,'Nur eigenständige APK erwartet');assert(installed[0].startsWith('package:/data/app/')&&installed[0].endsWith('/base.apk'));
 const installedCopy=path.join(out,'installed.apk');call('pull',installed[0].slice(8),installedCopy);
@@ -105,8 +106,8 @@ try{
   assert(await page.locator('#dimSpeichern').isDisabled());assert.deepEqual(errors,[]);
   const urls=await page.evaluate(()=>performance.getEntriesByType('resource').map(r=>r.name));assert(urls.every(u=>u.startsWith('http://tauri.localhost/')||u.startsWith('http://ipc.localhost/')||u.startsWith('data:')),'Externe App-Ressource');
   await page.waitForFunction(()=>window.__app.animFertig());await pause(250);
-  assert(call('shell','dumpsys','activity','activities').includes(id+'/.MainActivity'));
+  assert((call('shell','dumpsys','activity','activities').split('\n').find(l=>l.includes('topResumedActivity='))||'').includes(id+'/'));
   // CDP screenshots can omit Android's separately composited WebGL layer.
   fs.writeFileSync(path.join(out,'apk-native.png'),execFileSync(adb,['-s',serial,'exec-out','screencap','-p'],{windowsHide:true,maxBuffer:16*1024*1024,timeout:30000}));
-  fs.writeFileSync(path.join(out,'runtime.json'),JSON.stringify({brand,identifier:id,serial,source:process.env.EXPECTED_SOURCE,apkSha256,generatedChanges,device:'Hasi3D_Pilot_Tablet',offline:true,network,scope:'x86_64 emulator, not physical ARM64',nativeScreenshot:'apk-native.png',systemPicker:true,pickerCancel:true,badFileIsolation:true,visibility:true,isolate:true,gestureCancel:true,labelCancel:true,largeBodies,measurements:[5,10,95],tabs:await page.evaluate(()=>window.__dokumente().length),wasm,urls,errors},null,2)+'\n');console.log('OK: echte Android-APK offline, Systempicker/content URI, Auto R5/Ø10/L95, Touch/Cancel, Sichtbarkeit/Isolieren, Dateifehler, Sekmen, WASM-SHA256, große Körperzahl='+largeBodies);
+  fs.writeFileSync(path.join(out,'runtime.json'),JSON.stringify({brand,identifier:id,serial,source:process.env.EXPECTED_SOURCE,apkSha256,generatedChanges,device:avdName,pageSize,offline:true,network,scope:'x86_64 emulator, not physical ARM64',nativeScreenshot:'apk-native.png',systemPicker:true,pickerCancel:true,badFileIsolation:true,visibility:true,isolate:true,gestureCancel:true,labelCancel:true,largeBodies,measurements:[5,10,95],tabs:await page.evaluate(()=>window.__dokumente().length),wasm,urls,errors},null,2)+'\n');console.log('OK: echte Android-APK offline, Systempicker/content URI, Auto R5/Ø10/L95, Touch/Cancel, Sichtbarkeit/Isolieren, Dateifehler, Sekmen, WASM-SHA256, große Körperzahl='+largeBodies);
 }finally{if(browser)await browser.close();call('forward','--remove','tcp:'+port)}

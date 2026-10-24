@@ -19,6 +19,8 @@ Pilot sınırları: işletim sistemine kaydetme/PNG/PDF/STEP dışa aktarma, yaz
 
 CI: `.github/workflows/android-pilot.yml`; iki marka için ayrı Ubuntu24.04 checkout, Node20, Rust1.99.0, JDK21, NDK27.2.12479018, SDK36. Her marka ARM64 ve x86_64 **debug** APK üretir. Debug imzası mağaza/üretim imzası değildir; CI'nin her yeni anahtarı eski test APK üzerine güncelleme sağlamayabilir.
 
+`src-tauri/build.rs`, yalnız final Android cdylib için 16 KB `max-page-size` ve `common-page-size` linker ayarlarını Cargo direktifleriyle uygular. Masaüstü hedeflerinin ve bütün statik bağımlılıkların RUSTFLAGS değerleri değişmez. Paket kabulü gerçek verbose rustc komutundaki iki flag'i, bütün native LOAD/RELRO segmentlerini ve `zipalign -c -P 16 4` sonucunu doğrular. Kaynak: [Android 16 KB rehberi](https://developer.android.com/guide/practices/page-sizes). Statik hizalama kontrolü gerçek 16 KB çekirdekli cihazda çalışma testi yerine geçmez.
+
 Linux/macOS geliştirme ortamında Hasi:
 
 ```sh
@@ -26,7 +28,9 @@ npm ci
 export MARKE=hasi MOBIL=1
 export NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
 node tools/android-projekt.mjs "$MARKE"
-npx tauri android build --debug --apk --split-per-abi --target aarch64 x86_64 --config src-tauri/tauri.mobile-hasi.conf.json --ci -- --locked
+export ANDROID_NATIVE_BUILD_LOG=/tmp/hasi-android-native-build.log
+set -o pipefail
+npx tauri android build --debug --apk --split-per-abi --target aarch64 x86_64 --config src-tauri/tauri.mobile-hasi.conf.json --ci -- --locked --verbose 2>&1 | tee "$ANDROID_NATIVE_BUILD_LOG"
 node tools/check-android-apk.mjs "$MARKE" output/android
 ```
 

@@ -58,6 +58,7 @@ jobs:
       MOBIL: '1'
       MARKE: ${{ matrix.brand }}
       CARGO_BUILD_JOBS: '2'
+      ANDROID_NATIVE_BUILD_LOG: /tmp/hasi-android-native-build.log
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -85,7 +86,7 @@ jobs:
           if [ "$MARKE" = sickinger ]; then
             configs=(--config src-tauri/tauri.sickinger.conf.json "${configs[@]}")
           fi
-          npx tauri android build --debug --apk --split-per-abi --target aarch64 x86_64 "${configs[@]}" --ci -- --locked
+          npx tauri android build --debug --apk --split-per-abi --target aarch64 x86_64 "${configs[@]}" --ci -- --locked --verbose 2>&1 | tee "$ANDROID_NATIVE_BUILD_LOG"
       - name: Inspect actual APKs
         run: node tools/check-android-apk.mjs "$MARKE" output/android
       - uses: actions/upload-artifact@v4

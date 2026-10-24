@@ -5,6 +5,8 @@
 - Ortak CAD/ölçüm kodunu kullanan Android host; masaüstü OCCT komutları ve dosya yolu varsayımları mobilde devre dışı.
 - Tek parmakla serbest döndürme, iki parmakla yakınlaştırma/kaydırma; çok parmak hareketinden sonra yanlış seçim ve ölçü sürükleme engeli.
 - Dokunmatik parça ağacı, büyük işlem düğmeleri, dar ekranda modelin altında ölçüm paneli ve görünür hata mesajları.
+- Android sistem çubukları, ekran çentiği ve klavye alanı native inset değerleriyle ayrılır; model ve ölçüler ekran yönü/klavye değişiminde korunur.
+- Android native kütüphanesi 16 KB sayfa hizalamasıyla bağlanır; gerçek rustc komutu, ELF/RELRO ve APK ZIP hizalaması teslim kapısında denetlenir.
 - Büyük montajlarda dokunma bitince kenarlar yeniden gösterilir. Üç gerçek hata varyantını yakalayan CDP dokunma testleri eklendi.
 - İki ayrı marka/kimlik için Android test APK derlemesi ve paket içeriği denetimi. Pilot; sistem dışa aktarma, Blech ve dış uygulamadan STEP açma sunmaz.
 - macOS kaynak ayarında minimum sürüm 11.0 ile native çekirdeğin gereksinimi eşleştirildi; mevcut 0.1.6 DMG’leri değiştirilmedi.
